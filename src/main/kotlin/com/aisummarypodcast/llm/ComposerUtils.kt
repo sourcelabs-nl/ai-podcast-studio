@@ -91,6 +91,14 @@ fun buildTopicOrderBlock(topicLabels: List<String>): String {
             |||END_TOPIC_ORDER|||"""
 }
 
+/**
+ * Prompt block instructing the LLM to consult prior-episode coverage via the
+ * `searchPastEpisodes` tool before treating any subject as new. Included in every
+ * compose-stage prompt; the tool itself is registered by `ChatClientFactory.createForCompose`.
+ */
+fun buildHistoryLookupBlock(): String = """
+            - HISTORY CHECK: Before treating any subject as new, call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}). If the tool returns a prior episode that covered the topic, either skip it, treat it as a follow-up referencing the prior coverage, or angle the segment as an update. You have a small budget for these lookups; spend them on topics most likely to have been covered before"""
+
 fun extractDomainAndPath(url: String): String =
     try {
         val uri = URI(url)

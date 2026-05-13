@@ -41,6 +41,13 @@ class DialogueComposerTest {
     )
 
     @Test
+    fun `prompt instructs the model to call searchPastEpisodes before treating any topic as new`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("searchPastEpisodes"))
+        assertTrue(prompt.contains("HISTORY CHECK"))
+    }
+
+    @Test
     fun `prompt includes speaker tag instructions`() {
         val prompt = composer.buildPrompt(articles, podcast)
 

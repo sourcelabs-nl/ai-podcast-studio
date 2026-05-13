@@ -136,6 +136,87 @@ class CachingChatModelTest {
     }
 
     @Test
+    fun `tool-loop intermediate call with tool calls in response is not cached`() {
+        val prompt = Prompt("user prompt", OpenAiChatOptions.builder().model("test-model").build())
+        val toolCall = AssistantMessage.ToolCall("call-1", "function", "searchPastEpisodes", "{\"query\":\"speckit\"}")
+        val toolCallResponse = ChatResponse(listOf(Generation(
+            AssistantMessage.builder().content("").toolCalls(listOf(toolCall)).build()
+        )))
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns null
+        every { delegate.call(prompt) } returns toolCallResponse
+
+        cachingChatModel.call(prompt)
+
+        verify(exactly = 0) { llmCacheRepository.save(any<LlmCache>()) }
+    }
+
+    @Test
+    fun `tool-loop second call (with tool messages) skips cache lookup but does cache the final response`() {
+        // Reproduces a Spring AI tool-loop iteration: the augmented prompt includes the prior
+        // assistant tool-call turn and the tool response. The cache key must hash only the
+        // user message so that a later identical user prompt finds this final response.
+        val userMessage = org.springframework.ai.chat.messages.UserMessage("user prompt")
+        val priorAssistant = AssistantMessage.builder()
+            .content("")
+            .toolCalls(listOf(AssistantMessage.ToolCall("call-1", "function", "searchPastEpisodes", "{\"query\":\"x\"}")))
+            .build()
+        val toolResponse = org.springframework.ai.chat.messages.ToolResponseMessage.builder()
+            .responses(listOf(org.springframework.ai.chat.messages.ToolResponseMessage.ToolResponse("call-1", "searchPastEpisodes", "{}")))
+            .build()
+        val augmented = Prompt(listOf(userMessage, priorAssistant, toolResponse), OpenAiChatOptions.builder().model("test-model").build())
+        val finalResponse = ChatResponse(listOf(Generation(AssistantMessage("final answer"))))
+
+        every { delegate.call(augmented) } returns finalResponse
+
+        cachingChatModel.call(augmented)
+
+        // No cache lookup happens for non-initial calls.
+        verify(exactly = 0) { llmCacheRepository.findByPromptHashAndModel(any(), any()) }
+        // The final response IS cached, keyed on the user-only hash.
+        verify(exactly = 1) { llmCacheRepository.save(any<LlmCache>()) }
+    }
+
+    @Test
+    fun `cache key derives from user message only, ignoring tool-loop messages`() {
+        val userMessage = org.springframework.ai.chat.messages.UserMessage("identical user prompt")
+        val initialPrompt = Prompt(listOf(userMessage), OpenAiChatOptions.builder().model("test-model").build())
+
+        val priorAssistant = AssistantMessage.builder()
+            .content("")
+            .toolCalls(listOf(AssistantMessage.ToolCall("c", "function", "searchPastEpisodes", "{}")))
+            .build()
+        val toolResponse = org.springframework.ai.chat.messages.ToolResponseMessage.builder()
+            .responses(listOf(org.springframework.ai.chat.messages.ToolResponseMessage.ToolResponse("c", "searchPastEpisodes", "{}")))
+            .build()
+        val toolLoopPrompt = Prompt(listOf(userMessage, priorAssistant, toolResponse), OpenAiChatOptions.builder().model("test-model").build())
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns null
+        every { delegate.call(any<Prompt>()) } returns ChatResponse(listOf(Generation(AssistantMessage("final"))))
+
+        cachingChatModel.call(toolLoopPrompt)
+
+        // The save key for the tool-loop final call must equal the key the initial prompt
+        // would have used. Capture and verify the persisted hash matches what the initial
+        // prompt's lookup would query.
+        val savedSlot = slot<LlmCache>()
+        verify { llmCacheRepository.save(capture(savedSlot)) }
+        val persistedHash = savedSlot.captured.promptHash
+
+        // Now simulate a second compose run that starts with the same user prompt.
+        every { llmCacheRepository.findByPromptHashAndModel(persistedHash, "test-model") } returns LlmCache(
+            id = 1, promptHash = persistedHash, model = "test-model",
+            response = "final", createdAt = "now", inputTokens = 0, outputTokens = 0
+        )
+
+        val secondRun = cachingChatModel.call(initialPrompt)
+
+        assertEquals("final", secondRun.result!!.output.text)
+        // Delegate was only called for the first (tool-loop) prompt; the second run hits the cache.
+        verify(exactly = 1) { delegate.call(any<Prompt>()) }
+    }
+
+    @Test
     fun `cache hit with null tokens returns zero usage`() {
         val prompt = Prompt("Summarize", OpenAiChatOptions.builder().model("test-model").build())
         val cachedEntry = LlmCache(

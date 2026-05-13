@@ -26,7 +26,8 @@ class DialogueComposer(
 
     fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
         log.info("[LLM] Composing dialogue from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
-        val chatClient = chatClientFactory.createForModel(podcast.userId, composeModelDef)
+        val toolBudget = ToolBudget()
+        val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
         val prompt = buildPrompt(articles, podcast, ttsScriptGuidelines, followUpAnnotations, topicLabels)
         val temperature = resolveTemperature(podcast, appProperties)
 
@@ -103,7 +104,7 @@ class DialogueComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge
 
-            Engagement techniques:
+            Engagement techniques:${buildHistoryLookupBlock()}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - CURIOSITY HOOKS: The ${speakerRoles.first()} should use rhetorical questions and teaser hooks before transitions. Create micro-curiosity loops that pull listeners forward, but vary the phrasing each transition — do not reuse the same hook twice in one episode

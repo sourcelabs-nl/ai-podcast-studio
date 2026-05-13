@@ -42,6 +42,13 @@ class InterviewComposerTest {
     )
 
     @Test
+    fun `prompt instructs the model to call searchPastEpisodes before treating any topic as new`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("searchPastEpisodes"))
+        assertTrue(prompt.contains("HISTORY CHECK"))
+    }
+
+    @Test
     fun `prompt includes sponsor message when configured`() {
         val podcastWithSponsor = podcast.copy(sponsor = mapOf("name" to "Acme Corp", "message" to "building the future"))
         val prompt = composer.buildPrompt(articles, podcastWithSponsor)

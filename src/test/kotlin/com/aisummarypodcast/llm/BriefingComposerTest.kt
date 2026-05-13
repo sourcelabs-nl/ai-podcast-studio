@@ -168,6 +168,14 @@ class BriefingComposerTest {
     )
 
     @Test
+    fun `buildPrompt instructs the model to call searchPastEpisodes before treating any topic as new`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", language = "en")
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("searchPastEpisodes"), "Expected the history lookup tool name in the prompt")
+        assertTrue(prompt.contains("HISTORY CHECK"), "Expected the HISTORY CHECK directive in the prompt")
+    }
+
+    @Test
     fun `buildPrompt includes language instruction for non-English podcast`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Tech NL", topic = "tech", language = "nl")
         val prompt = composer.buildPrompt(sampleArticles, podcast)
@@ -256,7 +264,7 @@ class BriefingComposerTest {
 
         val chatClient = mockk<ChatClient>()
         every { chatClient.prompt() } returns chatClientRequestSpec
-        every { chatClientFactory.createForModel(podcast.userId, composeModelDef) } returns chatClient
+        every { chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any()) } returns chatClient
 
         val result = composer.compose(articles, podcast, composeModelDef)
 
