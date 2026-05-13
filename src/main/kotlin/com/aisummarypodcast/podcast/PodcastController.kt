@@ -17,6 +17,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.URI
 import java.time.ZoneId
@@ -253,7 +256,7 @@ class PodcastController(
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build<Any>()
         if (podcast.userId != userId) return ResponseEntity.notFound().build<Any>()
 
-        val emitter = SseEmitter(300_000L)
+        val emitter = SseEmitter(600_000L)
 
         emitter.onCompletion { log.debug("Preview SSE completed for podcast {}", podcastId) }
         emitter.onTimeout { log.warn("Preview SSE timed out for podcast {}", podcastId) }
@@ -262,6 +265,17 @@ class PodcastController(
         log.info("Preview SSE requested for podcast {}", podcastId)
 
         previewScope.launch {
+            val heartbeat = launch {
+                while (isActive) {
+                    delay(15_000L)
+                    try {
+                        emitter.send(SseEmitter.event().name("heartbeat").data("{}"))
+                    } catch (e: Exception) {
+                        log.debug("Heartbeat send failed for podcast {}: {}", podcastId, e.message)
+                        break
+                    }
+                }
+            }
             try {
                 val result = podcastService.previewBriefing(podcast) { stage, detail ->
                     try {
@@ -309,6 +323,8 @@ class PodcastController(
                 } catch (sendError: Exception) {
                     emitter.completeWithError(e)
                 }
+            } finally {
+                heartbeat.cancelAndJoin()
             }
         }
 
