@@ -15,7 +15,12 @@ data class AppProperties(
     val soundcloud: SoundCloudProperties = SoundCloudProperties(),
     val x: XProperties = XProperties(),
     val episode: EpisodeProperties = EpisodeProperties(),
-    val research: ResearchProperties = ResearchProperties()
+    val research: ResearchProperties = ResearchProperties(),
+    val compose: ComposeProperties = ComposeProperties()
+)
+
+data class ComposeProperties(
+    val rapidFireBudgetFraction: Double = 0.15
 )
 
 data class ResearchProperties(

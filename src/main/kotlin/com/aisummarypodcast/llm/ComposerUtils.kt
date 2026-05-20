@@ -22,7 +22,12 @@ fun extractDomain(url: String): String =
         url
     }
 
-fun buildArticleSummaryBlock(articles: List<Article>, useFullBody: Boolean, followUpAnnotations: Map<Long, String> = emptyMap()): String {
+fun buildArticleSummaryBlock(
+    articles: List<Article>,
+    useFullBody: Boolean,
+    followUpAnnotations: Map<Long, String> = emptyMap(),
+    articleSubtopics: Map<Long, String> = emptyMap()
+): String {
     val groupedByFollowUp = mutableMapOf<String?, MutableList<Pair<Int, Article>>>()
     articles.forEachIndexed { index, article ->
         val context = article.id?.let { followUpAnnotations[it] }
@@ -34,8 +39,9 @@ fun buildArticleSummaryBlock(articles: List<Article>, useFullBody: Boolean, foll
         val block = articlePairs.joinToString("\n\n") { (index, article) ->
             val source = extractDomain(article.url)
             val authorSuffix = article.author?.let { ", by $it" } ?: ""
+            val subtopicTag = article.id?.let { articleSubtopics[it] }?.let { " [subtopic: $it]" } ?: ""
             val content = resolveArticleContent(article, useFullBody)
-            "${index + 1}. [$source$authorSuffix] ${article.title}\n$content"
+            "${index + 1}. [$source$authorSuffix]$subtopicTag ${article.title}\n$content"
         }
         "$header$block"
     }
@@ -104,9 +110,13 @@ fun buildHistoryLookupBlock(): String = """
  * newsworthy story with outside context. Empty when [deepDiveEnabled] is false; in that
  * case the tool is not registered at all and the LLM must not be hinted to call it.
  */
-fun buildWebSearchBlock(deepDiveEnabled: Boolean): String =
-    if (!deepDiveEnabled) "" else """
+fun buildWebSearchBlock(deepDiveEnabled: Boolean, hasSubtopics: Boolean = false): String {
+    if (!deepDiveEnabled) return ""
+    if (!hasSubtopics) return """
             - DEEP DIVE: Identify the SINGLE most newsworthy story in this episode and call the `webSearch` tool 1-2 times to pull outside context (background, related developments, dissenting takes). Weave the snippets into that segment with proper attribution. You have a small budget; use it only on the standout story"""
+    return """
+            - DEEP DIVE: Use the `webSearch` tool ONLY for stories you will cover in a full segment, never for rapid-fire stories (a one-sentence mention cannot absorb fetched context). Pick the most newsworthy story among the full-segment subtopics, preferring higher-weight subtopics when stories are comparable, and call `webSearch` 1-2 times to pull outside context (background, related developments, dissenting takes). Weave the snippets into that segment with proper attribution. You have a small episode-wide budget of 3 calls total; do not multiply it by the number of subtopics"""
+}
 
 /**
  * Shared punctuation rule for every compose-stage prompt: forbids em-dash and en-dash

@@ -18,5 +18,6 @@ data class Article(
     val summary: String? = null,
     val llmInputTokens: Int? = null,
     val llmOutputTokens: Int? = null,
-    val llmCostCents: Int? = null
+    val llmCostCents: Int? = null,
+    val subtopic: String? = null
 )

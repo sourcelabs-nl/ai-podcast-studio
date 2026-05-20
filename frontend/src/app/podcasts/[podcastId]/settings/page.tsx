@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { KeyValueEditor } from "@/components/key-value-editor";
+import { SubtopicsEditor } from "@/components/subtopics-editor";
 import { cn } from "@/lib/utils";
 
 const STYLES = [
@@ -33,7 +34,7 @@ const STYLES = [
 
 const TTS_PROVIDERS = ["openai", "elevenlabs", "inworld"];
 
-const TABS = ["general", "llm", "tts", "content", "research", "publishing"] as const;
+const TABS = ["general", "llm", "tts", "compose", "research", "publishing"] as const;
 
 interface PublicationTarget {
   target: string;
@@ -262,6 +263,8 @@ export default function PodcastSettingsPage() {
             pronunciations: form.pronunciations,
             composeSettings: form.composeSettings,
             deepDiveEnabled: form.deepDiveEnabled ?? false,
+            subtopics: form.subtopics ?? {},
+            rapidFireWeightThreshold: form.rapidFireWeightThreshold ?? 3,
           }),
         }
       );
@@ -358,7 +361,7 @@ export default function PodcastSettingsPage() {
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="llm">LLM</TabsTrigger>
           <TabsTrigger value="tts">TTS</TabsTrigger>
-          <TabsTrigger value="content">Content</TabsTrigger>
+          <TabsTrigger value="compose">Compose</TabsTrigger>
           <TabsTrigger value="research">Research</TabsTrigger>
           <TabsTrigger value="publishing">Publishing</TabsTrigger>
         </TabsList>
@@ -600,19 +603,13 @@ export default function PodcastSettingsPage() {
                   className={inputClass}
                 />
               </FieldGroup>
-              <FieldGroup label="Custom Instructions" description="Additional instructions appended to the LLM composition prompt. Use this for tone, structure, engagement techniques, or topic-specific guidance.">
-                <textarea
-                  value={form.customInstructions ?? ""}
-                  onChange={(e) => update("customInstructions", e.target.value)}
-                  className={`${textareaClass} min-h-[300px]`}
-                />
-              </FieldGroup>
-              <FieldGroup label="Composer Settings" description="Script composer settings as key/value pairs. Common keys: 'temperature' (sampling variety for briefing/dialogue/interview composers, 0.0–2.0, default 0.95). Unknown keys are persisted as-is for future use.">
-                <KeyValueEditor
-                  value={form.composeSettings}
-                  onChange={(v) => update("composeSettings", v)}
-                  keyPlaceholder="Setting (e.g. temperature)"
-                  valuePlaceholder="Value"
+              <FieldGroup label="Max Article Age (days)" description="Articles older than this many days are excluded from the pipeline. Prevents stale content from being included in new episodes.">
+                <input
+                  type="number"
+                  value={form.maxArticleAgeDays ?? ""}
+                  onChange={(e) => updateNumber("maxArticleAgeDays", e.target.value)}
+                  placeholder={defaults ? `${defaults.maxArticleAgeDays} (system default)` : ""}
+                  className={inputClass}
                 />
               </FieldGroup>
             </CardContent>
@@ -724,14 +721,22 @@ export default function PodcastSettingsPage() {
                   valuePlaceholder="Display name"
                 />
               </FieldGroup>
+              <FieldGroup label="Pronunciations" description="IPA pronunciation overrides for proper nouns. Keys: the word as written. Values: IPA notation (e.g. '/jɑrnoː/'). Applied on first occurrence in the script. Currently supported by Inworld TTS.">
+                <KeyValueEditor
+                  value={form.pronunciations}
+                  onChange={(v) => update("pronunciations", v)}
+                  keyPlaceholder="Word"
+                  valuePlaceholder="IPA pronunciation"
+                />
+              </FieldGroup>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="content">
+        <TabsContent value="compose">
           <Card>
             <CardHeader>
-              <CardTitle>Content Settings</CardTitle>
+              <CardTitle>Compose Settings</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <FieldGroup label="Target Words" description="Approximate word count for the generated script. The LLM aims for this length but may vary based on content.">
@@ -752,13 +757,36 @@ export default function PodcastSettingsPage() {
                   className={inputClass}
                 />
               </FieldGroup>
-              <FieldGroup label="Max Article Age (days)" description="Articles older than this many days are excluded from the pipeline. Prevents stale content from being included in new episodes.">
+              <FieldGroup label="Subtopics" description="Optional subtopics within this podcast's topic, each with an importance weight (1-10). High-weight subtopics get full script segments with word budgets proportional to weight; low-weight subtopics (at or below the rapid-fire threshold) are rolled into a single labeled rapid-fire segment at the end of the script. Keep names short and non-overlapping. Leave empty to disable the feature.">
+                <SubtopicsEditor
+                  value={form.subtopics}
+                  onChange={(v) => update("subtopics", v)}
+                />
+              </FieldGroup>
+              <FieldGroup label="Rapid-fire Weight Threshold" description="Subtopics with weight at or below this value (plus unclassified articles in a synthetic 'Other' bucket of weight 1) are rolled into a single rapid-fire segment at the end of the script. 0 = nothing is rapid-fire; 10 = everything is rapid-fire. Default: 3.">
                 <input
                   type="number"
-                  value={form.maxArticleAgeDays ?? ""}
-                  onChange={(e) => updateNumber("maxArticleAgeDays", e.target.value)}
-                  placeholder={defaults ? `${defaults.maxArticleAgeDays} (system default)` : ""}
+                  min={0}
+                  max={10}
+                  value={form.rapidFireWeightThreshold ?? ""}
+                  onChange={(e) => updateNumber("rapidFireWeightThreshold", e.target.value)}
+                  placeholder="3"
                   className={inputClass}
+                />
+              </FieldGroup>
+              <FieldGroup label="Custom Instructions" description="Additional instructions appended to the LLM composition prompt. Use this for tone, structure, engagement techniques, or topic-specific guidance.">
+                <textarea
+                  value={form.customInstructions ?? ""}
+                  onChange={(e) => update("customInstructions", e.target.value)}
+                  className={`${textareaClass} min-h-[300px]`}
+                />
+              </FieldGroup>
+              <FieldGroup label="Composer Settings" description="Script composer settings as key/value pairs. Common keys: 'temperature' (sampling variety for briefing/dialogue/interview composers, 0.0–2.0, default 0.95). Unknown keys are persisted as-is for future use.">
+                <KeyValueEditor
+                  value={form.composeSettings}
+                  onChange={(v) => update("composeSettings", v)}
+                  keyPlaceholder="Setting (e.g. temperature)"
+                  valuePlaceholder="Value"
                 />
               </FieldGroup>
               <FieldGroup label="Sponsor" description="Sponsor message injected into the script. Keys: 'name' (sponsor name) and 'message' (tagline). Both required for the sponsor mention to appear.">
@@ -767,14 +795,6 @@ export default function PodcastSettingsPage() {
                   onChange={(v) => update("sponsor", v)}
                   keyPlaceholder="Field (e.g. name, message)"
                   valuePlaceholder="Value"
-                />
-              </FieldGroup>
-              <FieldGroup label="Pronunciations" description="IPA pronunciation overrides for proper nouns. Keys: the word as written. Values: IPA notation (e.g. '/jɑrnoː/'). Applied on first occurrence in the script.">
-                <KeyValueEditor
-                  value={form.pronunciations}
-                  onChange={(v) => update("pronunciations", v)}
-                  keyPlaceholder="Word"
-                  valuePlaceholder="IPA pronunciation"
                 />
               </FieldGroup>
             </CardContent>

@@ -38,6 +38,8 @@ export interface Podcast {
   pronunciations?: Record<string, string>;
   composeSettings?: Record<string, string>;
   deepDiveEnabled?: boolean;
+  subtopics?: Record<string, number>;
+  rapidFireWeightThreshold?: number;
   lastGeneratedAt?: string;
 }
 
@@ -91,6 +93,7 @@ export interface EpisodeArticle {
   relevanceScore: number | null;
   summary: string | null;
   body: string | null;
+  subtopic: string | null;
   source: ArticleSource;
 }
 

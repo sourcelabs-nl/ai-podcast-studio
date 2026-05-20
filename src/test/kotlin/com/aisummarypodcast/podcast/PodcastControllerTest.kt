@@ -314,6 +314,112 @@ class PodcastControllerTest {
     }
 
     @Test
+    fun `create podcast with subtopics and rapidFireWeightThreshold`() {
+        val podcastSlot = slot<Podcast>()
+        every { userService.findById(userId) } returns user
+        every { podcastService.create(userId, "My Podcast", "tech", capture(podcastSlot)) } answers {
+            podcastSlot.captured.copy(id = podcastId)
+        }
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"My Podcast","topic":"tech","subtopics":{"LLM releases":10,"Dev tools":5},"rapidFireWeightThreshold":4}""")
+        )
+            .andExpect(status().isCreated)
+            .andExpect(jsonPath("$.subtopics.['LLM releases']").value(10))
+            .andExpect(jsonPath("$.subtopics.['Dev tools']").value(5))
+            .andExpect(jsonPath("$.rapidFireWeightThreshold").value(4))
+    }
+
+    @Test
+    fun `create podcast defaults rapidFireWeightThreshold to 3`() {
+        val podcastSlot = slot<Podcast>()
+        every { userService.findById(userId) } returns user
+        every { podcastService.create(userId, "My Podcast", "tech", capture(podcastSlot)) } answers {
+            podcastSlot.captured.copy(id = podcastId)
+        }
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"My Podcast","topic":"tech"}""")
+        )
+            .andExpect(status().isCreated)
+            .andExpect(jsonPath("$.rapidFireWeightThreshold").value(3))
+    }
+
+    @Test
+    fun `create podcast rejects weight 0`() {
+        every { userService.findById(userId) } returns user
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"x","topic":"y","subtopics":{"X":0}}""")
+        ).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `create podcast rejects weight 11`() {
+        every { userService.findById(userId) } returns user
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"x","topic":"y","subtopics":{"X":11}}""")
+        ).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `create podcast rejects empty subtopic name`() {
+        every { userService.findById(userId) } returns user
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"x","topic":"y","subtopics":{"":5}}""")
+        ).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `create podcast rejects rapidFireWeightThreshold below 0`() {
+        every { userService.findById(userId) } returns user
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"x","topic":"y","rapidFireWeightThreshold":-1}""")
+        ).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `create podcast rejects rapidFireWeightThreshold above 10`() {
+        every { userService.findById(userId) } returns user
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"x","topic":"y","rapidFireWeightThreshold":11}""")
+        ).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `update podcast clears subtopics when empty map sent`() {
+        val existing = Podcast(
+            id = podcastId, userId = userId, name = "My Podcast", topic = "tech",
+            subtopics = com.aisummarypodcast.store.Subtopics(mapOf("LLMs" to 10))
+        )
+        val updatedSlot = slot<Podcast>()
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns existing
+        every { podcastService.update(podcastId, capture(updatedSlot)) } answers { updatedSlot.captured }
+
+        mockMvc.perform(
+            put("/users/$userId/podcasts/$podcastId")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"My Podcast","topic":"tech","subtopics":{}}""")
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.subtopics").doesNotExist())
+    }
+
+    @Test
     fun `update podcast keeps nullable fields when not sent`() {
         val existing = Podcast(
             id = podcastId, userId = userId, name = "My Podcast", topic = "tech",

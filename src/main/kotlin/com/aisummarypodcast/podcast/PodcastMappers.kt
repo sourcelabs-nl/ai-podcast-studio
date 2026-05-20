@@ -4,6 +4,7 @@ import com.aisummarypodcast.config.LlmModelOverrides
 import com.aisummarypodcast.config.ModelReference
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.Podcast
+import com.aisummarypodcast.store.Subtopics
 
 /**
  * Nullable update helper: absent (null) keeps existing value, empty clears to null, non-empty updates.
@@ -19,6 +20,13 @@ internal fun Map<String, String>?.orKeep(existing: Map<String, String>?): Map<St
     this == null -> existing
     this.isEmpty() -> null
     else -> this
+}
+
+@JvmName("subtopicsOrKeep")
+internal fun Map<String, Int>?.toSubtopics(existing: Subtopics?): Subtopics? = when {
+    this == null -> existing
+    this.isEmpty() -> null
+    else -> Subtopics(this)
 }
 
 internal fun Map<String, ModelReference>?.toLlmModelOverrides(existing: LlmModelOverrides?): LlmModelOverrides? = when {
@@ -38,6 +46,8 @@ internal fun Podcast.toResponse() = PodcastResponse(
     fullBodyThreshold = fullBodyThreshold, sponsor = sponsor, pronunciations = pronunciations,
     recapLookbackEpisodes = recapLookbackEpisodes, composeSettings = composeSettings,
     deepDiveEnabled = deepDiveEnabled,
+    subtopics = subtopics?.weights,
+    rapidFireWeightThreshold = rapidFireWeightThreshold,
     lastGeneratedAt = lastGeneratedAt
 )
 
@@ -77,6 +87,7 @@ internal fun UpcomingContent.toResponse(): Map<String, Any> {
         relevanceScore = article.relevanceScore,
         summary = article.summary,
         body = article.body,
+        subtopic = article.subtopic,
         source = sourceMap[article.sourceId].let { source ->
             ArticleSourceResponse(
                 id = source?.id ?: article.sourceId,
@@ -96,6 +107,7 @@ internal fun UpcomingContent.toResponse(): Map<String, Any> {
         relevanceScore = null,
         summary = null,
         body = post.body,
+        subtopic = null,
         source = sourceMap[post.sourceId].let { source ->
             ArticleSourceResponse(
                 id = source?.id ?: post.sourceId,

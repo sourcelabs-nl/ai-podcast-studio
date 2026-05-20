@@ -3,6 +3,7 @@ package com.aisummarypodcast.podcast
 import com.aisummarypodcast.config.LlmModelOverrides
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastStyle
+import com.aisummarypodcast.store.Subtopics
 import com.aisummarypodcast.store.TtsProviderType
 import com.aisummarypodcast.user.UserService
 import tools.jackson.databind.ObjectMapper
@@ -70,6 +71,8 @@ class PodcastController(
             return ResponseEntity.badRequest().body(mapOf("error" to "fullBodyThreshold must be at least 1"))
         }
         validateComposeSettings(request.composeSettings)?.let { return it }
+        validateSubtopics(request.subtopics)?.let { return it }
+        validateRapidFireThreshold(request.rapidFireWeightThreshold)?.let { return it }
         val podcast = podcastService.create(
             userId = userId,
             name = request.name,
@@ -99,7 +102,9 @@ class PodcastController(
                 pronunciations = request.pronunciations,
                 recapLookbackEpisodes = request.recapLookbackEpisodes,
                 composeSettings = request.composeSettings,
-                deepDiveEnabled = request.deepDiveEnabled ?: false
+                deepDiveEnabled = request.deepDiveEnabled ?: false,
+                subtopics = request.subtopics?.takeIf { it.isNotEmpty() }?.let { Subtopics(it) },
+                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: 3
             )
         )
         return ResponseEntity.created(URI.create("/users/$userId/podcasts/${podcast.id}"))
@@ -153,6 +158,8 @@ class PodcastController(
             return ResponseEntity.badRequest().body(mapOf("error" to "fullBodyThreshold must be at least 1"))
         }
         validateComposeSettings(request.composeSettings)?.let { return it }
+        validateSubtopics(request.subtopics)?.let { return it }
+        validateRapidFireThreshold(request.rapidFireWeightThreshold)?.let { return it }
         val updated = podcastService.update(
             podcastId,
             existing.copy(
@@ -178,7 +185,9 @@ class PodcastController(
                 pronunciations = request.pronunciations.orKeep(existing.pronunciations),
                 recapLookbackEpisodes = request.recapLookbackEpisodes,
                 composeSettings = request.composeSettings.orKeep(existing.composeSettings),
-                deepDiveEnabled = request.deepDiveEnabled ?: existing.deepDiveEnabled
+                deepDiveEnabled = request.deepDiveEnabled ?: existing.deepDiveEnabled,
+                subtopics = request.subtopics.toSubtopics(existing.subtopics),
+                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: existing.rapidFireWeightThreshold
             )
         ) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(updated.toResponse())
@@ -331,6 +340,29 @@ class PodcastController(
         }
 
         return emitter
+    }
+
+    private fun validateSubtopics(subtopics: Map<String, Int>?): ResponseEntity<Any>? {
+        if (subtopics == null) return null
+        for ((name, weight) in subtopics) {
+            if (name.isBlank()) {
+                return ResponseEntity.badRequest().body(mapOf("error" to "Subtopic name must not be empty"))
+            }
+            if (weight < 1 || weight > 10) {
+                return ResponseEntity.badRequest()
+                    .body(mapOf("error" to "Subtopic '$name' weight must be in [1, 10], got $weight"))
+            }
+        }
+        return null
+    }
+
+    private fun validateRapidFireThreshold(threshold: Int?): ResponseEntity<Any>? {
+        if (threshold == null) return null
+        if (threshold < 0 || threshold > 10) {
+            return ResponseEntity.badRequest()
+                .body(mapOf("error" to "rapidFireWeightThreshold must be in [0, 10], got $threshold"))
+        }
+        return null
     }
 
     private fun validateComposeSettings(composeSettings: Map<String, String>?): ResponseEntity<Any>? {

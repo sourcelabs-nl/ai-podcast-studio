@@ -69,7 +69,11 @@ class InterviewComposer(
 
         val useFullBody = shouldUseFullBody(articles.size, podcast, appProperties.briefing.fullBodyThreshold)
 
-        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, followUpAnnotations)
+        val plan = SubtopicPlan.from(podcast, articles, targetWords, appProperties.compose.rapidFireBudgetFraction)
+        val articleSubtopics = plan?.articleSubtopics ?: emptyMap()
+        val subtopicPlanBlock = plan?.let { buildSubtopicPlanBlock(it, RapidFireStyle.INTERVIEW) } ?: ""
+
+        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, followUpAnnotations, articleSubtopics)
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
         val currentDate = buildCurrentDate(podcast.language)
@@ -115,7 +119,7 @@ class InterviewComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}
 
-            Engagement techniques:${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled)}
+            Engagement techniques:${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode (do not lean on the same hook construction twice)
@@ -142,7 +146,7 @@ class InterviewComposer(
             - STRICT STRUCTURAL RULE: NEVER place two consecutive tags of the same speaker. The pattern <expert>...</expert><expert>...</expert> or <interviewer>...</interviewer><interviewer>...</interviewer> is ABSOLUTELY FORBIDDEN and will break the TTS pipeline. Tags MUST strictly alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. This rule overrides any other instruction including custom instructions below$nameInstruction$languageInstruction$customInstructionsBlock
 
             Article summaries:
-            $summaryBlock$ttsGuidelinesBlock$topicOrderBlock
+            $summaryBlock$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
         """.trimIndent()
     }
 

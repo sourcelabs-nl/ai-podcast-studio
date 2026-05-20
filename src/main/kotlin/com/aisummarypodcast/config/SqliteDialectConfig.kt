@@ -2,6 +2,7 @@ package com.aisummarypodcast.config
 
 import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.SourceType
+import com.aisummarypodcast.store.Subtopics
 import com.aisummarypodcast.store.TtsProviderType
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
@@ -42,7 +43,9 @@ class SqliteDialectConfig {
                 StringToTtsProviderTypeConverter(),
                 TtsProviderTypeToStringConverter(),
                 StringToSourceTypeConverter(),
-                SourceTypeToStringConverter()
+                SourceTypeToStringConverter(),
+                StringToSubtopicsConverter(),
+                SubtopicsToStringConverter()
             )
         )
     }
@@ -116,5 +119,17 @@ class SqliteDialectConfig {
     @WritingConverter
     class SourceTypeToStringConverter : Converter<SourceType, String> {
         override fun convert(source: SourceType): String = source.value
+    }
+
+    @ReadingConverter
+    class StringToSubtopicsConverter : Converter<String, Subtopics> {
+        private val objectMapper = jacksonObjectMapper()
+        override fun convert(source: String): Subtopics = Subtopics(objectMapper.readValue(source))
+    }
+
+    @WritingConverter
+    class SubtopicsToStringConverter : Converter<Subtopics, String> {
+        private val objectMapper = jacksonObjectMapper()
+        override fun convert(source: Subtopics): String = objectMapper.writeValueAsString(source.weights)
     }
 }

@@ -96,6 +96,30 @@ class ArticleRepositoryTest {
     }
 
     @Test
+    fun `article subtopic round-trips through persistence`() {
+        val saved = articleRepository.save(
+            Article(sourceId = "s1", title = "T", body = "b", url = "https://example.com/x",
+                contentHash = "hashx", subtopic = "LLM releases")
+        )
+        val loaded = articleRepository.findById(saved.id!!).orElseThrow()
+        assertEquals("LLM releases", loaded.subtopic)
+    }
+
+    @Test
+    fun `podcast subtopics and threshold round-trip through persistence`() {
+        val saved = podcastRepository.save(
+            Podcast(
+                id = "p2", userId = "u1", name = "WithSubs", topic = "tech",
+                subtopics = Subtopics(mapOf("LLMs" to 10, "Dev tools" to 5)),
+                rapidFireWeightThreshold = 4
+            )
+        )
+        val loaded = podcastRepository.findById(saved.id).orElseThrow()
+        assertEquals(mapOf("LLMs" to 10, "Dev tools" to 5), loaded.subtopics?.weights)
+        assertEquals(4, loaded.rapidFireWeightThreshold)
+    }
+
+    @Test
     fun `deleteOldUnprocessedArticles retains articles with null publishedAt`() {
         articleRepository.save(Article(sourceId = "s1", title = "No Date", body = "body", url = "https://example.com/1", publishedAt = null, contentHash = "hash1", isProcessed = false))
 

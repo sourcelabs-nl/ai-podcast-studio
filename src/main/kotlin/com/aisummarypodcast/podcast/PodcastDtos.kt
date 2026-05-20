@@ -26,7 +26,9 @@ data class CreatePodcastRequest(
     val pronunciations: Map<String, String>? = null,
     @JsonProperty("recapLookbackEpisodes") val recapLookbackEpisodes: Int? = null,
     val composeSettings: Map<String, String>? = null,
-    @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null
+    @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null,
+    val subtopics: Map<String, Int>? = null,
+    @JsonProperty("rapidFireWeightThreshold") val rapidFireWeightThreshold: Int? = null
 )
 
 data class UpdatePodcastRequest(
@@ -52,7 +54,9 @@ data class UpdatePodcastRequest(
     val pronunciations: Map<String, String>? = null,
     @JsonProperty("recapLookbackEpisodes") val recapLookbackEpisodes: Int? = null,
     val composeSettings: Map<String, String>? = null,
-    @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null
+    @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null,
+    val subtopics: Map<String, Int>? = null,
+    @JsonProperty("rapidFireWeightThreshold") val rapidFireWeightThreshold: Int? = null
 )
 
 data class PodcastResponse(
@@ -81,6 +85,8 @@ data class PodcastResponse(
     val recapLookbackEpisodes: Int?,
     val composeSettings: Map<String, String>?,
     val deepDiveEnabled: Boolean,
+    val subtopics: Map<String, Int>?,
+    val rapidFireWeightThreshold: Int,
     val lastGeneratedAt: String?
 )
 
@@ -128,5 +134,6 @@ data class EpisodeArticleResponse(
     val relevanceScore: Int?,
     val summary: String?,
     val body: String?,
+    val subtopic: String?,
     val source: ArticleSourceResponse
 )

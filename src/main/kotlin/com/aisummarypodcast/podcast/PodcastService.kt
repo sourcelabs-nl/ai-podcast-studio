@@ -164,7 +164,9 @@ class PodcastService(
             pronunciations = podcast?.pronunciations,
             recapLookbackEpisodes = podcast?.recapLookbackEpisodes,
             composeSettings = podcast?.composeSettings,
-            deepDiveEnabled = podcast?.deepDiveEnabled ?: false
+            deepDiveEnabled = podcast?.deepDiveEnabled ?: false,
+            subtopics = podcast?.subtopics,
+            rapidFireWeightThreshold = podcast?.rapidFireWeightThreshold ?: 3
         )
         return podcastRepository.save(newPodcast)
     }
@@ -198,7 +200,9 @@ class PodcastService(
             pronunciations = updates.pronunciations,
             recapLookbackEpisodes = updates.recapLookbackEpisodes,
             composeSettings = updates.composeSettings,
-            deepDiveEnabled = updates.deepDiveEnabled
+            deepDiveEnabled = updates.deepDiveEnabled,
+            subtopics = updates.subtopics,
+            rapidFireWeightThreshold = updates.rapidFireWeightThreshold
         )
         return podcastRepository.save(updated)
     }

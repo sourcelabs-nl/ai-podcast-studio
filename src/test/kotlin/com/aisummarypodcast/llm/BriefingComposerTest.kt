@@ -2,6 +2,7 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
+import com.aisummarypodcast.config.ComposeProperties
 import com.aisummarypodcast.llm.ResolvedModel
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
@@ -20,6 +21,7 @@ class BriefingComposerTest {
 
     private val appProperties = mockk<AppProperties>().also {
         every { it.briefing } returns BriefingProperties(targetWords = 1500)
+        every { it.compose } returns ComposeProperties()
     }
     private val modelResolver = mockk<ModelResolver>()
     private val chatClientFactory = mockk<ChatClientFactory>()
@@ -462,5 +464,78 @@ class BriefingComposerTest {
         val prompt = composer.buildPrompt(articles, podcast)
         assertTrue(prompt.contains("Summary text."))
         assertFalse(prompt.contains("Full body text."))
+    }
+
+    @Test
+    fun `prompt without subtopics has no subtopic structure block`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "T", topic = "tech")
+        val articles = listOf(
+            Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s")
+        )
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertFalse(prompt.contains("Subtopic structure"))
+        assertFalse(prompt.contains("subtopic:"))
+        assertFalse(prompt.contains("And in brief"))
+    }
+
+    @Test
+    fun `prompt with subtopics includes subtopic structure block and tags articles`() {
+        val podcast = Podcast(
+            id = "p1", userId = "u1", name = "T", topic = "tech",
+            subtopics = com.aisummarypodcast.store.Subtopics(mapOf("LLMs" to 10, "Other AI" to 1)),
+            rapidFireWeightThreshold = 3
+        )
+        val articles = listOf(
+            Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s1", subtopic = "LLMs"),
+            Article(id = 2, sourceId = "s1", title = "B", body = "b", url = "https://x.com/2", contentHash = "h2", summary = "s2", subtopic = "Other AI")
+        )
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("Subtopic structure"))
+        assertTrue(prompt.contains("[subtopic: LLMs]"))
+        assertTrue(prompt.contains("[subtopic: Other AI]"))
+        assertTrue(prompt.contains("And in brief"))
+    }
+
+    @Test
+    fun `prompt with subtopics but no full tier falls back to flat layout`() {
+        val podcast = Podcast(
+            id = "p1", userId = "u1", name = "T", topic = "tech",
+            subtopics = com.aisummarypodcast.store.Subtopics(mapOf("LLMs" to 2)),
+            rapidFireWeightThreshold = 3
+        )
+        val articles = listOf(
+            Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s", subtopic = "LLMs")
+        )
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertFalse(prompt.contains("Subtopic structure"))
+        assertFalse(prompt.contains("And in brief"))
+    }
+
+    @Test
+    fun `deep-dive prompt unchanged when subtopics disabled`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "T", topic = "tech", deepDiveEnabled = true)
+        val articles = listOf(
+            Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s")
+        )
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("DEEP DIVE: Identify the SINGLE most newsworthy"))
+        assertFalse(prompt.contains("full-segment subtopics"))
+    }
+
+    @Test
+    fun `deep-dive prompt with subtopics restricts webSearch to full segments`() {
+        val podcast = Podcast(
+            id = "p1", userId = "u1", name = "T", topic = "tech", deepDiveEnabled = true,
+            subtopics = com.aisummarypodcast.store.Subtopics(mapOf("LLMs" to 10, "Other AI" to 1)),
+            rapidFireWeightThreshold = 3
+        )
+        val articles = listOf(
+            Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s1", subtopic = "LLMs"),
+            Article(id = 2, sourceId = "s1", title = "B", body = "b", url = "https://x.com/2", contentHash = "h2", summary = "s2", subtopic = "Other AI")
+        )
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("ONLY for stories you will cover in a full segment"))
+        assertTrue(prompt.contains("preferring higher-weight subtopics"))
+        assertTrue(prompt.contains("episode-wide budget of 3 calls"))
     }
 }

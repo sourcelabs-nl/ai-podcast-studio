@@ -132,6 +132,8 @@ Each podcast can be tailored to your preferences via the following settings:
 | `cron` | `"0 0 6 * * *"` | Generation schedule in cron format (default: daily at 6 AM) |
 | `customInstructions` | — | Free-form instructions appended to the LLM prompt (e.g. "Focus on recent breakthroughs" or "Avoid financial topics") |
 | `relevanceThreshold` | `5` | Minimum relevance score (0–10) for an article to be included in the briefing |
+| `subtopics` | `null` | Optional map of subtopic name to importance weight (1–10) within the podcast's topic (e.g. `{"LLM releases": 10, "Dev tools": 5, "AI ethics": 2}`). The Stage 1 LLM call classifies each article into one of the listed subtopics. High-weight subtopics get full script segments with word budgets proportional to weight; low-weight subtopics (at or below `rapidFireWeightThreshold`) are rolled into a labeled "And in brief" rapid-fire segment at the end. Empty/unset disables the feature and keeps the legacy flat layout |
+| `rapidFireWeightThreshold` | `3` | Weight cutoff for the rapid-fire tier (0–10). Subtopics with weight at or below this value (plus unclassified articles in a synthetic "Other" bucket of weight 1) are rolled into a single rapid-fire segment. `0` means nothing is rapid-fire, `10` means everything is rapid-fire |
 | `fullBodyThreshold` | `5` | When the number of relevant articles is below this threshold, the composer uses full article bodies instead of summaries for richer content |
 | `requireReview` | `false` | When `true`, generated scripts pause for review before TTS — see [Episode Review](#episode-review) below |
 | `maxLlmCostCents` | `null` | Per-podcast LLM cost threshold in cents — see [Cost Gate](#cost-gate) below |

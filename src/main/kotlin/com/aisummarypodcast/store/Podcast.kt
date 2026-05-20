@@ -32,6 +32,8 @@ data class Podcast(
     val recapLookbackEpisodes: Int? = null,
     val composeSettings: Map<String, String>? = null,
     val deepDiveEnabled: Boolean = false,
+    val subtopics: Subtopics? = null,
+    val rapidFireWeightThreshold: Int = 3,
     val lastGeneratedAt: String? = null,
     @Version val version: Long? = null
 )

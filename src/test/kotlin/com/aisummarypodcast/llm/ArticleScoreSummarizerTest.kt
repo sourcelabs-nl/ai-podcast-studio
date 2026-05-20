@@ -12,6 +12,7 @@ import com.aisummarypodcast.config.ScoringProperties
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Podcast
+import com.aisummarypodcast.store.Subtopics
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -411,6 +412,94 @@ class ArticleScoreSummarizerTest {
         assertEquals(1, result.size)
         assertEquals(7, result[0].relevanceScore)
         verify(exactly = 1) { articleRepository.save(any()) }
+    }
+
+    @Test
+    fun `prompt without subtopics does not mention subtopic`() {
+        val article = Article(
+            id = 100, sourceId = "s1", title = "AI Story", body = "body.",
+            url = "https://example.com/100", contentHash = "h100"
+        )
+        val prompt = scoreSummarizer.buildPrompt(article, podcast)
+        assertFalse(prompt.contains("subtopic"))
+        assertFalse(prompt.contains("subtopics"))
+    }
+
+    @Test
+    fun `prompt with subtopics includes the configured list and subtopic field`() {
+        val article = Article(
+            id = 101, sourceId = "s1", title = "AI Story", body = "body.",
+            url = "https://example.com/101", contentHash = "h101"
+        )
+        val withSubs = podcast.copy(subtopics = Subtopics(mapOf("LLM releases" to 10, "Dev tools" to 5)))
+        val prompt = scoreSummarizer.buildPrompt(article, withSubs)
+        assertTrue(prompt.contains("LLM releases"))
+        assertTrue(prompt.contains("Dev tools"))
+        assertTrue(prompt.contains("\"subtopic\""))
+        // weights MUST NOT leak into the prompt
+        assertFalse(prompt.contains(": 10"))
+        assertFalse(prompt.contains(": 5"))
+    }
+
+    @Test
+    fun `normalizeSubtopic returns null when subtopics disabled`() {
+        assertEquals(null, scoreSummarizer.normalizeSubtopic("anything", podcast))
+    }
+
+    @Test
+    fun `normalizeSubtopic returns null for unknown name`() {
+        val withSubs = podcast.copy(subtopics = Subtopics(mapOf("LLMs" to 10)))
+        assertEquals(null, scoreSummarizer.normalizeSubtopic("Quantum", withSubs))
+    }
+
+    @Test
+    fun `normalizeSubtopic matches case-insensitively and returns configured casing`() {
+        val withSubs = podcast.copy(subtopics = Subtopics(mapOf("LLM releases" to 10)))
+        assertEquals("LLM releases", scoreSummarizer.normalizeSubtopic("llm releases", withSubs))
+        assertEquals("LLM releases", scoreSummarizer.normalizeSubtopic("LLM Releases", withSubs))
+    }
+
+    @Test
+    fun `normalizeSubtopic treats blank and the string null as null`() {
+        val withSubs = podcast.copy(subtopics = Subtopics(mapOf("LLMs" to 10)))
+        assertEquals(null, scoreSummarizer.normalizeSubtopic("", withSubs))
+        assertEquals(null, scoreSummarizer.normalizeSubtopic("   ", withSubs))
+        assertEquals(null, scoreSummarizer.normalizeSubtopic("null", withSubs))
+        assertEquals(null, scoreSummarizer.normalizeSubtopic(null, withSubs))
+    }
+
+    @Test
+    fun `article with subtopics persists normalized subtopic`() {
+        val article = Article(
+            id = 102, sourceId = "s1", title = "GPT-5", body = "OpenAI launched a new model.",
+            url = "https://example.com/102", contentHash = "h102"
+        )
+        val withSubs = podcast.copy(subtopics = Subtopics(mapOf("LLM releases" to 10, "Dev tools" to 5)))
+        mockLlmResponse(ScoreSummarizeResult(relevanceScore = 8, summary = "OpenAI launched GPT-5.", subtopic = "LLM Releases"))
+        every { chatClientFactory.createForModel(withSubs.userId, filterModelDef) } returns chatClient
+
+        val result = scoreSummarizer.scoreSummarize(listOf(article), withSubs, filterModelDef)
+
+        assertEquals(1, result.size)
+        assertEquals("LLM releases", result[0].subtopic)
+
+        val saved = slot<Article>()
+        verify { articleRepository.save(capture(saved)) }
+        assertEquals("LLM releases", saved.captured.subtopic)
+    }
+
+    @Test
+    fun `article with subtopics disabled persists null subtopic`() {
+        val article = Article(
+            id = 103, sourceId = "s1", title = "X", body = "body.",
+            url = "https://example.com/103", contentHash = "h103"
+        )
+        mockLlmResponse(ScoreSummarizeResult(relevanceScore = 7, summary = "x", subtopic = "whatever"))
+
+        val result = scoreSummarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
+
+        assertEquals(1, result.size)
+        assertEquals(null, result[0].subtopic)
     }
 
     @Test

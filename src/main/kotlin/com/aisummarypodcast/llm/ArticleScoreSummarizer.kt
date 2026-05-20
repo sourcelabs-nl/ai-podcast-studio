@@ -21,7 +21,8 @@ import tools.jackson.databind.json.JsonMapper
 
 data class ScoreSummarizeResult(
     val relevanceScore: Int = 0,
-    val summary: String = ""
+    val summary: String = "",
+    val subtopic: String? = null
 )
 
 @Component
@@ -77,10 +78,12 @@ class ArticleScoreSummarizer(
 
                                         val score = result?.relevanceScore ?: 0
                                         val summary = result?.summary?.takeIf { it.isNotBlank() }
+                                        val subtopic = normalizeSubtopic(result?.subtopic, podcast)
 
                                         val updated = article.copy(
                                             relevanceScore = score,
                                             summary = summary,
+                                            subtopic = subtopic,
                                             llmInputTokens = (article.llmInputTokens ?: 0) + usage.inputTokens,
                                             llmOutputTokens = (article.llmOutputTokens ?: 0) + usage.outputTokens,
                                             llmCostCents = CostEstimator.addNullableCosts(article.llmCostCents, costCents)
@@ -134,6 +137,24 @@ class ArticleScoreSummarizer(
             else -> "2-3 sentences"
         }
 
+        val subtopicNames = podcast.subtopics?.weights?.keys?.toList().orEmpty()
+        val subtopicsConfigured = subtopicNames.isNotEmpty()
+
+        val subtopicBlock = if (subtopicsConfigured) {
+            val list = subtopicNames.joinToString("\n") { "  - $it" }
+            "\n\nThe podcast covers the following subtopics within this topic:\n$list\n\nClassify the content into the best-matching subtopic name (verbatim from the list above), or null if none of them reasonably apply."
+        } else {
+            ""
+        }
+
+        val schemaLines = buildString {
+            append("- \"relevanceScore\" (integer 0-10)\n")
+            if (subtopicsConfigured) {
+                append("- \"subtopic\" (one of the subtopic names listed above, or null if none apply)\n")
+            }
+            append("- \"summary\" ($summaryLengthInstruction of direct, factual statements about the key relevant information)")
+        }
+
         return """
             You are a relevance scorer and summarizer. Given the topic of interest and content, perform the following:
             1. Rate the content's relevance to the topic on a scale of 0-10
@@ -141,16 +162,23 @@ class ArticleScoreSummarizer(
 
             Write directly about what happened — say "Anthropic launched X" not "The article discusses Anthropic launching X".
 
-            Topic of interest: ${podcast.topic}
+            Topic of interest: ${podcast.topic}$subtopicBlock
 
             $contentBlock
 
             Respond with a JSON object containing:
-            - "relevanceScore" (integer 0-10)
-            - "summary" ($summaryLengthInstruction of direct, factual statements about the key relevant information)
+            $schemaLines
 
             If the content attributes information to a specific person, organization, or study, preserve that attribution in your summary.
             If the content is completely irrelevant (score 0-2), you may leave the summary empty.
         """.trimIndent()
+    }
+
+    internal fun normalizeSubtopic(raw: String?, podcast: Podcast): String? {
+        val configured = podcast.subtopics?.weights?.keys ?: return null
+        if (configured.isEmpty()) return null
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (value.equals("null", ignoreCase = true)) return null
+        return configured.firstOrNull { it.equals(value, ignoreCase = true) }
     }
 }
