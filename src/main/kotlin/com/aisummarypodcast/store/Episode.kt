@@ -25,5 +25,7 @@ data class Episode(
     val showNotes: String? = null,
     val errorMessage: String? = null,
     val pipelineStage: String? = null,
+    val researchCalls: Int = 0,
+    val researchCostCents: Int? = null,
     @Version val version: Long? = null
 )

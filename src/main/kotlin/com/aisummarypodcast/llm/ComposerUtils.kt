@@ -100,6 +100,15 @@ fun buildHistoryLookupBlock(): String = """
             - HISTORY CHECK: Before treating any subject as new, call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}). If the tool returns a prior episode that covered the topic, either skip it, treat it as a follow-up referencing the prior coverage, or angle the segment as an update. You have a small budget for these lookups; spend them on topics most likely to have been covered before"""
 
 /**
+ * Prompt block instructing the LLM to use the `webSearch` Tavily tool to enrich the most
+ * newsworthy story with outside context. Empty when [deepDiveEnabled] is false; in that
+ * case the tool is not registered at all and the LLM must not be hinted to call it.
+ */
+fun buildWebSearchBlock(deepDiveEnabled: Boolean): String =
+    if (!deepDiveEnabled) "" else """
+            - DEEP DIVE: Identify the SINGLE most newsworthy story in this episode and call the `webSearch` tool 1-2 times to pull outside context (background, related developments, dissenting takes). Weave the snippets into that segment with proper attribution. You have a small budget; use it only on the standout story"""
+
+/**
  * Shared punctuation rule for every compose-stage prompt: forbids em-dash and en-dash
  * characters, which the TTS engines mispronounce. Included verbatim in briefing, dialogue,
  * and interview prompts so the rule lives in one place.

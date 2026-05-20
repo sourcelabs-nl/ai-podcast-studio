@@ -31,6 +31,7 @@ data class Podcast(
     val pronunciations: Map<String, String>? = null,
     val recapLookbackEpisodes: Int? = null,
     val composeSettings: Map<String, String>? = null,
+    val deepDiveEnabled: Boolean = false,
     val lastGeneratedAt: String? = null,
     @Version val version: Long? = null
 )

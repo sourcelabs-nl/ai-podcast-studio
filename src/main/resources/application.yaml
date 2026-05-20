@@ -76,6 +76,10 @@ app:
     target-words: 1500
   episode:
     recap-lookback-episodes: 7
+  research:
+    cost-buffer-cents: 5
+    tavily:
+      cost-per-call-cents: 1
   episodes:
     directory: ./data
     retention-days: 365

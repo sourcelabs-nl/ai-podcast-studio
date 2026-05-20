@@ -25,7 +25,13 @@ class ConfigController(private val appProperties: AppProperties) {
             maxLlmCostCents = appProperties.llm.maxCostCents,
             targetWords = appProperties.briefing.targetWords,
             fullBodyThreshold = appProperties.briefing.fullBodyThreshold,
-            maxArticleAgeDays = appProperties.source.maxArticleAgeDays
+            maxArticleAgeDays = appProperties.source.maxArticleAgeDays,
+            research = ResearchDefaultsResponse(
+                tavily = TavilyDefaultsResponse(
+                    costPerCallCents = appProperties.research.tavily.costPerCallCents
+                ),
+                costBufferCents = appProperties.research.costBufferCents
+            )
         )
     }
 }

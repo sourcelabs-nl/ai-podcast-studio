@@ -11,5 +11,15 @@ data class PodcastDefaultsResponse(
     val maxLlmCostCents: Int,
     val targetWords: Int,
     val fullBodyThreshold: Int,
-    val maxArticleAgeDays: Int
+    val maxArticleAgeDays: Int,
+    val research: ResearchDefaultsResponse
+)
+
+data class ResearchDefaultsResponse(
+    val tavily: TavilyDefaultsResponse,
+    val costBufferCents: Int
+)
+
+data class TavilyDefaultsResponse(
+    val costPerCallCents: Int
 )

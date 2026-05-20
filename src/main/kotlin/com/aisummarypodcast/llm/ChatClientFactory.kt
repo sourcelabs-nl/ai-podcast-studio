@@ -1,5 +1,9 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.research.RESEARCH_TOOL_CAP
+import com.aisummarypodcast.research.RESEARCH_TOOL_NAME
+import com.aisummarypodcast.research.ResearchService
+import com.aisummarypodcast.research.ResearchTool
 import com.aisummarypodcast.store.ApiKeyCategory
 import com.aisummarypodcast.store.LlmCacheRepository
 import com.aisummarypodcast.store.Podcast
@@ -16,7 +20,8 @@ import java.time.Duration
 class ChatClientFactory(
     private val providerConfigService: UserProviderConfigService,
     private val llmCacheRepository: LlmCacheRepository,
-    private val episodeHistoryRepository: EpisodeHistoryRepository
+    private val episodeHistoryRepository: EpisodeHistoryRepository,
+    private val researchService: ResearchService
 ) {
 
     fun createForModel(userId: String, resolvedModel: ResolvedModel): ChatClient {
@@ -37,16 +42,37 @@ class ChatClientFactory(
         podcast: Podcast,
         toolBudget: ToolBudget
     ): ChatClient {
-        toolBudget.register(HISTORY_LOOKUP_TOOL_NAME, HISTORY_LOOKUP_TOOL_CAP)
-        val historyTool = HistoryLookupTool(
-            episodeHistoryRepository = episodeHistoryRepository,
-            toolBudget = toolBudget,
-            podcastId = podcast.id,
-            podcastName = podcast.name
-        )
+        val tools = buildComposeTools(userId, podcast, toolBudget)
         return ChatClient.builder(buildCachingModel(userId, resolvedModel))
-            .defaultTools(historyTool)
+            .defaultTools(*tools.toTypedArray())
             .build()
+    }
+
+    /**
+     * Visible for testing: builds the list of compose-stage tools for [podcast] and registers
+     * the corresponding caps with [toolBudget]. `searchPastEpisodes` is always present;
+     * `webSearch` is added only when [Podcast.deepDiveEnabled] is true.
+     */
+    internal fun buildComposeTools(userId: String, podcast: Podcast, toolBudget: ToolBudget): List<Any> {
+        toolBudget.register(HISTORY_LOOKUP_TOOL_NAME, HISTORY_LOOKUP_TOOL_CAP)
+        val tools = mutableListOf<Any>(
+            HistoryLookupTool(
+                episodeHistoryRepository = episodeHistoryRepository,
+                toolBudget = toolBudget,
+                podcastId = podcast.id,
+                podcastName = podcast.name
+            )
+        )
+        if (podcast.deepDiveEnabled) {
+            toolBudget.register(RESEARCH_TOOL_NAME, RESEARCH_TOOL_CAP)
+            tools += ResearchTool(
+                researchService = researchService,
+                toolBudget = toolBudget,
+                userId = userId,
+                podcastId = podcast.id
+            )
+        }
+        return tools
     }
 
     private fun buildCachingModel(userId: String, resolvedModel: ResolvedModel): CachingChatModel {

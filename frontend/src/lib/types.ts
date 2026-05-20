@@ -37,6 +37,7 @@ export interface Podcast {
   sponsor?: Record<string, string>;
   pronunciations?: Record<string, string>;
   composeSettings?: Record<string, string>;
+  deepDiveEnabled?: boolean;
   lastGeneratedAt?: string;
 }
 
@@ -56,6 +57,8 @@ export interface Episode {
   showNotes?: string;
   errorMessage?: string;
   pipelineStage?: string;
+  researchCalls?: number;
+  researchCostCents?: number;
 }
 
 export interface Source {

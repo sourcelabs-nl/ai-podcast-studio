@@ -25,7 +25,8 @@ data class CreatePodcastRequest(
     val sponsor: Map<String, String>? = null,
     val pronunciations: Map<String, String>? = null,
     @JsonProperty("recapLookbackEpisodes") val recapLookbackEpisodes: Int? = null,
-    val composeSettings: Map<String, String>? = null
+    val composeSettings: Map<String, String>? = null,
+    @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null
 )
 
 data class UpdatePodcastRequest(
@@ -50,7 +51,8 @@ data class UpdatePodcastRequest(
     val sponsor: Map<String, String>? = null,
     val pronunciations: Map<String, String>? = null,
     @JsonProperty("recapLookbackEpisodes") val recapLookbackEpisodes: Int? = null,
-    val composeSettings: Map<String, String>? = null
+    val composeSettings: Map<String, String>? = null,
+    @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null
 )
 
 data class PodcastResponse(
@@ -78,6 +80,7 @@ data class PodcastResponse(
     val pronunciations: Map<String, String>?,
     val recapLookbackEpisodes: Int?,
     val composeSettings: Map<String, String>?,
+    val deepDiveEnabled: Boolean,
     val lastGeneratedAt: String?
 )
 
@@ -100,7 +103,9 @@ data class EpisodeResponse(
     val recap: String?,
     val showNotes: String?,
     val errorMessage: String?,
-    val pipelineStage: String?
+    val pipelineStage: String?,
+    val researchCalls: Int,
+    val researchCostCents: Int?
 )
 
 data class UpdateScriptRequest(

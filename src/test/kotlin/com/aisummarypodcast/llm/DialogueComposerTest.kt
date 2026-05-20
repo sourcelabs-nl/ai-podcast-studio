@@ -48,6 +48,17 @@ class DialogueComposerTest {
     }
 
     @Test
+    fun `prompt includes webSearch nudge when deepDiveEnabled, omits otherwise`() {
+        val enabled = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = true))
+        assertTrue(enabled.contains("webSearch"))
+        assertTrue(enabled.contains("DEEP DIVE"))
+
+        val disabled = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = false))
+        assertFalse(disabled.contains("webSearch"))
+        assertFalse(disabled.contains("DEEP DIVE"))
+    }
+
+    @Test
     fun `prompt includes speaker tag instructions`() {
         val prompt = composer.buildPrompt(articles, podcast)
 

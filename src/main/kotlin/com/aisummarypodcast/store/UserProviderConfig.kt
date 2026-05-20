@@ -1,7 +1,7 @@
 package com.aisummarypodcast.store
 
 enum class ApiKeyCategory {
-    LLM, TTS, PUBLISHING
+    LLM, TTS, PUBLISHING, RESEARCH
 }
 
 data class UserProviderConfig(

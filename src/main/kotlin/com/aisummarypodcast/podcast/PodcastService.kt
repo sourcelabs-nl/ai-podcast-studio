@@ -163,7 +163,8 @@ class PodcastService(
             sponsor = podcast?.sponsor,
             pronunciations = podcast?.pronunciations,
             recapLookbackEpisodes = podcast?.recapLookbackEpisodes,
-            composeSettings = podcast?.composeSettings
+            composeSettings = podcast?.composeSettings,
+            deepDiveEnabled = podcast?.deepDiveEnabled ?: false
         )
         return podcastRepository.save(newPodcast)
     }
@@ -196,7 +197,8 @@ class PodcastService(
             sponsor = updates.sponsor,
             pronunciations = updates.pronunciations,
             recapLookbackEpisodes = updates.recapLookbackEpisodes,
-            composeSettings = updates.composeSettings
+            composeSettings = updates.composeSettings,
+            deepDiveEnabled = updates.deepDiveEnabled
         )
         return podcastRepository.save(updated)
     }

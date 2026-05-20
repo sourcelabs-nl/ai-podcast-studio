@@ -202,6 +202,14 @@ export default function EpisodeDetailPage() {
             {episode.durationSeconds != null && (
               <> &middot; duration {Math.floor(episode.durationSeconds / 60)}:{String(episode.durationSeconds % 60).padStart(2, "0")}</>
             )}
+            {episode.researchCalls != null && episode.researchCalls > 0 && (
+              <>
+                {" "}&middot; research {episode.researchCalls} call{episode.researchCalls === 1 ? "" : "s"}
+                {episode.researchCostCents != null && (
+                  <> (${(episode.researchCostCents / 100).toFixed(2)})</>
+                )}
+              </>
+            )}
             {episode.recap && !episode.showNotes && (
               <> &middot; {episode.recap}</>
             )}

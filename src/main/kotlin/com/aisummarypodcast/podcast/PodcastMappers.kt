@@ -37,6 +37,7 @@ internal fun Podcast.toResponse() = PodcastResponse(
     maxArticleAgeDays = maxArticleAgeDays, speakerNames = speakerNames,
     fullBodyThreshold = fullBodyThreshold, sponsor = sponsor, pronunciations = pronunciations,
     recapLookbackEpisodes = recapLookbackEpisodes, composeSettings = composeSettings,
+    deepDiveEnabled = deepDiveEnabled,
     lastGeneratedAt = lastGeneratedAt
 )
 
@@ -59,7 +60,9 @@ internal fun Episode.toResponse() = EpisodeResponse(
     recap = recap,
     showNotes = showNotes,
     errorMessage = errorMessage,
-    pipelineStage = pipelineStage
+    pipelineStage = pipelineStage,
+    researchCalls = researchCalls,
+    researchCostCents = researchCostCents
 )
 
 internal fun UpcomingContent.toResponse(): Map<String, Any> {

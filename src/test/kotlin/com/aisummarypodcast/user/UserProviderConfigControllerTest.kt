@@ -111,7 +111,7 @@ class UserProviderConfigControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""{"provider":"openrouter","apiKey":"sk-123"}""")
         ).andExpect(status().isBadRequest)
-            .andExpect(jsonPath("$.error").value("Invalid category. Must be one of: LLM, TTS, PUBLISHING"))
+            .andExpect(jsonPath("$.error").value("Invalid category. Must be one of: LLM, TTS, PUBLISHING, RESEARCH"))
     }
 
     @Test
@@ -206,7 +206,7 @@ class UserProviderConfigControllerTest {
     fun `DELETE with invalid category returns 400 with error message`() {
         mockMvc.perform(delete("/users/$userId/api-keys/INVALID/openrouter"))
             .andExpect(status().isBadRequest)
-            .andExpect(jsonPath("$.error").value("Invalid category. Must be one of: LLM, TTS, PUBLISHING"))
+            .andExpect(jsonPath("$.error").value("Invalid category. Must be one of: LLM, TTS, PUBLISHING, RESEARCH"))
     }
 
     @Test

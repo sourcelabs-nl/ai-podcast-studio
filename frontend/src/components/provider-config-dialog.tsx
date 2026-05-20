@@ -20,11 +20,12 @@ import {
 } from "@/components/ui/select";
 import { Save } from "lucide-react";
 
-const CATEGORIES = ["LLM", "TTS"] as const;
+const CATEGORIES = ["LLM", "TTS", "RESEARCH"] as const;
 
 const PROVIDERS_BY_CATEGORY: Record<string, string[]> = {
   LLM: ["openrouter", "openai", "ollama"],
   TTS: ["openai", "elevenlabs", "inworld"],
+  RESEARCH: ["tavily"],
 };
 
 const PROVIDER_DEFAULT_URLS: Record<string, string> = {
@@ -33,6 +34,7 @@ const PROVIDER_DEFAULT_URLS: Record<string, string> = {
   ollama: "http://localhost:11434/v1",
   elevenlabs: "https://api.elevenlabs.io",
   inworld: "https://api.inworld.ai",
+  tavily: "https://api.tavily.com",
 };
 
 interface ProviderConfig {

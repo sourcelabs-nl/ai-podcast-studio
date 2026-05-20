@@ -14,7 +14,17 @@ data class AppProperties(
     val source: SourceProperties = SourceProperties(),
     val soundcloud: SoundCloudProperties = SoundCloudProperties(),
     val x: XProperties = XProperties(),
-    val episode: EpisodeProperties = EpisodeProperties()
+    val episode: EpisodeProperties = EpisodeProperties(),
+    val research: ResearchProperties = ResearchProperties()
+)
+
+data class ResearchProperties(
+    val tavily: TavilyProperties = TavilyProperties(),
+    val costBufferCents: Int = 5
+)
+
+data class TavilyProperties(
+    val costPerCallCents: Int = 1
 )
 
 data class EncryptionProperties(

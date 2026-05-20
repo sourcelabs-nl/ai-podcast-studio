@@ -24,7 +24,9 @@ data class PipelineResult(
     val llmCostCents: Int? = null,
     val processedArticleIds: List<Long> = emptyList(),
     val articleTopics: Map<Long, String> = emptyMap(),
-    val topicOrder: List<String> = emptyList()
+    val topicOrder: List<String> = emptyList(),
+    val researchCalls: Int = 0,
+    val researchCostCents: Int? = null
 )
 
 data class PreviewResult(
@@ -46,7 +48,9 @@ data class ComposeStageResult(
     val composeModel: String,
     val usage: TokenUsage,
     val topicOrder: List<String>,
-    val composeCostCents: Int?
+    val composeCostCents: Int?,
+    val researchCalls: Int = 0,
+    val researchCostCents: Int? = null
 )
 
 @Component
@@ -103,9 +107,11 @@ class LlmPipeline(
         val allUnscored = articleRepository.findUnscoredBySourceIds(sourceIds)
         if (allUnscored.isNotEmpty()) {
             val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
-            val estimatedCostCents = CostEstimator.estimatePipelineCostCents(
+            val baseEstimate = CostEstimator.estimatePipelineCostCents(
                 allUnscored, filterModelDef, composeModelDef, targetWords
             )
+            val researchBuffer = if (podcast.deepDiveEnabled) appProperties.research.costBufferCents else 0
+            val estimatedCostCents = baseEstimate?.let { it + researchBuffer }
             val costThreshold = podcast.maxLlmCostCents ?: appProperties.llm.maxCostCents
             if (estimatedCostCents == null) {
                 log.warn("[LLM] Cost estimation unavailable for podcast '{}' ({}) — pricing not configured for model(s), skipping cost gate", podcast.name, podcast.id)
@@ -196,12 +202,18 @@ class LlmPipeline(
             compositionResult.usage.inputTokens, compositionResult.usage.outputTokens, composeModelDef.cost
         )
 
+        val researchCostCents = if (compositionResult.researchCalls > 0) {
+            compositionResult.researchCalls * appProperties.research.tavily.costPerCallCents
+        } else null
+
         return ComposeStageResult(
             script = compositionResult.script,
             composeModel = composeModelDef.model,
             usage = compositionResult.usage,
             topicOrder = compositionResult.topicOrder,
-            composeCostCents = composeCostCents
+            composeCostCents = composeCostCents,
+            researchCalls = compositionResult.researchCalls,
+            researchCostCents = researchCostCents
         )
     }
 
@@ -230,7 +242,9 @@ class LlmPipeline(
             llmCostCents = totalCostCents,
             processedArticleIds = processedArticleIds,
             articleTopics = articleTopics,
-            topicOrder = composeStageResult.topicOrder
+            topicOrder = composeStageResult.topicOrder,
+            researchCalls = composeStageResult.researchCalls,
+            researchCostCents = composeStageResult.researchCostCents
         )
     }
 
@@ -252,6 +266,10 @@ class LlmPipeline(
             compositionResult.usage.inputTokens, compositionResult.usage.outputTokens, composeModelDef.cost
         )
 
+        val researchCostCents = if (compositionResult.researchCalls > 0) {
+            compositionResult.researchCalls * appProperties.research.tavily.costPerCallCents
+        } else null
+
         log.info("[LLM] Recompose complete for podcast '{}' ({}): {} articles", podcast.name, podcast.id, articles.size)
         return PipelineResult(
             script = compositionResult.script,
@@ -261,7 +279,9 @@ class LlmPipeline(
             llmOutputTokens = compositionResult.usage.outputTokens,
             llmCostCents = costCents,
             processedArticleIds = articles.map { it.id!! },
-            topicOrder = compositionResult.topicOrder
+            topicOrder = compositionResult.topicOrder,
+            researchCalls = compositionResult.researchCalls,
+            researchCostCents = researchCostCents
         )
     }
 

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { Upload, Trash2, ImageIcon, Save, Settings2, Wifi, WifiOff } from "lucide-react";
+import { Upload, Trash2, ImageIcon, Save, Settings2, Wifi, WifiOff, TestTube } from "lucide-react";
 import { useTabParam } from "@/hooks/use-tab-param";
 import {
   Select,
@@ -33,7 +33,7 @@ const STYLES = [
 
 const TTS_PROVIDERS = ["openai", "elevenlabs", "inworld"];
 
-const TABS = ["general", "llm", "tts", "content", "publishing"] as const;
+const TABS = ["general", "llm", "tts", "content", "research", "publishing"] as const;
 
 interface PublicationTarget {
   target: string;
@@ -85,6 +85,9 @@ export default function PodcastSettingsPage() {
   const [pubForm, setPubForm] = useState<Record<string, { config: Record<string, string>; enabled: boolean }>>({});
   const [configuredProviders, setConfiguredProviders] = useState<Set<string>>(new Set());
   const [pubTab, setPubTab] = useState<"ftp" | "soundcloud">("ftp");
+
+  // Research state
+  const [testingTavily, setTestingTavily] = useState(false);
 
   useEffect(() => {
     if (!selectedUser) return;
@@ -258,6 +261,7 @@ export default function PodcastSettingsPage() {
             sponsor: form.sponsor,
             pronunciations: form.pronunciations,
             composeSettings: form.composeSettings,
+            deepDiveEnabled: form.deepDiveEnabled ?? false,
           }),
         }
       );
@@ -302,6 +306,24 @@ export default function PodcastSettingsPage() {
     }
   }
 
+  async function handleTestTavily() {
+    if (!selectedUser) return;
+    setTestingTavily(true);
+    try {
+      const res = await fetch(`/api/users/${selectedUser.id}/research/test/tavily`, { method: "POST" });
+      const result = await res.json().catch(() => null);
+      if (result?.success) {
+        toast.success(result.message ?? "Tavily reachable.");
+      } else {
+        toast.error(result?.message ?? "Tavily test failed.");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Tavily test failed.");
+    } finally {
+      setTestingTavily(false);
+    }
+  }
+
   function update<K extends keyof Podcast>(key: K, value: Podcast[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
@@ -337,6 +359,7 @@ export default function PodcastSettingsPage() {
           <TabsTrigger value="llm">LLM</TabsTrigger>
           <TabsTrigger value="tts">TTS</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
+          <TabsTrigger value="research">Research</TabsTrigger>
           <TabsTrigger value="publishing">Publishing</TabsTrigger>
         </TabsList>
 
@@ -754,6 +777,58 @@ export default function PodcastSettingsPage() {
                   valuePlaceholder="IPA pronunciation"
                 />
               </FieldGroup>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="research">
+          <Card>
+            <CardHeader>
+              <CardTitle>Deep-Dive Web Research</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-md border border-border bg-muted/50 p-4 text-sm text-muted-foreground space-y-2">
+                <p>
+                  When enabled, the script composer is given a <code>webSearch</code> tool backed by{" "}
+                  <a href="https://tavily.com" target="_blank" rel="noreferrer" className="underline">Tavily</a>.
+                  The LLM decides for itself when to call it — typically 1–2 times for the most newsworthy
+                  story, to add outside context that isn&apos;t in the source articles.
+                </p>
+                <p>
+                  Hard cap: <strong>3 search calls per episode</strong>. Each call costs roughly $0.008
+                  (Tavily basic search) and a ~5¢ buffer is added to the per-episode cost gate when this
+                  is on.
+                </p>
+                <p>
+                  Requires a Tavily API key. Configure one under{" "}
+                  <Link href="/settings?tab=api-keys" className="underline">Settings &rarr; API Keys</Link>{" "}
+                  (category <strong>RESEARCH</strong>, provider <strong>tavily</strong>), or set the
+                  <code> TAVILY_API_KEY</code> environment variable. If no key is configured, generation
+                  still succeeds but the tool returns empty results and a single warning is logged.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="deepDiveEnabled"
+                  checked={form.deepDiveEnabled ?? false}
+                  onChange={(e) => update("deepDiveEnabled", e.target.checked)}
+                  className="size-4 rounded border border-input"
+                />
+                <label htmlFor="deepDiveEnabled" className="text-sm font-medium">
+                  Enable deep-dive web research
+                </label>
+              </div>
+              <div className="space-y-2">
+                <FieldLabel>Validate Tavily connection</FieldLabel>
+                <p className="text-xs text-muted-foreground">
+                  Runs a single test search against Tavily using the configured API key. Result is shown as a toast.
+                </p>
+                <Button onClick={handleTestTavily} disabled={testingTavily} size="sm">
+                  <TestTube className="mr-2 size-4" />
+                  {testingTavily ? "Testing..." : "Test Tavily"}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

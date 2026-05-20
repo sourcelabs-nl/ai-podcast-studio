@@ -243,6 +243,29 @@ app:
 
 Each podcast can override the global threshold via `maxLlmCostCents`. When set to `null` (the default), the global value applies. The estimation is pessimistic — it assumes all articles pass relevance filtering — so actual costs will typically be lower than estimated. If model pricing is not configured, the cost gate is bypassed with a warning.
 
+### Deep-Dive Web Research
+
+When `deepDiveEnabled` is set on a podcast, the script composer is given a `webSearch` tool backed by [Tavily](https://tavily.com). The LLM autonomously decides when to call it — typically 1–2 times for the most newsworthy story — to add outside context that isn't present in the source articles. The tool is capped at **3 calls per episode**.
+
+Configuration:
+
+```yaml
+app:
+  research:
+    tavily:
+      cost-per-call-cents: 1    # Tavily basic search ≈ $0.008/call, rounded up
+    cost-buffer-cents: 5        # Added to the cost-gate estimate when deep-dive is on
+```
+
+API key resolution (same precedence as other providers):
+
+1. User-stored key under category `RESEARCH`, provider `tavily` (encrypted at rest).
+2. `TAVILY_API_KEY` environment variable.
+
+If no key is resolvable, generation still succeeds — the tool returns empty results and a single warning is logged per episode. Each call is cached on `(query_hash, max_results)` so repeated identical queries (across episodes) reuse the response without re-hitting Tavily.
+
+Episode responses include `researchCalls` (number of `webSearch` invocations) and `researchCostCents` (Tavily cost only). The dashboard shows these on the episode detail page when `researchCalls > 0`. The toggle and a "Test Tavily" validation button live under **Podcast Settings → Research**.
+
 ### Static Feed Export
 
 After each feed-changing event (episode generation, approval, or cleanup), the system writes a `feed.xml` file to the podcast's episode directory (`data/episodes/{podcastId}/feed.xml`). This lets you host the entire directory on a static file server (S3, Nginx, GitHub Pages) without running the application.
@@ -531,11 +554,11 @@ GET    /users/{userId}/voices?provider=inworld     — List available Inworld AI
 
 ```
 GET    /users/{userId}/api-keys              — List configured providers
-PUT    /users/{userId}/api-keys/{category}   — Set provider (LLM or TTS)
+PUT    /users/{userId}/api-keys/{category}   — Set provider (LLM, TTS, or RESEARCH)
 DELETE /users/{userId}/api-keys/{category}   — Remove provider config
 ```
 
-Users can configure their own LLM and TTS providers. Supported LLM providers: `openrouter`, `openai`, `ollama`. Supported TTS providers: `openai`, `elevenlabs`, `inworld`. API keys are stored encrypted (AES-256).
+Users can configure their own LLM, TTS, and research providers. Supported LLM providers: `openrouter`, `openai`, `ollama`. Supported TTS providers: `openai`, `elevenlabs`, `inworld`. Supported research providers: `tavily`. API keys are stored encrypted (AES-256).
 
 ## Running Tests
 

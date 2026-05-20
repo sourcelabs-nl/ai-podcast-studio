@@ -98,7 +98,8 @@ class PodcastController(
                 sponsor = request.sponsor,
                 pronunciations = request.pronunciations,
                 recapLookbackEpisodes = request.recapLookbackEpisodes,
-                composeSettings = request.composeSettings
+                composeSettings = request.composeSettings,
+                deepDiveEnabled = request.deepDiveEnabled ?: false
             )
         )
         return ResponseEntity.created(URI.create("/users/$userId/podcasts/${podcast.id}"))
@@ -176,7 +177,8 @@ class PodcastController(
                 sponsor = request.sponsor.orKeep(existing.sponsor),
                 pronunciations = request.pronunciations.orKeep(existing.pronunciations),
                 recapLookbackEpisodes = request.recapLookbackEpisodes,
-                composeSettings = request.composeSettings.orKeep(existing.composeSettings)
+                composeSettings = request.composeSettings.orKeep(existing.composeSettings),
+                deepDiveEnabled = request.deepDiveEnabled ?: existing.deepDiveEnabled
             )
         ) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(updated.toResponse())

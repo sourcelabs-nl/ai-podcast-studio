@@ -18,7 +18,8 @@ class UserProviderConfigService(
             "openai" to "https://api.openai.com",
             "ollama" to "http://localhost:11434/v1",
             "elevenlabs" to "https://api.elevenlabs.io",
-            "inworld" to "https://api.inworld.ai"
+            "inworld" to "https://api.inworld.ai",
+            "tavily" to "https://api.tavily.com"
         )
     }
 
@@ -82,6 +83,9 @@ class UserProviderConfigService(
             ProviderConfig(baseUrl = "https://api.openai.com", apiKey = it)
         }
         ApiKeyCategory.PUBLISHING -> null
+        ApiKeyCategory.RESEARCH -> System.getenv("TAVILY_API_KEY")?.let {
+            ProviderConfig(baseUrl = "https://api.tavily.com", apiKey = it)
+        }
     }
 
     private fun globalFallbackForProvider(category: ApiKeyCategory, provider: String): ProviderConfig? {
@@ -95,6 +99,7 @@ class UserProviderConfigService(
             category == ApiKeyCategory.LLM && provider == "openrouter" -> "OPENROUTER_API_KEY"
             category == ApiKeyCategory.TTS && provider == "openai" -> "OPENAI_API_KEY"
             category == ApiKeyCategory.TTS && provider == "elevenlabs" -> "ELEVENLABS_API_KEY"
+            category == ApiKeyCategory.RESEARCH && provider == "tavily" -> "TAVILY_API_KEY"
             else -> return null
         }
         return System.getenv(envKey)?.let {

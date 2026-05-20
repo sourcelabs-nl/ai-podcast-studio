@@ -176,6 +176,22 @@ class BriefingComposerTest {
     }
 
     @Test
+    fun `buildPrompt includes webSearch nudge when deepDiveEnabled`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", deepDiveEnabled = true)
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("webSearch"), "Expected webSearch tool name in prompt when deep-dive enabled")
+        assertTrue(prompt.contains("DEEP DIVE"), "Expected DEEP DIVE directive in prompt")
+    }
+
+    @Test
+    fun `buildPrompt omits webSearch nudge when deepDiveEnabled is false`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", deepDiveEnabled = false)
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertFalse(prompt.contains("webSearch"), "Did not expect webSearch tool in prompt when deep-dive disabled")
+        assertFalse(prompt.contains("DEEP DIVE"))
+    }
+
+    @Test
     fun `buildPrompt includes language instruction for non-English podcast`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Tech NL", topic = "tech", language = "nl")
         val prompt = composer.buildPrompt(sampleArticles, podcast)

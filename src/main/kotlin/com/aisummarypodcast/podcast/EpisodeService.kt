@@ -113,6 +113,8 @@ class EpisodeService(
                 llmInputTokens = result.llmInputTokens,
                 llmOutputTokens = result.llmOutputTokens,
                 llmCostCents = result.llmCostCents,
+                researchCalls = result.researchCalls,
+                researchCostCents = result.researchCostCents,
                 pipelineStage = if (podcast.requireReview) null else "tts",
                 status = if (podcast.requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING
             )
@@ -231,7 +233,9 @@ class EpisodeService(
                 composeModel = composeResult.composeModel,
                 llmInputTokens = (fresh.llmInputTokens ?: 0) + composeResult.usage.inputTokens,
                 llmOutputTokens = (fresh.llmOutputTokens ?: 0) + composeResult.usage.outputTokens,
-                llmCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.llmCostCents, composeResult.composeCostCents)
+                llmCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.llmCostCents, composeResult.composeCostCents),
+                researchCalls = fresh.researchCalls + composeResult.researchCalls,
+                researchCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.researchCostCents, composeResult.researchCostCents)
             )
         )
         log.info("[Pipeline] Saved compose result for episode {}", episode.id)

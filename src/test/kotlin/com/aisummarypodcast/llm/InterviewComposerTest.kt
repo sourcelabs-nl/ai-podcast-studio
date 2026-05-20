@@ -49,6 +49,17 @@ class InterviewComposerTest {
     }
 
     @Test
+    fun `prompt includes webSearch nudge when deepDiveEnabled, omits otherwise`() {
+        val enabled = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = true))
+        assertTrue(enabled.contains("webSearch"))
+        assertTrue(enabled.contains("DEEP DIVE"))
+
+        val disabled = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = false))
+        assertFalse(disabled.contains("webSearch"))
+        assertFalse(disabled.contains("DEEP DIVE"))
+    }
+
+    @Test
     fun `prompt includes sponsor message when configured`() {
         val podcastWithSponsor = podcast.copy(sponsor = mapOf("name" to "Acme Corp", "message" to "building the future"))
         val prompt = composer.buildPrompt(articles, podcastWithSponsor)

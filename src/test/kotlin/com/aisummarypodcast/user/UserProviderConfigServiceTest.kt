@@ -193,6 +193,45 @@ class UserProviderConfigServiceTest {
     }
 
     @Test
+    fun `setConfig encrypts Tavily research key`() {
+        every { encryptor.encrypt("tvly-secret") } returns "encrypted-tvly"
+        every { repository.save(any()) } returns Unit
+
+        service.setConfig(userId, ApiKeyCategory.RESEARCH, "tavily", "tvly-secret", null)
+
+        verify {
+            repository.save(
+                UserProviderConfig(
+                    userId = userId,
+                    provider = "tavily",
+                    category = ApiKeyCategory.RESEARCH,
+                    baseUrl = null,
+                    encryptedApiKey = "encrypted-tvly"
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `resolveConfig with tavily returns user key when configured`() {
+        val config = UserProviderConfig(userId, "tavily", ApiKeyCategory.RESEARCH, null, "encrypted-tvly")
+        every {
+            repository.findByUserIdAndCategoryAndProvider(userId, ApiKeyCategory.RESEARCH, "tavily")
+        } returns config
+        every { encryptor.decrypt("encrypted-tvly") } returns "tvly-user-key"
+
+        val result = service.resolveConfig(userId, ApiKeyCategory.RESEARCH, "tavily")
+
+        assertEquals("tvly-user-key", result?.apiKey)
+        assertEquals("https://api.tavily.com", result?.baseUrl)
+    }
+
+    @Test
+    fun `hasDefaultUrl recognises tavily`() {
+        assertEquals(true, service.hasDefaultUrl("tavily"))
+    }
+
+    @Test
     fun `hasDefaultUrl is case-insensitive`() {
         assertEquals(true, service.hasDefaultUrl("OpenRouter"))
         assertEquals(true, service.hasDefaultUrl("OLLAMA"))
