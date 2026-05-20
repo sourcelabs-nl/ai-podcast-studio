@@ -41,6 +41,7 @@ class SourcePollingScheduler(
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var firstCycle = true
 
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
@@ -67,9 +68,14 @@ class SourcePollingScheduler(
         val allSources = sourceRepository.findAll().filter { it.enabled }
         log.info("[Polling] Checking {} enabled sources", allSources.count())
 
-        val jitteredSources = applyStartupJitter(allSources)
+        val effectiveSources = if (firstCycle) {
+            firstCycle = false
+            applyStartupJitter(allSources)
+        } else {
+            allSources
+        }
 
-        val dueSources = jitteredSources.filter { isDue(it) }
+        val dueSources = effectiveSources.filter { isDue(it) }
         log.info("[Polling] {} sources are due for polling", dueSources.size)
 
         val sourcesByPodcast = allSources.groupBy { it.podcastId }

@@ -146,6 +146,34 @@ class SourcePollingSchedulerTest {
     }
 
     @Test
+    fun `newly added source with null lastPolled is polled on next cycle without jitter`() = runTest {
+        val existing = Source(
+            id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/rss",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString()
+        )
+        val newlyAdded = Source(
+            id = "s2", podcastId = "p1", type = SourceType.RSS, url = "https://other.com/rss",
+            lastPolled = null, pollIntervalMinutes = 60
+        )
+        every { podcastService.findById("p1") } returns podcast
+        every { sourceRepository.save(any()) } answers { firstArg() }
+
+        val scheduler = scheduler()
+
+        // First cycle: only the existing source is present, jitter applied to it would be a no-op (already has lastPolled).
+        every { sourceRepository.findAll() } returns listOf(existing)
+        scheduler.pollSources()
+
+        // Mid-run: a new source is added with lastPolled = null. It must be polled on the next cycle
+        // without jitter consuming the first interval.
+        every { sourceRepository.findAll() } returns listOf(existing, newlyAdded)
+        scheduler.pollSources()
+
+        verify(exactly = 1) { sourcePoller.poll(newlyAdded, null, 7, listOf("s1", "s2")) }
+        verify(exactly = 0) { sourceRepository.save(match { it.id == "s2" }) }
+    }
+
+    @Test
     fun `applyStartupJitter does not modify sources with existing lastPolled`() = runTest {
         val existingLastPolled = Instant.now().minus(30, ChronoUnit.MINUTES).toString()
         val source = Source(
