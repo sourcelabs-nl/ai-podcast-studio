@@ -84,7 +84,7 @@ class TtsPipeline(
     private fun callProvider(script: String, podcast: Podcast): TtsResult {
         val provider = ttsProviderFactory.resolve(podcast)
         val request = TtsRequest(
-            script = script,
+            script = TtsScriptSanitizer.sanitize(script),
             ttsVoices = podcast.ttsVoices ?: mapOf("default" to "nova"),
             ttsSettings = podcast.ttsSettings ?: emptyMap(),
             language = podcast.language,

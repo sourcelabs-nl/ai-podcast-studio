@@ -100,16 +100,16 @@ class BriefingComposer(
             - Include smooth transitions between topics
             - Target approximately $targetWords words
             - In the introduction, mention the podcast name, its topic, and today's date$sponsorBlock
-            - Naturally attribute information to its source and credit original authors when known (e.g., "as John Smith reports for TechCrunch") — do not over-cite
+            - Naturally attribute information to its source and credit original authors when known (e.g., "as John Smith reports for TechCrunch"), but do not over-cite
             - Do NOT include any stage directions, sound effects, section headers (like [Opening], [Closing], [Transition]), or non-spoken text. TTS-supported cues (described in the TTS formatting section below, if present) ARE allowed
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
-            - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge
+            - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}
 
             Engagement techniques:${buildHistoryLookupBlock()}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise. Use clear verbal signposts and smooth transitions so listeners always know where they are. $transitionsDirective
-            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance — use emphatic language, exclamation marks, and brief pauses to let important news land. Not everything is exciting; save the energy for what truly stands out
+            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not everything is exciting; save the energy for what truly stands out
             - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$toneBlock$languageInstruction$customInstructionsBlock
 
             Article summaries:

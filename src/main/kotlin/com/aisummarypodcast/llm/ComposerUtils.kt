@@ -65,7 +65,7 @@ fun buildSponsorBlock(sponsor: Map<String, String>?, speakerPrefix: String = "")
         val name = s["name"] ?: return@let ""
         val message = s["message"] ?: return@let ""
         """
-            - Immediately after the introduction, ${speakerPrefix}include the sponsor message: "This podcast is brought to you by $name — $message."
+            - Immediately after the introduction, ${speakerPrefix}include the sponsor message: "This podcast is brought to you by $name, $message."
             - End with a sign-off that includes a mention of the sponsor: $name"""
     } ?: ""
 
@@ -98,6 +98,14 @@ fun buildTopicOrderBlock(topicLabels: List<String>): String {
  */
 fun buildHistoryLookupBlock(): String = """
             - HISTORY CHECK: Before treating any subject as new, call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}). If the tool returns a prior episode that covered the topic, either skip it, treat it as a follow-up referencing the prior coverage, or angle the segment as an update. You have a small budget for these lookups; spend them on topics most likely to have been covered before"""
+
+/**
+ * Shared punctuation rule for every compose-stage prompt: forbids em-dash and en-dash
+ * characters, which the TTS engines mispronounce. Included verbatim in briefing, dialogue,
+ * and interview prompts so the rule lives in one place.
+ */
+fun buildPunctuationBlock(): String =
+    "\n            - PUNCTUATION: Do NOT use em-dashes (—) or en-dashes (–) anywhere in the script. Use commas, colons, parentheses, or short sentences instead. The TTS engine mispronounces dash characters."
 
 fun extractDomainAndPath(url: String): String =
     try {

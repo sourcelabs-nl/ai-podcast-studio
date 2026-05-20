@@ -57,7 +57,7 @@ class InterviewComposer(
         val expertName = podcast.speakerNames?.get("expert")
 
         val nameInstruction = if (interviewerName != null && expertName != null) {
-            "\n            - The interviewer's name is \"$interviewerName\" and the expert's name is \"$expertName\". Use names naturally in conversation — place them mid-sentence or at the end of questions, never as bare turn openers."
+            "\n            - The interviewer's name is \"$interviewerName\" and the expert's name is \"$expertName\". Use names naturally in conversation: place them mid-sentence or at the end of questions, never as bare turn openers."
         } else {
             "\n            - Speakers should address each other without using names."
         }
@@ -89,7 +89,7 @@ class InterviewComposer(
         val topicOrderBlock = buildTopicOrderBlock(topicLabels)
 
         return """
-            You are writing an interview-style podcast script between an interviewer and an expert. The interviewer acts as an audience surrogate — asking questions, bridging topics, and providing brief reactions. The expert delivers the news content, context, and analysis.
+            You are writing an interview-style podcast script between an interviewer and an expert. The interviewer acts as an audience surrogate, asking questions, bridging topics, and providing brief reactions. The expert delivers the news content, context, and analysis.
 
             Podcast: ${podcast.name}
             Topic: ${podcast.topic}
@@ -102,39 +102,39 @@ class InterviewComposer(
             - Example format:
             <interviewer>Example question or reaction</interviewer>
             <expert>Example detailed answer with analysis</expert>
-            - ALL text MUST be inside speaker tags — no text outside of tags
+            - ALL text MUST be inside speaker tags. No text outside of tags
             - Target approximately $targetWords words
             - In the introduction, the interviewer should mention the podcast name, its topic, and today's date$sponsorBlock$comingUpTeaser
             - Naturally attribute information to its source and credit original authors when known
             - Do NOT include any stage directions, sound effects, or non-spoken text outside of speaker tags. Inside speaker tags, TTS-supported cues (described in the TTS formatting section below, if present) ARE allowed
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
-            - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge
+            - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}
 
             Engagement techniques:${buildHistoryLookupBlock()}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
-            - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode — do not lean on the same hook construction twice
+            - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode (do not lean on the same hook construction twice)
             - MID-ROLL CALLBACKS: Reference earlier topics later in the episode to create narrative cohesion. Cross-reference at least once per episode without resorting to a stock phrasing
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise (roughly 60-90 seconds each). $transitionsDirective
             - TOPIC ENTRY: $topicEntryDirective Vary the entry wording across topics within the same episode
-            - STRATEGIC CLIFFHANGERS: Include 2-3 forward hooks spread across the episode, teasing something from a later story before transitioning. Phrase each cliffhanger differently — no two should share the same construction. Do NOT overuse — only 2-3 per episode at natural transition points
-            - SPONTANEOUS INTERRUPTIONS: The interviewer should interrupt the expert 4-5 times per episode with genuine, varied reactions — not polite topic bridges, but emotional and spontaneous interjections. Mix the flavours across these categories:
+            - STRATEGIC CLIFFHANGERS: Include 2-3 forward hooks spread across the episode, teasing something from a later story before transitioning. Phrase each cliffhanger differently (no two should share the same construction). Do NOT overuse, only 2-3 per episode at natural transition points
+            - SPONTANEOUS INTERRUPTIONS: The interviewer should interrupt the expert 4-5 times per episode with genuine, varied reactions, not polite topic bridges, but emotional and spontaneous interjections. Mix the flavours across these categories:
               * Excited (sudden disbelief at a number or claim)
               * Skeptical (pushing back on a framing or precedent)
               * Confused (audience-surrogate request for plainer language)
               * Connecting dots (linking back to an earlier topic)
               * Playful disagreement (taking the opposite side for friction)
               Each interruption MUST be phrased differently from the others in this episode. The expert can push back too with their own voice when their thought is being cut off mid-argument.
-            - STRICT TURN LENGTH: The expert MUST NOT speak for more than 3-4 sentences in a single turn. This is a HARD RULE, not a suggestion. After 3-4 sentences, the interviewer MUST jump in — even if it's just a short reaction. Long expert monologues are the number one cause of listener drop-off. Keep the rhythm tight
-            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance — use emphatic language, exclamation marks, and brief pauses to let important news land. Not everything is exciting; save the energy for what truly stands out
+            - STRICT TURN LENGTH: The expert MUST NOT speak for more than 3-4 sentences in a single turn. This is a HARD RULE, not a suggestion. After 3-4 sentences, the interviewer MUST jump in, even if it's just a short reaction. Long expert monologues are the number one cause of listener drop-off. Keep the rhythm tight
+            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not everything is exciting; save the energy for what truly stands out
             - PENULTIMATE EXCHANGE: $penultimateDirective
             - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$toneBlock
 
             Speaker transitions:
-            - Speaker transitions must sound natural — do NOT start a turn with a bare name address. Instead, use conversational bridges: reactions, follow-ups, or connectors before transitioning
+            - Speaker transitions must sound natural: do NOT start a turn with a bare name address. Instead, use conversational bridges, reactions, follow-ups, or connectors before transitioning
             - When using the other speaker's name, place it mid-sentence or at the end of a question rather than as the first word of a turn
-            - Vary transition patterns — not every handover needs a name, a reaction, or the same phrasing. Mix questions, reactions, bridges, and direct topic shifts
-            - STRICT STRUCTURAL RULE — NEVER place two consecutive tags of the same speaker. The pattern <expert>...</expert><expert>...</expert> or <interviewer>...</interviewer><interviewer>...</interviewer> is ABSOLUTELY FORBIDDEN and will break the TTS pipeline. Tags MUST strictly alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. This rule overrides any other instruction including custom instructions below$nameInstruction$languageInstruction$customInstructionsBlock
+            - Vary transition patterns: not every handover needs a name, a reaction, or the same phrasing. Mix questions, reactions, bridges, and direct topic shifts
+            - STRICT STRUCTURAL RULE: NEVER place two consecutive tags of the same speaker. The pattern <expert>...</expert><expert>...</expert> or <interviewer>...</interviewer><interviewer>...</interviewer> is ABSOLUTELY FORBIDDEN and will break the TTS pipeline. Tags MUST strictly alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. This rule overrides any other instruction including custom instructions below$nameInstruction$languageInstruction$customInstructionsBlock
 
             Article summaries:
             $summaryBlock$ttsGuidelinesBlock$topicOrderBlock
