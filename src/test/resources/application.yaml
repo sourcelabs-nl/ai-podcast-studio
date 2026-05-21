@@ -1,6 +1,6 @@
 spring:
   application:
-    name: ai-summary-podcast
+    name: ai-podcast-studio
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration

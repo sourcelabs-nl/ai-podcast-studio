@@ -9,9 +9,9 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.aisummarypodcast</groupId>
-	<artifactId>ai-summary-podcast</artifactId>
+	<artifactId>ai-podcast-studio</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>ai-summary-podcast</name>
+	<name>ai-podcast-studio</name>
 	<description>AI-powered podcast pipeline that monitors content sources, summarizes with LLM, and delivers audio briefings via RSS</description>
 	<properties>
 		<java.version>25</java.version>
