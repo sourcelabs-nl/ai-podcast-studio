@@ -3,11 +3,7 @@
 ## Purpose
 
 Hybrid auto-detect + per-source override aggregation of short-form content items (tweets, microposts) into a single article per source per poll cycle for more effective LLM processing.
-
 ## Requirements
-
-## MODIFIED Requirements
-
 ### Requirement: Source article aggregation
 The system SHALL provide a `SourceAggregator` component that merges multiple posts from a single source into one consolidated digest article. The aggregator SHALL be invoked during script generation (in the LLM pipeline), NOT during source polling. When a source has 0 or 1 posts, the aggregator SHALL return them as individual articles (1:1 mapping). The aggregator SHALL create entries in the `post_articles` join table linking each post to its resulting article.
 
@@ -43,25 +39,29 @@ The aggregator SHALL only include posts whose `created_at` falls within a config
 - **THEN** only the 3 recent posts are included in the aggregation
 
 ### Requirement: Aggregated article format
-The aggregated article SHALL have the following fields:
-- `title`: `"Posts from @{username} — {date}"` where username is the first post's author value (kept as-is including `@` prefix if present), or the source URL domain if no author is available. Date is formatted as `MMM d, yyyy` in English locale using UTC timezone (e.g. `Feb 16, 2026`)
-- `body`: All post bodies joined with `\n\n---\n\n`, each prefixed with its `publishedAt` timestamp on a separate line if available
-- `url`: The source URL
-- `publishedAt`: The most recent `publishedAt` value from the included posts
-- `author`: The first post's author value, or `null` if no posts have an author
-- `contentHash`: Computed as SHA-256 of the aggregated body
+Each thread article SHALL have the following fields:
+- `title`: The parent post's title (full text, not truncated)
+- `body`: Parent post body followed by reply bodies joined with `\n\n---\n\n`, each prefixed with its `publishedAt` timestamp on a separate line if available
+- `url`: The parent post's URL, with nitter.net hostname rewritten to x.com
+- `publishedAt`: The parent post's `publishedAt` value
+- `author`: The parent post's author value, or `null` if no author
+- `contentHash`: Computed as SHA-256 of the combined body
 
-#### Scenario: Digest title with known author
-- **WHEN** aggregating posts from a source where the first post has `author` = `@simonw`
-- **THEN** the digest title is `"Posts from @simonw — Feb 16, 2026"` (using the most recent post's date)
+#### Scenario: Thread article URL rewritten from nitter to x.com
+- **WHEN** a thread's parent post has URL `https://nitter.net/user/status/12345#m`
+- **THEN** the article URL is `https://x.com/user/status/12345#m`
 
-#### Scenario: Digest title without author
-- **WHEN** aggregating posts from a source where posts have no author field
-- **THEN** the digest title uses the source URL domain, e.g. `"Posts from nitter.net — Feb 16, 2026"`
+#### Scenario: Thread article title is parent post title
+- **WHEN** a thread has parent post with title "Gemini 3.1 Flash Live is now available..."
+- **THEN** the article title is "Gemini 3.1 Flash Live is now available..."
 
-#### Scenario: Digest body format
-- **WHEN** aggregating 2 posts with bodies "Hello world" (published 10:00) and "Good morning" (published 09:00)
-- **THEN** the digest body contains both texts separated by `\n\n---\n\n`, each prefixed with its timestamp
+#### Scenario: Thread article body includes replies
+- **WHEN** a thread has parent body "Main content" and one reply body "Additional link"
+- **THEN** the article body contains both texts separated by `\n\n---\n\n`
+
+#### Scenario: Non-nitter URLs unchanged
+- **WHEN** a thread's parent post has URL `https://example.com/post/123`
+- **THEN** the article URL is `https://example.com/post/123` (unchanged)
 
 ### Requirement: Hybrid aggregation detection
 The system SHALL determine whether to aggregate a source's posts using a hybrid approach:
@@ -91,3 +91,27 @@ The system SHALL determine whether to aggregate a source's posts using a hybrid 
 #### Scenario: Auto-detect does not aggregate regular RSS
 - **WHEN** an RSS source with URL `https://example.com/feed.xml` has `aggregate` = `null`
 - **THEN** posts from this source are NOT aggregated (each post becomes an individual article)
+
+### Requirement: Thread detection
+The aggregator SHALL detect threads by identifying reply posts and grouping them with their parent. A post SHALL be considered a reply if its title starts with "R to @" (case-sensitive). Posts SHALL be sorted by `publishedAt` ascending before grouping. Each non-reply post starts a new thread. Each reply post SHALL be attached to the most recent preceding non-reply post (the current parent). If a reply has no preceding parent, it SHALL be treated as a standalone thread.
+
+#### Scenario: Reply grouped with parent
+- **WHEN** posts are ["Parent post" at 17:00:00, "R to @user: reply" at 17:00:01]
+- **THEN** both posts form one thread with "Parent post" as the parent
+
+#### Scenario: Multiple replies grouped with parent
+- **WHEN** posts are ["Parent" at 17:00:00, "R to @user: reply 1" at 17:00:01, "R to @user: reply 2" at 17:00:02]
+- **THEN** all 3 posts form one thread
+
+#### Scenario: Multiple threads detected
+- **WHEN** posts are ["Thread A" at 10:00, "R to @user: A reply" at 10:01, "Thread B" at 15:00, "R to @user: B reply" at 15:01]
+- **THEN** 2 threads are created: [Thread A + A reply] and [Thread B + B reply]
+
+#### Scenario: Orphan reply becomes standalone thread
+- **WHEN** the first post is "R to @user: orphan reply" with no preceding parent
+- **THEN** it becomes a standalone thread with the reply as the parent
+
+#### Scenario: Standalone posts become single-post threads
+- **WHEN** posts are ["Standalone A" at 10:00, "Standalone B" at 15:00] and neither starts with "R to @"
+- **THEN** 2 single-post threads are created
+

@@ -3,9 +3,7 @@
 ## Purpose
 
 Topic-based deduplication filter that clusters candidate articles by topic, compares them against historical episode articles, and returns a filtered, annotated set for composition.
-
 ## Requirements
-
 ### Requirement: Topic dedup filter clusters and deduplicates articles before composition
 The system SHALL provide a `TopicDedupFilter` component that clusters candidate articles by topic, compares them against historical episode articles, and returns a filtered, annotated set for composition. The filter SHALL use the filter model (cheap LLM) via a single call.
 
@@ -69,3 +67,13 @@ The system SHALL fetch historical articles by joining `episode_articles` with `a
 #### Scenario: Discarded and pending episodes excluded from history
 - **WHEN** the most recent 3 episodes are DISCARDED and the 4th is GENERATED
 - **THEN** historical articles are only fetched from GENERATED episodes, skipping the discarded ones
+
+### Requirement: Dedup filter behavior remains unchanged
+
+The existing `TopicDedupFilter` behavior SHALL be unchanged: it MUST continue to receive article titles and summaries from the most recent `recapLookbackEpisodes` (default 7) episodes and label clusters as `NEW`, `CONTINUATION`, or skipped. The new `searchPastEpisodes` tool at compose time SHALL be additive — it MUST NOT replace, gate, or alter the dedup-filter decisions.
+
+#### Scenario: Dedup filter still runs unchanged
+
+- **WHEN** the pipeline runs for any podcast
+- **THEN** `TopicDedupFilter.filter()` is called with the same inputs and produces the same outputs as before this change
+

@@ -3,9 +3,7 @@
 ## Purpose
 
 Encrypted per-user provider configuration storage for LLM and TTS providers, with configurable base URLs and fallback to global environment variables.
-
 ## Requirements
-
 ### Requirement: Provider credentials encrypted at rest
 The system SHALL encrypt API keys before storing them in the database using AES-256-GCM. Each key SHALL be encrypted with a unique random IV (initialization vector). The combined `IV + ciphertext` SHALL be Base64-encoded and stored in the `encrypted_api_key` column. The master encryption key SHALL be provided via the `app.encryption.master-key` application property.
 
@@ -179,3 +177,32 @@ The system SHALL store OAuth-based external service connections (e.g., SoundClou
 #### Scenario: Existing API key operations unaffected
 - **WHEN** a user has both API key configs (LLM, TTS) and an OAuth connection (SoundCloud)
 - **THEN** all existing API key CRUD operations and pipeline resolution work exactly as before
+
+### Requirement: RESEARCH API key category
+
+The `ApiKeyCategory` enum SHALL include a `RESEARCH` value. The API SHALL accept `PUT /users/{userId}/api-keys/research` and `DELETE /users/{userId}/api-keys/research` for storing and removing the user's Tavily API key. Stored keys MUST be encrypted on disk like all other categories.
+
+#### Scenario: Tavily key is stored encrypted
+
+- **WHEN** a client calls `PUT /users/{userId}/api-keys/research` with `{"provider":"tavily","apiKey":"tvly-abc"}`
+- **THEN** the configuration row is persisted with the API key encrypted at rest
+
+#### Scenario: Research category lists alongside LLM and TTS
+
+- **WHEN** a client calls `GET /users/{userId}/api-keys`
+- **THEN** the response includes the research category entry if configured
+
+### Requirement: Research key resolves with environment fallback
+
+`UserProviderConfigService` SHALL resolve the Tavily key from the user's stored configuration first, then fall back to the `TAVILY_API_KEY` environment variable when none is configured.
+
+#### Scenario: Env fallback used
+
+- **WHEN** no Tavily key is configured for the user but `TAVILY_API_KEY` is set
+- **THEN** `resolveConfig(userId, RESEARCH, "tavily")` returns a config whose `apiKey` equals the env value
+
+#### Scenario: User key takes precedence
+
+- **WHEN** both a user-configured key and `TAVILY_API_KEY` exist
+- **THEN** `resolveConfig` returns the user-configured key
+

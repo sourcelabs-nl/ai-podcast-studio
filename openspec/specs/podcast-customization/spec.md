@@ -3,9 +3,7 @@
 ## Purpose
 
 Per-podcast customization of LLM model, TTS voice/speed, briefing style, target word count, custom instructions, and generation schedule.
-
 ## Requirements
-
 ### Requirement: LLM model selection per podcast
 Each podcast SHALL have an optional `llm_models` field (TEXT, nullable, stored as JSON). The JSON value SHALL be a map of stage name to named model reference (e.g., `{"filter": "local", "compose": "capable"}`). When a stage key is present, the LLM pipeline SHALL use the referenced named model for that stage. When a stage key is absent or `llm_models` is null, the system SHALL fall back to the global stage default from `app.llm.defaults`. The `llm_models` field SHALL be serialized to/from JSON using a custom Spring Data JDBC converter.
 
@@ -349,3 +347,127 @@ Each podcast SHALL have an optional `sponsor` field (TEXT, nullable, stored as J
 #### Scenario: Sponsor defaults to null
 - **WHEN** a podcast is created without specifying `sponsor`
 - **THEN** the `sponsor` defaults to null
+
+### Requirement: Recap lookback episodes per podcast
+Each podcast SHALL have an optional `recap_lookback_episodes` field (INTEGER, nullable). When set, the LLM pipeline SHALL use this value as the number of recent episode recaps to pass to the composer for topic deduplication. When null, the system SHALL fall back to the global `app.episode.recap-lookback-episodes` config value (default: 7). The field SHALL be accepted in podcast create (`POST`) and update (`PUT`) endpoints and included in GET responses. The field SHALL use a `@JsonProperty` annotation on the DTO to ensure correct deserialization.
+
+#### Scenario: Podcast with custom recap lookback
+- **WHEN** a podcast has `recap_lookback_episodes` set to 3
+- **THEN** the LLM pipeline fetches the 3 most recent episode recaps for deduplication context
+
+#### Scenario: Podcast with no recap lookback override
+- **WHEN** a podcast has `recap_lookback_episodes` set to null
+- **THEN** the LLM pipeline uses the global `app.episode.recap-lookback-episodes` value (7)
+
+#### Scenario: Recap lookback accepted in create endpoint
+- **WHEN** a `POST /users/{userId}/podcasts` request includes `"recapLookbackEpisodes": 5`
+- **THEN** the podcast is created with `recap_lookback_episodes` set to 5
+
+#### Scenario: Recap lookback accepted in update endpoint
+- **WHEN** a `PUT /users/{userId}/podcasts/{podcastId}` request includes `"recapLookbackEpisodes": 10`
+- **THEN** the podcast's `recap_lookback_episodes` is updated to 10
+
+#### Scenario: Recap lookback included in GET response
+- **WHEN** a `GET /users/{userId}/podcasts/{podcastId}` request is received for a podcast with `recap_lookback_episodes` set to 5
+- **THEN** the response includes `"recapLookbackEpisodes": 5`
+
+#### Scenario: Clear recap lookback override
+- **WHEN** a `PUT /users/{userId}/podcasts/{podcastId}` request includes `"recapLookbackEpisodes": null`
+- **THEN** the podcast's `recap_lookback_episodes` is set to null and the system falls back to the global default
+
+### Requirement: composeSettings podcast field
+
+A podcast SHALL accept an optional `composeSettings` field — a `Map<String, String>` mirroring the existing `ttsSettings` shape. For v1 the only recognised key is `"temperature"` (parsed as a decimal in `[0.0, 2.0]`); other keys MAY be persisted but MUST be ignored by the compose stage. The field SHALL be persisted on the `podcasts` table as `compose_settings TEXT` (JSON), returned by the podcast GET endpoint, and accepted by the create/update endpoints.
+
+When `composeSettings` is null or the `temperature` key is absent, the compose stage applies the system default of `0.95` (configured via `app.briefing.default-temperature`).
+
+#### Scenario: Field round-trips through the API
+
+- **WHEN** a client sends `PUT /users/{userId}/podcasts/{podcastId}` with `composeSettings = {"temperature": "0.7"}`
+- **THEN** the value is persisted and the next `GET` for the same podcast returns `composeSettings.temperature == "0.7"`
+
+#### Scenario: Out-of-range temperature rejected
+
+- **WHEN** a client sends `composeSettings = {"temperature": "2.5"}`
+- **THEN** the API returns HTTP 422 with a message identifying the allowed range
+
+#### Scenario: Unparseable temperature rejected
+
+- **WHEN** a client sends `composeSettings = {"temperature": "warm"}`
+- **THEN** the API returns HTTP 422
+
+#### Scenario: Null map falls back to default
+
+- **WHEN** a podcast is created without an explicit `composeSettings`
+- **THEN** the persisted column is `NULL` and the compose stage uses `temperature=0.95`
+
+#### Scenario: Update with orKeep semantics
+
+- **WHEN** a client sends `PUT` without `composeSettings` (key absent)
+- **THEN** the existing persisted value is preserved (parity with how `ttsSettings` is handled)
+
+#### Scenario: Update can clear the map
+
+- **WHEN** a client sends `PUT` with `composeSettings = {}` (empty map)
+- **THEN** the persisted column becomes `NULL` (parity with how `ttsSettings` is cleared)
+
+### Requirement: Subtopics per podcast
+Each podcast SHALL have an optional `subtopics` field (TEXT, nullable, stored as JSON). The JSON value SHALL be a map of subtopic name (non-empty string) to weight (integer, 1-10). The field SHALL be accepted in podcast create (`POST`) and update (`PUT`) endpoints and returned by GET. The field SHALL be serialized to/from JSON using the same Spring Data JDBC converter pattern used by `llmModels`, `ttsVoices`, etc. An empty map (`{}`) SHALL clear the field to null per the existing clearing-nullable-fields convention. Validation: any weight outside the 1-10 range or any empty key SHALL result in HTTP 400.
+
+#### Scenario: Create podcast with subtopics
+- **WHEN** a `POST /users/{userId}/podcasts` request includes `subtopics: {"LLM releases": 10, "Dev tools": 5}`
+- **THEN** the podcast is created with `subtopics` persisted as that JSON map
+
+#### Scenario: Update podcast subtopics
+- **WHEN** a `PUT /users/{userId}/podcasts/{podcastId}` request includes `subtopics: {"X": 8}`
+- **THEN** the podcast's `subtopics` is updated to the new value
+
+#### Scenario: Clear subtopics with empty map
+- **WHEN** a `PUT` request includes `subtopics: {}`
+- **THEN** the podcast's `subtopics` is cleared to null
+
+#### Scenario: Get podcast includes subtopics
+- **WHEN** a `GET /users/{userId}/podcasts/{podcastId}` request is received
+- **THEN** the response includes `subtopics` (the JSON map, or null if not set)
+
+#### Scenario: Invalid weight rejected
+- **WHEN** a `POST` or `PUT` request includes `subtopics: {"X": 0}` or `subtopics: {"Y": 11}`
+- **THEN** the request is rejected with HTTP 400
+
+### Requirement: Rapid-fire weight threshold per podcast
+Each podcast SHALL have a `rapidFireWeightThreshold` field (INTEGER, NOT NULL, default 3). Valid range: 0-10. The field SHALL be accepted in podcast create and update endpoints and included in GET responses. When not provided on create, the value SHALL default to 3.
+
+#### Scenario: Default on create
+- **WHEN** a `POST /users/{userId}/podcasts` request does not include `rapidFireWeightThreshold`
+- **THEN** the podcast is created with `rapidFireWeightThreshold` = 3
+
+#### Scenario: Override on create
+- **WHEN** a `POST` request includes `rapidFireWeightThreshold: 5`
+- **THEN** the podcast is created with `rapidFireWeightThreshold` = 5
+
+#### Scenario: Update threshold
+- **WHEN** a `PUT` request includes `rapidFireWeightThreshold: 4`
+- **THEN** the field is updated to 4
+
+#### Scenario: Threshold out of range rejected
+- **WHEN** a `POST` or `PUT` request includes `rapidFireWeightThreshold: -1` or `rapidFireWeightThreshold: 11`
+- **THEN** the request is rejected with HTTP 400
+
+#### Scenario: Get podcast includes threshold
+- **WHEN** a `GET` request is received
+- **THEN** the response includes `rapidFireWeightThreshold` with its current value
+
+### Requirement: deepDiveEnabled podcast field
+
+A podcast SHALL accept a boolean `deepDiveEnabled` field (default `false`) controlling whether the compose stage registers the `webSearch` research tool. The field SHALL be persisted on the `podcasts` table and exposed through the create/update/get endpoints.
+
+#### Scenario: Field round-trips through the API
+
+- **WHEN** a client sends `PUT /users/{userId}/podcasts/{podcastId}` with `deepDiveEnabled=true`
+- **THEN** the value is persisted and the next `GET` for the same podcast returns `deepDiveEnabled=true`
+
+#### Scenario: Default is false
+
+- **WHEN** a podcast is created without an explicit `deepDiveEnabled` value
+- **THEN** the persisted row has `deep_dive_enabled=0`
+

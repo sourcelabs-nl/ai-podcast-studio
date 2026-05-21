@@ -1,39 +1,137 @@
-# AI Summary Podcast
+# AI Podcast Studio
 
-Self-hosted pipeline that monitors content sources (RSS feeds, websites), filters and summarizes relevant content using an LLM, converts summaries to audio via TTS, and delivers them as a podcast feed consumable by any podcast app.
+Self-hosted pipeline that monitors content sources (websites, RSS feeds, X accounts), filters and summarizes relevant content using an LLM, converts the summaries to audio via TTS, and delivers them as a podcast feed consumable by any podcast app.
 
 ## How It Works
 
+### The big picture
+
+You point the app at a handful of websites, RSS feeds, and X accounts that you care about. In the background it keeps an eye on them and collects new posts as they appear. On a schedule you choose (say, every morning at 6), it reads through everything new, decides what's actually worth talking about, writes a podcast script in your preferred style, optionally pauses for you to review/edit it, records it as audio, and publishes the episode so any podcast app can subscribe. You can listen to the finished episode straight from the dashboard.
+
 ```mermaid
 flowchart LR
-    A[Source Poller] --> B[Posts Table]
-    B --> C[Aggregator]
-    C --> D[Score + Summarize]
-    D --> E[Topic Dedup Filter]
-    E --> F[Briefing Composer]
-    F --> G[TTS + FFmpeg]
-    G --> H[RSS Feed]
+    H1(("You")):::human -->|configure sources,<br/>topic, schedule, style| A["Your sources<br/>(websites, RSS, X)"]
+    A --> B[("Collected<br/>posts")]
+    B --> C["Pick what's<br/>worth covering"]
+    C --> D["Write the<br/>script"]
+    D --> R{"Require<br/>review?"}
+    R -->|"yes"| H2(("You")):::human
+    H2 -->|"edit / approve / discard"| E["Record the<br/>audio"]
+    R -->|"no"| E
+    E --> F["Publish<br/>(RSS, FTP, SoundCloud)"]
+    F --> H3(("You")):::human
+    H3 -->|"listen in the dashboard<br/>or any podcast app"| F
+
+    classDef human fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e
 ```
 
-1. **Source Poller** — Periodically fetches new content from configured RSS feeds, websites, and X (Twitter) accounts. Individual items (tweets, RSS entries, scraped pages) are stored as **posts** in a dedicated table. Posts older than a configurable threshold (default 7 days) are automatically discarded.
-2. **Aggregation** — At briefing generation time, unprocessed posts are aggregated into articles. For short-form sources (tweets, nitter feeds), multiple posts are merged into a single digest article. For long-form sources, each post maps 1:1 to an article. A `post_articles` join table maintains full traceability.
-3. **LLM Processing** — Three sequential stages, each using a configurable model from the named model registry:
-   - **Score + Summarize** — A single LLM call per article that scores relevance (0–10), filters out irrelevant content, and summarizes the relevant parts. Summary length scales with article length: short articles get 2–3 sentences, medium articles 4–6 sentences, and long articles a full paragraph. Articles below the `relevanceThreshold` (default 5) are excluded.
-   - **Topic Dedup Filter** — Clusters candidate articles by topic, compares against articles from recent episodes, and filters out duplicates. For each topic: NEW topics pass through (top 3 articles per cluster), CONTINUATION topics with genuinely new developments are kept with `[FOLLOW-UP]` context annotations, and topics already fully covered are skipped. An age gate also excludes articles older than the latest published episode, preventing old content from new sources from flooding in.
-   - **Briefing Composition** — Composes a coherent briefing script from the filtered articles with natural transitions. When few articles are available (below `fullBodyThreshold`, default 5), full article bodies are used instead of summaries for richer content. Continuation topics receive `[FOLLOW-UP]` annotations so the composer can naturally reference previous coverage. The compose model is given an always-on `searchPastEpisodes` Spring AI tool (capped at 5 calls per episode) backed by a SQLite FTS5 index over all prior `GENERATED` episodes' recap, script, and topic labels, so it can detect topics that were already covered weeks ago and angle them as updates rather than reintroducing them as new.
-4. **TTS Generation** — Converts the script to speech via OpenAI TTS, ElevenLabs, or Inworld AI, chunking at sentence boundaries and concatenating with FFmpeg. ElevenLabs and Inworld support multi-speaker dialogue and interview styles. Each TTS provider can inject provider-specific script guidelines into the LLM prompt (e.g. Inworld's expressiveness markup). After each episode is saved, a short recap is generated and stored for use as the episode description in publication targets (feed.xml, SoundCloud).
-5. **Podcast Feed** — Serves an RSS 2.0 feed with iTunes metadata (`itunes:type`, `itunes:category`, `itunes:explicit`, `itunes:duration`, `itunes:image`, `atom:link` self-reference) and rich `content:encoded` show notes. Episode show notes list topics covered with clickable links to representative source articles, grouped by the dedup filter's topic clusters. A link to the full sources page and a contact email footer are included.
+If anything goes wrong partway through, the app remembers exactly where it got stuck and you can resume from that point with one click, so it doesn't waste money redoing the work that already succeeded.
 
-Each user can create multiple podcasts, each with its own sources, topic, language, LLM models, TTS provider/voices, style, and generation schedule (cron).
+### Step 1: Watching your sources
+
+The app polls your sources continuously in the background, on whatever interval you set per source. Different sites are checked in parallel; sources that share the same host are checked one at a time with a small delay so you don't get rate-limited (this matters for community-run services like Nitter). If a source keeps failing, the app slows down its polling automatically and eventually disables it if the failures look permanent (a 404 or a dead DNS, for example). New posts are deduplicated across your sources so an X account and its Nitter mirror don't both add the same content.
+
+```mermaid
+flowchart LR
+    S1["RSS feed"] --> P["Background poller"]
+    S2["Website"] --> P
+    S3["X account"] --> P
+    S4["Nitter mirror"] --> P
+    P --> H["Drop duplicates<br/>(same post from<br/>multiple sources)"]
+    H --> POSTS[("Collected posts")]
+    P -. "if a source keeps failing" .-> BO["Slow down,<br/>eventually disable"]
+```
+
+### Step 2: Picking what's worth covering
+
+When it's time to generate an episode, the app reads the unprocessed posts and turns them into articles. Long-form posts (news articles, blog posts) become one article each. Short-form posts (tweets) are grouped by conversation: a tweet plus its replies become a single article, with the original tweet's URL and title. Then a fast, cheap language model reads every article and gives it a relevance score from 0 to 10, a short summary, and (if you configured subtopics) tags it with the subtopic it belongs to. Anything below your relevance threshold is dropped.
+
+```mermaid
+flowchart LR
+    POSTS[("Collected posts")] --> AGG{"Post type?"}
+    AGG -->|"news / blog"| ART1["One post,<br/>one article"]
+    AGG -->|"tweets"| TH["Group tweet<br/>+ its replies"]
+    TH --> ART2["Conversation<br/>article"]
+    ART1 --> SCORE["Read it,<br/>score it,<br/>summarize it"]
+    ART2 --> SCORE
+    SCORE -->|"not interesting"| DROP["Dropped"]
+    SCORE -->|"keeper"| READY["Ready for the script"]
+```
+
+### Step 3: Writing the script
+
+A second, smarter language model writes the actual episode. Before it starts, the app groups today's articles by topic and compares them against recent episodes: brand-new topics go in fresh, topics that follow up on something covered earlier get a "follow-up" hint so the script can naturally reference previous coverage, and topics you already covered to death get skipped. While writing, the model can search a full-text index of all your past episodes (so it knows what's already been said weeks ago) and can optionally do real web searches via Tavily for extra context on big stories. The opening, transitions, sign-off, and other patterns get rotated automatically so episodes don't all sound the same.
+
+```mermaid
+flowchart TD
+    READY["Today's articles"] --> DEDUP["Group by topic,<br/>compare to recent episodes"]
+    HIST[("Past episodes<br/>(searchable)")] --> DEDUP
+    DEDUP -->|"new / follow-up / skip"| COMP["Script writer"]
+    SUBT["Your subtopic weights<br/>(more time on what matters)"] --> COMP
+    ROT["Rotated openings,<br/>transitions, sign-offs"] --> COMP
+    T1["Search past episodes<br/>(avoid repeating)"] --> COMP
+    T2["Web search<br/>(extra context, optional)"] --> COMP
+    COMP --> SCRIPT["Episode script"]
+    SCRIPT --> RECAP["Short recap<br/>+ show notes"]
+    SCRIPT --> SRC["Sources page,<br/>grouped by topic"]
+```
+
+If you turned on "require review", the pipeline pauses here so you can read, edit, or discard the script before any audio is recorded.
+
+### Step 4: Recording the audio
+
+The finished script is sent to a text-to-speech provider of your choice (OpenAI, ElevenLabs, or Inworld). Before sending, the app cleans the script up for TTS: it strips out em-dashes and en-dashes (which TTS models tend to read out loud as "dash"), and it injects pronunciation hints if you've set up a pronunciation dictionary for the podcast. Long scripts are split into chunks at sentence boundaries so the TTS model doesn't choke, then the resulting audio chunks are stitched back together into a single MP3. ElevenLabs and Inworld support multiple voices for dialogue and interview styles.
+
+```mermaid
+flowchart LR
+    SCRIPT["Script"] --> SAN["Clean up for TTS<br/>(remove dashes,<br/>add pronunciations)"]
+    SAN --> CHUNK["Split into chunks<br/>at sentence boundaries"]
+    CHUNK --> TTS{"Your TTS<br/>provider"}
+    TTS -->|"OpenAI"| O["Single voice"]
+    TTS -->|"ElevenLabs"| EL["Single or<br/>multi-voice"]
+    TTS -->|"Inworld"| IW["Expressive,<br/>multi-voice"]
+    O --> FF["Stitch chunks<br/>into one MP3"]
+    EL --> FF
+    IW --> FF
+    FF --> MP3["Finished episode"]
+```
+
+### Step 5: Publishing, and recovering from failures
+
+The MP3, recap, and show notes become an episode in your podcast's RSS feed. The feed is available two ways: a live HTTP endpoint, and a static `feed.xml` file written to disk so you can host the whole podcast on a static file server, S3, or a CDN. From the dashboard you can also publish individual episodes to FTP or SoundCloud. If anything in steps 2-4 fails partway through (a flaky API, a hit cost limit, a TTS timeout), the app remembers which stage failed and keeps all the work it had already done. A single "Retry" click resumes from that exact stage, so the LLM calls you already paid for aren't repeated.
+
+```mermaid
+flowchart LR
+    MP3["Finished episode"] --> RSS["RSS feed<br/>(podcast apps subscribe)"]
+    MP3 --> FTP["FTP upload<br/>(your own server)"]
+    MP3 --> SC["SoundCloud<br/>(auto playlist per podcast)"]
+
+    F1["Stage failed?"] -. "click Retry" .-> RESUME["Resume from<br/>where it stopped"]
+```
+
+Each user can create multiple podcasts, each with its own sources, topic, language, models, TTS provider/voices, style, and generation schedule. See [docs/configuration.md](docs/configuration.md) for every setting.
+
+## Architecture
+
+A small Spring Boot backend handles everything (polling sources, running the LLM pipeline, generating audio, publishing). A Next.js dashboard talks to it over HTTP. SQLite holds all state on disk. External providers (LLM, TTS, web research, publication targets) are called from the backend only.
+
+```mermaid
+flowchart LR
+    USER(("You")) -->|browse, edit,<br/>approve, listen| FE["Next.js Dashboard<br/>(frontend/)"]
+    FE -->|HTTP /api/*| BE["Spring Boot Backend<br/>(localhost:8085)"]
+    BE --> DB[("SQLite<br/>./data/*.db")]
+    BE --> FS[("Audio + feed.xml<br/>./data/episodes/")]
+    BE -.->|optional| EXT["External APIs<br/>OpenRouter, OpenAI, ElevenLabs,<br/>Inworld, Tavily, FTP, SoundCloud, X"]
+```
 
 ## Prerequisites
 
-- Java 24+ (Java 25+ requires `--enable-native-access=ALL-UNNAMED` for the SQLite JDBC driver — `start.sh` and `mvnw spring-boot:run` handle this automatically)
+- Java 24+ (Java 25+ requires `--enable-native-access=ALL-UNNAMED` for the SQLite JDBC driver, `start.sh` and `mvnw spring-boot:run` handle this automatically)
 - FFmpeg (for audio concatenation and duration detection)
-- An LLM provider — one of:
+- An LLM provider, one of:
   - [OpenRouter](https://openrouter.ai/) API key (cloud, multiple models)
   - [Ollama](https://ollama.com/) running locally (free, no API key needed)
-- A TTS provider — one of:
+- A TTS provider, one of:
   - [OpenAI](https://platform.openai.com/) API key (default)
   - [ElevenLabs](https://elevenlabs.io/) API key (for advanced voices and multi-speaker dialogue)
   - [Inworld AI](https://inworld.ai/tts) API key (for expressive voices with rich markup support)
@@ -44,9 +142,9 @@ Each user can create multiple podcasts, each with its own sources, topic, langua
 
 2. Create a `.envrc` file in the project root:
 
-```bash
-export APP_ENCRYPTION_MASTER_KEY=<base64-encoded 256-bit AES key>
-```
+   ```bash
+   export APP_ENCRYPTION_MASTER_KEY=<base64-encoded 256-bit AES key>
+   ```
 
 3. Allow the file: `direnv allow`
 
@@ -54,34 +152,35 @@ Generate an encryption key: `openssl rand -base64 32`
 
 `APP_ENCRYPTION_MASTER_KEY` is the only required environment variable. It is used to encrypt API keys stored in the database.
 
-All other credentials (LLM providers, TTS providers, publishing targets) are managed per-user via the web dashboard or the [Provider Configuration API](#provider-configuration). Optionally, you can set environment variables as global fallbacks for users who haven't configured their own keys:
+All other credentials (LLM providers, TTS providers, publishing targets) are managed per-user via the web dashboard or the Provider Configuration API (see [docs/api-reference.md](docs/api-reference.md#provider-configuration)). Optionally, you can set environment variables as global fallbacks for users who haven't configured their own keys:
 
 | Variable | Purpose |
 |----------|---------|
 | `OPENROUTER_API_KEY` | Global fallback for OpenRouter LLM provider |
 | `OPENAI_API_KEY` | Global fallback for OpenAI TTS provider |
 | `ELEVENLABS_API_KEY` | Global fallback for ElevenLabs TTS provider |
-| `APP_SOUNDCLOUD_CLIENT_ID` / `APP_SOUNDCLOUD_CLIENT_SECRET` | SoundCloud OAuth app credentials (see [Publishing to SoundCloud](#publishing-to-soundcloud)) |
-| `APP_X_CLIENT_ID` / `APP_X_CLIENT_SECRET` | X (Twitter) OAuth app credentials (see [Monitoring X Accounts](#monitoring-x-twitter-accounts)) |
+| `INWORLD_AI_JWT_KEY` / `INWORLD_AI_JWT_SECRET` | Global fallback for Inworld AI TTS provider (combined as `key:secret` for Basic auth) |
+| `TAVILY_API_KEY` | Global fallback for the Tavily web-search provider used by the deep-dive research tool (see [docs/deep-dive-research.md](docs/deep-dive-research.md)) |
+| `APP_SOUNDCLOUD_CLIENT_ID` / `APP_SOUNDCLOUD_CLIENT_SECRET` | SoundCloud OAuth app credentials (see [docs/publishing.md](docs/publishing.md#publishing-to-soundcloud)) |
+| `APP_X_CLIENT_ID` / `APP_X_CLIENT_SECRET` | X (Twitter) OAuth app credentials (see [docs/publishing.md](docs/publishing.md#monitoring-x-twitter-accounts)) |
 
 > **Without direnv?** You can alternatively export the variables in your shell profile (e.g. `~/.zshenv`) or source a `.env` file manually before running the app.
 
 ### Provider Configuration
 
-LLM and TTS providers are configured per-user via the **web dashboard** (Settings > API Keys) or the [Provider Configuration API](#provider-configuration). Supported providers:
+LLM, TTS, and research providers are configured per-user via the **web dashboard** (Settings > API Keys) or the Provider Configuration API. Supported providers:
 
 - **LLM**: `openrouter` (default), `openai`, `ollama`
 - **TTS**: `openai` (default), `elevenlabs`, `inworld`
+- **Research** (optional, for the deep-dive web-search tool): `tavily`
 
 **Using Ollama (local, free):** Start [Ollama](https://ollama.com/) locally, pull a model (`ollama pull llama3`), then configure it as your LLM provider in the dashboard or via the API. No API key needed, uses `http://localhost:11434/v1` by default.
-
-**Using ElevenLabs for TTS:** [ElevenLabs](https://elevenlabs.io/) supports high-quality voices and multi-speaker dialogue/interview styles. Configure it as your TTS provider in the dashboard with your API key, then use `GET /users/{userId}/voices?provider=elevenlabs` to discover available voice IDs.
 
 ### Starting the Application
 
 ```bash
 ./start.sh        # runs in background, logs to app.log
-./stop.sh          # graceful stop with 10s timeout
+./stop.sh         # graceful stop with 10s timeout
 ```
 
 Or run directly (environment variables are loaded automatically by direnv):
@@ -101,466 +200,53 @@ cd frontend && npm run dev
 ```
 
 The dashboard provides:
-- **User settings** — gear icon in the header opens a settings page to edit your profile name and manage API keys (LLM and TTS provider configs) with a wizard-style dialog. All API keys are stored encrypted
-- **Podcast overview** — browse all podcasts with style badges, topics, and quick-access settings gear icon
-- **Podcast settings** — edit all podcast configuration (general, LLM, TTS, content, publishing) via a tabbed settings page with provider/model dropdowns for LLM and TTS selection
-- **Episode management** — view episodes with status filtering, approve/discard/regenerate pending reviews. Click any episode row to open the detail page. Shows the generation schedule in human-readable form
-- **Episode detail page** — dedicated page per episode with tabs for Script (chat-bubble rendering), Articles (grouped by source with relevance scores and collapsible sections), and Publications. Shows episode metadata, recap, and contextual action buttons
-- **Upcoming episode preview** — see collected articles for the next episode, preview the script via Server-Sent Events with real-time progress stages (aggregating, scoring, deduplicating, composing), and trigger episode generation on demand. Shows next scheduled generation time
-- **Source export** — download all configured sources as a markdown file from the Sources tab
-- **Publish wizard** — publish generated episodes to FTP or SoundCloud via a step-by-step wizard with automatic quota detection and recovery (re-authorize on OAuth expiry, remove oldest track on quota exceeded)
-- **Publications tab** — view all publications with track/playlist links, republish with confirmation
+- **User settings**, gear icon in the header opens a settings page to edit your profile name and manage API keys (LLM and TTS provider configs) with a wizard-style dialog. All API keys are stored encrypted
+- **Podcast overview**, browse all podcasts with style badges, topics, and quick-access settings gear icon
+- **Podcast settings**, edit all podcast configuration (general, LLM, TTS, content, publishing) via a tabbed settings page with provider/model dropdowns for LLM and TTS selection
+- **Episode management**, view episodes with status filtering; approve/discard/regenerate pending reviews; regenerate audio on generated episodes; retry failed episodes from the stage that failed; play the MP3 inline from the table. Click any episode row to open the detail page. Shows the generation schedule in human-readable form, in the podcast's timezone
+- **Episode detail page**, dedicated page per episode with tabs for Script (chat-bubble rendering), Articles (grouped by source with relevance scores and collapsible sections), Publications, and **Costs** (per-stage breakdown: scoring, dedup, compose, recap, TTS, research, plus total). Shows episode metadata, recap, inline audio player, and contextual action buttons (Approve, Discard, Publish, Regenerate, Regenerate Audio, Retry, Regenerate Recap)
+- **Upcoming episode preview**, see collected articles for the next episode, preview the script via Server-Sent Events with real-time progress stages (aggregating, scoring, deduplicating, composing), and trigger episode generation on demand. Shows next scheduled generation time
+- **Source export**, download all configured sources as a markdown file from the Sources tab
+- **Publish wizard**, publish generated episodes to FTP or SoundCloud via a step-by-step wizard with automatic quota detection and recovery (re-authorize on OAuth expiry, remove oldest track on quota exceeded)
+- **Publications tab**, view all publications with track/playlist links, republish with confirmation
 
 The frontend proxies API calls to `http://localhost:8085` via Next.js rewrites.
 
 ## Customizing Your Podcast
 
-Each podcast can be tailored to your preferences via the following settings:
+Each podcast is configurable end to end: the topic and language, the style (news-briefing, casual, deep-dive, executive-summary, dialogue, interview), the LLM models per pipeline stage, the TTS provider/voices/settings, the schedule (cron + timezone), subtopic weights, custom prompt instructions, a sponsor message, a pronunciation dictionary, cost limits, and more. Per-podcast `requireReview` lets you preview and edit the script before any audio is generated.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `name` | — | Display name shown in your podcast app |
-| `topic` | — | Interest area used by the LLM to filter relevant articles |
-| `language` | `"en"` | Language for the briefing script, date formatting, and RSS feed metadata (actual audio language support depends on TTS provider) |
-| `style` | `"news-briefing"` | Briefing tone — see styles below |
-| `ttsProvider` | `"openai"` | TTS provider (`openai`, `elevenlabs`, or `inworld`) |
-| `ttsVoices` | `{"default": "nova"}` | Voice configuration — see [TTS Configuration](#tts-configuration) below |
-| `speakerNames` | `null` | Display names for speakers — e.g. `{"interviewer": "Alice", "expert": "Bob"}`. Used in dialogue/interview scripts so speakers address each other by name |
-| `ttsSettings` | — | Provider-specific settings (e.g. `{"speed": "1.25"}` for OpenAI, `{"stability": "0.5"}` for ElevenLabs, `{"model": "inworld-tts-1.5-max", "speed": "1.0", "temperature": "1.1"}` for Inworld) |
-| `llmModels` | — | Override LLM models per stage with `{provider, model}` objects — see [Model Configuration](#model-configuration) |
-| `targetWords` | `1500` | Approximate word count for the briefing script |
-| `cron` | `"0 0 6 * * *"` | Generation schedule in cron format (default: daily at 6 AM) |
-| `customInstructions` | — | Free-form instructions appended to the LLM prompt (e.g. "Focus on recent breakthroughs" or "Avoid financial topics") |
-| `relevanceThreshold` | `5` | Minimum relevance score (0–10) for an article to be included in the briefing |
-| `subtopics` | `null` | Optional map of subtopic name to importance weight (1–10) within the podcast's topic (e.g. `{"LLM releases": 10, "Dev tools": 5, "AI ethics": 2}`). The Stage 1 LLM call classifies each article into one of the listed subtopics. High-weight subtopics get full script segments with word budgets proportional to weight; low-weight subtopics (at or below `rapidFireWeightThreshold`) are rolled into a labeled "And in brief" rapid-fire segment at the end. Empty/unset disables the feature and keeps the legacy flat layout |
-| `rapidFireWeightThreshold` | `3` | Weight cutoff for the rapid-fire tier (0–10). Subtopics with weight at or below this value (plus unclassified articles in a synthetic "Other" bucket of weight 1) are rolled into a single rapid-fire segment. `0` means nothing is rapid-fire, `10` means everything is rapid-fire |
-| `fullBodyThreshold` | `5` | When the number of relevant articles is below this threshold, the composer uses full article bodies instead of summaries for richer content |
-| `requireReview` | `false` | When `true`, generated scripts pause for review before TTS — see [Episode Review](#episode-review) below |
-| `maxLlmCostCents` | `null` | Per-podcast LLM cost threshold in cents — see [Cost Gate](#cost-gate) below |
-| `maxArticleAgeDays` | `null` | Maximum age of articles to include (default: 7 days). Articles older than this are skipped during ingestion |
-| `sponsor` | `null` | Sponsor configuration — e.g. `{"name": "Acme Corp", "message": "building the future"}`. Adds a sponsor message after the introduction and in the sign-off |
-| `pronunciations` | `null` | IPA pronunciation dictionary — maps terms to phonemes (e.g. `{"Anthropic": "/ænˈθɹɒpɪk/"}`) for correct TTS pronunciation. Currently supported by Inworld TTS |
-| `recapLookbackEpisodes` | `null` | Number of recent episodes to check for topic overlap (default: 7). The dedup filter uses article titles and summaries from these episodes to prevent repeating previously covered topics |
-| `composeSettings` | — | Composer (script LLM) settings. Currently supports `temperature` (range `0.0`–`2.0`, default `0.95`) which controls sampling variety in `BriefingComposer`, `DialogueComposer`, and `InterviewComposer`. The composer also rotates six prompt axes (opening style, transition vocabulary, sign-off shape, teaser shape, topic-entry pattern, penultimate-exchange shape) deterministically per `(podcastId, episodeDate)` to reduce structural repetition across episodes |
-
-### Briefing Styles
-
-| Style | Tone |
-|-------|------|
-| `news-briefing` | Professional news anchor — structured, authoritative, smooth transitions |
-| `casual` | Friendly podcast host — conversational, relaxed, like talking to a friend |
-| `deep-dive` | Analytical exploration — in-depth analysis and thoughtful commentary |
-| `executive-summary` | Concise and fact-focused — minimal commentary, straight to the point |
-| `dialogue` | Multi-speaker conversation — requires ElevenLabs or Inworld TTS and at least two voice roles |
-| `interview` | Interviewer/expert conversation — asymmetric roles (~35% interviewer, ~65% expert). Features "coming up" topic teasers (5+ articles), strategic cliffhangers, spontaneous interruptions (excited, skeptical, confused, connecting dots, disagreement), and strict 3-4 sentence expert turn limits. Requires ElevenLabs or Inworld TTS with exactly `interviewer` and `expert` voice roles |
-
-### TTS Configuration
-
-Three TTS providers are supported: **OpenAI** (default), **ElevenLabs**, and **Inworld AI**. Configure your preferred provider and API key via the web dashboard (Settings > API Keys) or the [Provider Configuration API](#provider-configuration).
-
-**OpenAI** — Voices: `alloy`, `echo`, `fable`, `nova`, `onyx`, `shimmer`. Settings: `{"speed": "1.25"}`.
-
-**ElevenLabs** — Supports single-voice monologue, multi-speaker dialogue, and interview styles. Use `GET /users/{userId}/voices?provider=elevenlabs` to discover available voice IDs.
-
-**Inworld AI** — Requires JWT key and secret as `key:secret`. Supports monologue, dialogue, and interview styles with rich expressiveness markup (emphasis, non-verbal cues, IPA phonemes). Scripts are automatically post-processed to sanitize LLM output for Inworld. A per-podcast pronunciation dictionary (`pronunciations` field) can map terms to IPA phonemes. Models: `inworld-tts-1.5-max` (default), `inworld-tts-1.5-mini`. Settings: `{"model": "inworld-tts-1.5-max", "speed": "1.0", "temperature": "0.8"}`. Use `GET /users/{userId}/voices?provider=inworld` to discover available voice IDs.
-
-Voice configuration uses the `ttsVoices` map:
-- Monologue: `{"default": "nova"}` (or any ElevenLabs voice ID)
-- Dialogue: `{"host": "<voice_id>", "cohost": "<voice_id>"}` — the key names become the speaker tags in the generated script
-- Interview: `{"interviewer": "<voice_id>", "expert": "<voice_id>"}` — fixed role keys required for the interview style
-
-### Model Configuration
-
-All model definitions (LLM and TTS) live under `app.models` in `application.yaml`, organized by provider. Each model has a `type` (`llm` or `tts`) and optional cost fields:
-
-```yaml
-app:
-  models:
-    openrouter:
-      "[openai/gpt-5.4-nano]":
-        type: llm
-        input-cost-per-mtok: 0.20
-        output-cost-per-mtok: 1.25
-      "[anthropic/claude-sonnet-4.6]":
-        type: llm
-        input-cost-per-mtok: 3.00
-        output-cost-per-mtok: 15.00
-    openai:
-      "[tts-1-hd]":
-        type: tts
-        cost-per-million-chars: 15.00
-    inworld:
-      "[inworld-tts-1.5-max]":
-        type: tts
-        cost-per-million-chars: 10.00
-  llm:
-    defaults:
-      filter:
-        provider: openrouter
-        model: openai/gpt-5.4-nano
-      compose:
-        provider: openrouter
-        model: anthropic/claude-sonnet-4.6
-```
-
-Model name keys containing `/`, `-`, or `.` must be quoted with `"[...]"` for Spring Boot's relaxed property binding.
-
-Per-podcast overrides use the `llmModels` field, mapping stage names (`filter`, `compose`) to `{provider, model}` objects:
-
-```json
-{
-  "llmModels": {
-    "compose": {"provider": "openrouter", "model": "anthropic/claude-opus-4.7"}
-  }
-}
-```
-
-The `GET /config/defaults` endpoint returns available models grouped by provider and type, used by the frontend to populate model selection dropdowns.
+See [docs/configuration.md](docs/configuration.md) for the full table of settings, the briefing styles, TTS provider details, model registry, and the cost gate.
 
 ### Episode Review
 
-When `requireReview` is enabled on a podcast, the generation pipeline pauses after the LLM produces a script — no audio is generated yet. This lets you review, edit, or discard the script before committing to TTS costs.
+When `requireReview` is enabled on a podcast, the generation pipeline pauses after the LLM produces a script (no audio is generated yet). This lets you review, edit, or discard the script before committing to TTS costs.
 
-The episode workflow is: `PENDING_REVIEW` → (edit script if needed) → `APPROVED` → TTS runs → `GENERATED`. You can also discard an episode — discarding resets non-aggregated articles so they are included in the next generation run, while aggregated articles (from X/Nitter sources) are deleted so their posts get re-aggregated fresh with any new posts on the next run. Articles linked to published episodes are never reset or deleted during discard, preventing published content from being reprocessed.
+The episode workflow is: `PENDING_REVIEW` → (edit script if needed) → `APPROVED` → `GENERATING_AUDIO` (TTS in progress) → `GENERATED`. The `GENERATING_AUDIO` status is persisted in the database so the UI shows a "Generating audio..." spinner across page reloads; on app startup any stale `GENERATING_AUDIO` episodes are recovered as `FAILED`. You can also discard an episode (discarding resets non-aggregated articles so they are included in the next generation run, while aggregated articles from X/Nitter sources are deleted so their posts get re-aggregated fresh with any new posts on the next run). Articles linked to published episodes are never reset or deleted during discard, preventing published content from being reprocessed.
 
-Episodes can be **regenerated** — this re-composes the script from the same articles using the current podcast settings, creating a new episode. Regeneration is available for `PENDING_REVIEW` and `DISCARDED` episodes, and is blocked if any episode on the same day has already been published.
+Episodes can be **regenerated** (re-composes the script from the same articles using the current podcast settings, creating a new episode). Regeneration is available for `PENDING_REVIEW` and `DISCARDED` episodes, and is blocked if any episode on the same day has already been published.
+
+Episodes can also be **audio-regenerated** without recomposing the script: a separate `regenerate-audio` action reruns TTS on the existing script (useful after changing the TTS model, voice, or `deliveryMode`) and overwrites the previous MP3. The episode's audio can be played inline from the dashboard via a streaming `audio` endpoint.
+
+If the pipeline fails mid-run, the `pipelineStage` is preserved on the episode along with all intermediate state (scored articles, dedup links, script). A **retry** action resumes from exactly the failed stage without re-running earlier LLM work.
+
+If recap generation produced an empty or low-quality recap, a **regenerate-recap** action recomputes the recap and show-notes from the existing script and re-exports the static feed.
 
 ### Cost Tracking
 
-Episode responses include token usage and estimated costs for both LLM and TTS stages. Costs are reported in USD cents and are derived from the pricing fields configured on each model in `app.models` (see [Model Configuration](#model-configuration)). LLM models use `input-cost-per-mtok` and `output-cost-per-mtok` (USD per million tokens). TTS models use `cost-per-million-chars` (USD per million characters).
+Episode responses include token usage and estimated costs broken down per pipeline stage: **Scoring**, **Dedup**, **Compose**, **Recap**, **TTS**, and **Research**. The dashboard renders this breakdown in a dedicated **Costs** tab on the episode detail page. Pricing is configured per model in `application.yaml`; see [docs/configuration.md#model-configuration](docs/configuration.md#model-configuration). Before any LLM call, a **cost gate** estimates the total spend and skips the run if it would exceed a configurable threshold (`maxLlmCostCents` per podcast, or the global `app.llm.max-cost-cents`).
 
-Cost fields are `null` when pricing is not configured or when usage metadata is unavailable from the provider.
+## Deep-Dive Web Research
 
-### Cost Gate
+When `deepDiveEnabled` is set on a podcast, the script composer is given a `webSearch` tool backed by [Tavily](https://tavily.com) and may call it (up to 3 times per episode) to fetch outside context for the most newsworthy stories. See [docs/deep-dive-research.md](docs/deep-dive-research.md) for configuration and API key resolution.
 
-Before making any LLM API calls, the pipeline estimates the total cost (scoring + dedup filter + composition) and compares it against a configurable threshold. If the estimated cost exceeds the threshold, the entire pipeline run is skipped and a warning is logged.
+## Publishing
 
-The global default threshold is configured in `application.yaml`:
+Episodes can be published to multiple targets after generation: **FTP** and **SoundCloud** are supported, configured per-podcast, with per-target publication status tracking. The dashboard's publish wizard handles OAuth, quota detection, and re-auth. See [docs/publishing.md](docs/publishing.md) for FTP setup, SoundCloud OAuth, X (Twitter) OAuth for sources, and using Nitter as a free alternative.
 
-```yaml
-app:
-  llm:
-    max-cost-cents: 200    # $2.00 — skip pipeline if estimated cost exceeds this
-```
+## API
 
-Each podcast can override the global threshold via `maxLlmCostCents`. When set to `null` (the default), the global value applies. The estimation is pessimistic — it assumes all articles pass relevance filtering — so actual costs will typically be lower than estimated. If model pricing is not configured, the cost gate is bypassed with a warning.
-
-### Deep-Dive Web Research
-
-When `deepDiveEnabled` is set on a podcast, the script composer is given a `webSearch` tool backed by [Tavily](https://tavily.com). The LLM autonomously decides when to call it — typically 1–2 times for the most newsworthy story — to add outside context that isn't present in the source articles. The tool is capped at **3 calls per episode**.
-
-Configuration:
-
-```yaml
-app:
-  research:
-    tavily:
-      cost-per-call-cents: 1    # Tavily basic search ≈ $0.008/call, rounded up
-    cost-buffer-cents: 5        # Added to the cost-gate estimate when deep-dive is on
-```
-
-API key resolution (same precedence as other providers):
-
-1. User-stored key under category `RESEARCH`, provider `tavily` (encrypted at rest).
-2. `TAVILY_API_KEY` environment variable.
-
-If no key is resolvable, generation still succeeds — the tool returns empty results and a single warning is logged per episode. Each call is cached on `(query_hash, max_results)` so repeated identical queries (across episodes) reuse the response without re-hitting Tavily.
-
-Episode responses include `researchCalls` (number of `webSearch` invocations) and `researchCostCents` (Tavily cost only). The dashboard shows these on the episode detail page when `researchCalls > 0`. The toggle and a "Test Tavily" validation button live under **Podcast Settings → Research**.
-
-### Static Feed Export
-
-After each feed-changing event (episode generation, approval, or cleanup), the system writes a `feed.xml` file to the podcast's episode directory (`data/episodes/{podcastId}/feed.xml`). This lets you host the entire directory on a static file server (S3, Nginx, GitHub Pages) without running the application.
-
-To use a different base URL for the static feed's enclosure links (e.g., your CDN), set:
-
-```yaml
-app:
-  feed:
-    static-base-url: https://cdn.example.com
-```
-
-When not set, the static feed uses the same `app.feed.base-url` as the dynamic endpoint. The dynamic HTTP feed at `/users/{userId}/podcasts/{podcastId}/feed.xml` remains available regardless.
-
-### Publishing
-
-Episodes can be published to multiple targets after generation. Supported targets: **FTP** and **SoundCloud**. Publication targets are configured per-podcast via the API, and each episode tracks its publication status (PENDING, PUBLISHED, FAILED) independently per target. Episodes can also be unpublished from any target.
-
-#### Publishing to FTP
-
-FTP publishing uploads the episode audio file and updates the static feed.xml on a remote server. Configure an FTP publication target on a podcast:
-
-```bash
-curl -X PUT http://localhost:8085/users/{userId}/podcasts/{podcastId}/publication-targets/ftp \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "host": "ftp.example.com",
-    "port": 21,
-    "username": "user",
-    "password": "pass",
-    "useTls": true,
-    "remotePath": "/podcast",
-    "publicUrl": "https://podcast.example.com"
-  }'
-```
-
-You can test the FTP connection before publishing:
-
-```bash
-curl -X POST http://localhost:8085/users/{userId}/publishing/test/ftp \
-  -H 'Content-Type: application/json' \
-  -d '{"host": "ftp.example.com", "port": 21, "username": "user", "password": "pass", "useTls": true}'
-```
-
-#### Publishing to SoundCloud
-
-SoundCloud publishing requires a SoundCloud OAuth app and a connected user account.
-
-1. **Register a SoundCloud app** at https://soundcloud.com/you/apps (you must be logged in to SoundCloud). During registration, set the **redirect URI** to match your app's base URL:
-
-   ```
-   http://localhost:8085/oauth/soundcloud/callback
-   ```
-
-   The redirect URI must exactly match the `app.feed.base-url` configured in `application.yaml` followed by `/oauth/soundcloud/callback`. If these don't match, you'll get a `redirect_uri_mismatch` error during authorization.
-
-2. **Add credentials** to your `.envrc` file:
-
-```bash
-export APP_SOUNDCLOUD_CLIENT_ID=<your-soundcloud-client-id>
-export APP_SOUNDCLOUD_CLIENT_SECRET=<your-soundcloud-client-secret>
-```
-
-   Then run `direnv allow` to reload.
-
-3. **Restart the app** so it picks up the new environment variables.
-
-4. **Connect your SoundCloud account** via the OAuth flow:
-
-```bash
-# Get the authorization URL
-curl http://localhost:8085/users/{userId}/oauth/soundcloud/authorize
-# → returns { "authorizationUrl": "https://secure.soundcloud.com/authorize?..." }
-
-# Copy the authorizationUrl and open it in a browser
-# Log in to SoundCloud and authorize the app
-# The callback redirects back to your app and stores the tokens automatically
-
-# Verify the connection
-curl http://localhost:8085/users/{userId}/oauth/soundcloud/status
-# → returns { "connected": true, ... }
-```
-
-5. **Publish an episode** (must be in `GENERATED` status):
-
-```bash
-curl -X POST http://localhost:8085/users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/publish/soundcloud
-```
-
-The track is uploaded with the podcast name + date as title, a description from the script, and tags from the podcast topic. Episodes are automatically grouped into a SoundCloud playlist per podcast — on first publish a new playlist is created, and subsequent episodes are added to it. Publication status (PENDING, PUBLISHED, FAILED) is tracked per episode and target.
-
-Before uploading, the system checks the SoundCloud upload quota. If the quota is exceeded, the publish wizard offers to remove the oldest app-uploaded track (filtered by podcast name) to free up space. If the OAuth token has expired, the wizard shows a re-authorize button.
-
-To enable an RSS feed for your SoundCloud uploads, go to your SoundCloud **Settings > Content** tab, find your RSS feed URL, and enable **"Include in RSS feed"** under upload defaults. This lets podcast apps subscribe to your SoundCloud-hosted episodes directly.
-
-### Monitoring X (Twitter) Accounts
-
-X accounts can be added as content sources so their posts are included in podcast briefings. This requires an X developer app and a connected user account.
-
-1. **Register an X app** at https://developer.x.com/en/portal/dashboard. Enable OAuth 2.0 with type "Web App" and set the redirect URI to `http://localhost:8085/oauth/x/callback`. Requires at least the Basic tier ($100/month).
-
-2. **Add credentials** to your `.envrc` file:
-
-```bash
-export APP_X_CLIENT_ID=<your-x-client-id>
-export APP_X_CLIENT_SECRET=<your-x-client-secret>
-```
-
-   Then run `direnv allow` to reload.
-
-3. **Restart the app** so it picks up the new environment variables.
-
-4. **Connect your X account** via the OAuth flow:
-
-```bash
-# Get the authorization URL
-curl http://localhost:8085/users/{userId}/oauth/x/authorize
-# → returns { "authorizationUrl": "https://twitter.com/i/oauth2/authorize?..." }
-
-# Open the URL in a browser, log in and authorize the app
-# The callback completes automatically and stores your tokens
-
-# Verify the connection
-curl http://localhost:8085/users/{userId}/oauth/x/status
-```
-
-5. **Add an X source** to a podcast:
-
-```bash
-curl -X POST http://localhost:8085/users/{userId}/podcasts/{podcastId}/sources \
-  -H 'Content-Type: application/json' \
-  -d '{"type": "twitter", "url": "elonmusk", "pollIntervalMinutes": 60}'
-```
-
-The `url` field accepts a plain username (e.g., `elonmusk`), `@username`, or a full URL (e.g., `https://x.com/elonmusk`). Posts are polled on the configured interval and included in briefings. X tokens are automatically refreshed (they expire every 2 hours).
-
-### Using Nitter as an Alternative to X
-
-If you don't have an X developer account, you can use [Nitter](https://nitter.net) as a free alternative. Nitter is an open-source front-end for Twitter that exposes public RSS feeds — no API key or OAuth setup required. Add a Nitter feed as a regular RSS source:
-
-```bash
-curl -X POST http://localhost:8085/users/{userId}/podcasts/{podcastId}/sources \
-  -H 'Content-Type: application/json' \
-  -d '{"type": "rss", "url": "https://nitter.net/elonmusk/rss", "pollIntervalMinutes": 60}'
-```
-
-Nitter sources are automatically detected for aggregation — individual tweets are merged into a single digest article at briefing time, just like native X sources. Note that Nitter coverage may not be fully on par with the X API (e.g., missing replies, retweets, or media context), but it works well for following public accounts without any paid API access.
-
-### Example: Create a Customized Podcast
-
-```bash
-curl -X POST http://localhost:8085/users/{userId}/podcasts \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "AI Weekly",
-    "topic": "artificial intelligence and machine learning",
-    "language": "en",
-    "style": "deep-dive",
-    "llmModels": {"compose": {"provider": "openrouter", "model": "anthropic/claude-opus-4.7"}},
-    "ttsProvider": "openai",
-    "ttsVoices": {"default": "onyx"},
-    "ttsSettings": {"speed": 1.1},
-    "targetWords": 2000,
-    "relevanceThreshold": 6,
-    "requireReview": true,
-    "cron": "0 0 8 * * MON",
-    "customInstructions": "Focus on recent breakthroughs and industry trends"
-  }'
-```
-
-## API Overview
-
-### Users
-
-```
-POST   /users                                        — Create a user
-GET    /users                                        — List all users
-GET    /users/{userId}                               — Get user
-PUT    /users/{userId}                               — Update user
-DELETE /users/{userId}                               — Delete user (cascades)
-```
-
-### Podcasts
-
-```
-POST   /users/{userId}/podcasts                      — Create a podcast
-GET    /users/{userId}/podcasts                      — List podcasts
-GET    /users/{userId}/podcasts/{podcastId}          — Get podcast
-PUT    /users/{userId}/podcasts/{podcastId}          — Update podcast
-DELETE /users/{userId}/podcasts/{podcastId}          — Delete podcast (cascades)
-POST   /users/{userId}/podcasts/{podcastId}/generate            — Manually trigger episode generation
-GET    /users/{userId}/podcasts/{podcastId}/feed.xml            — RSS 2.0 feed for podcast apps
-GET    /users/{userId}/podcasts/{podcastId}/upcoming-articles   — Articles collected for next episode
-GET    /users/{userId}/podcasts/{podcastId}/preview             — Preview script (SSE stream)
-POST   /users/{userId}/podcasts/{podcastId}/image               — Upload podcast image
-GET    /users/{userId}/podcasts/{podcastId}/image               — Retrieve podcast image
-DELETE /users/{userId}/podcasts/{podcastId}/image               — Delete podcast image
-```
-
-### Episodes
-
-```
-GET    /users/{userId}/podcasts/{podcastId}/episodes              — List episodes (optional ?status= filter)
-GET    /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}  — Get episode (includes cost tracking fields)
-PUT    /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/script  — Edit script (PENDING_REVIEW only)
-POST   /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/approve    — Approve and trigger TTS generation
-POST   /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard    — Discard episode
-POST   /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/regenerate — Re-compose script from same articles
-GET    /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/articles   — List articles used in episode
-```
-
-Episode statuses: `PENDING_REVIEW` → `APPROVED` → `GENERATED` (or `FAILED`). Episodes can also be `DISCARDED`. The review endpoints are only relevant when `requireReview` is enabled on the podcast.
-
-### Sources
-
-```
-POST   /users/{userId}/podcasts/{podcastId}/sources             — Add source
-GET    /users/{userId}/podcasts/{podcastId}/sources             — List sources
-PUT    /users/{userId}/podcasts/{podcastId}/sources/{sourceId}  — Update source
-DELETE /users/{userId}/podcasts/{podcastId}/sources/{sourceId}  — Delete source
-```
-
-Sources can be of type `rss`, `website`, or `twitter`. Each source has a configurable `pollIntervalMinutes` and can be toggled with `enabled`. Twitter sources require an X OAuth connection (see below). An optional `aggregate` field (boolean) controls whether posts are merged into a single digest article at briefing generation time — useful for short-form sources like tweets. When `null` (default), aggregation is auto-detected for `twitter` type sources and nitter.net RSS feeds. An optional `categoryFilter` field (comma-separated terms) filters RSS entries by category tags. An optional `label` field provides a display name for the source in the dashboard.
-
-When adding a source, the URL is validated by performing a test fetch — RSS feeds must return valid XML with at least one item, and websites must return extractable content. Invalid URLs are rejected with HTTP 422 and a descriptive error message. Twitter sources skip URL validation (they use OAuth).
-
-Posts older than `app.source.max-article-age-days` (default: 7) are skipped during ingestion and periodically cleaned up. Newly added sources only ingest content published after the source was created, preventing historical backlog from flooding into existing briefings. Additionally, posts are deduplicated across all sources within the same podcast — if two sources (e.g., a Twitter account and its Nitter RSS mirror) produce identical content, only the first copy is kept.
-
-Source list responses include `articleCount`, `relevantArticleCount`, and `postCount` fields — the total number of articles collected from the source, how many scored at or above the podcast's `relevanceThreshold`, and the total number of raw posts ingested. Counts are computed in single batch queries for efficiency.
-
-Source responses include failure tracking fields: `consecutiveFailures`, `lastFailureType` (`"transient"` or `"permanent"`), and `disabledReason`. Sources that fail repeatedly use **exponential backoff** — the poll interval doubles with each consecutive failure, capped at `app.source.max-backoff-hours` (default: 24). Sources with **permanent** errors (404, 410, 401, 403, DNS failure) are auto-disabled after `app.source.max-failures` (default: 15) consecutive failures. Transient errors (timeouts, 5xx, rate limits) trigger backoff but never auto-disable. Re-enabling a disabled source via the API resets all failure tracking.
-
-Sources sharing the same host are polled sequentially with a configurable delay between requests, preventing rate limit violations on free/community-run services (e.g., Nitter instances). Different hosts are polled in parallel using Kotlin coroutines. On first boot, sources receive random startup jitter to prevent all sources from polling simultaneously. The delay between same-host polls is resolved using a three-layer precedence chain: per-source `pollDelaySeconds` field > host-specific override (`app.source.host-overrides.<host>.poll-delay-seconds`) > source-type default (`app.source.poll-delay-seconds.<type>`) > 0.
-
-### Publishing
-
-```
-POST   /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/publish/{target}       — Publish episode to target
-DELETE /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/publications/{target}   — Unpublish episode from target
-GET    /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/publications            — List publications for episode
-```
-
-### Publication Targets
-
-```
-GET    /users/{userId}/podcasts/{podcastId}/publication-targets              — List configured targets
-PUT    /users/{userId}/podcasts/{podcastId}/publication-targets/{target}     — Configure target (ftp, soundcloud)
-DELETE /users/{userId}/podcasts/{podcastId}/publication-targets/{target}     — Remove target configuration
-POST   /users/{userId}/publishing/test/ftp                                  — Test FTP connection
-POST   /users/{userId}/publishing/test/soundcloud                           — Test SoundCloud connection
-```
-
-### SoundCloud OAuth
-
-```
-GET    /users/{userId}/oauth/soundcloud/authorize          — Get SoundCloud authorization URL
-GET    /oauth/soundcloud/callback                          — OAuth callback (handled automatically)
-GET    /users/{userId}/oauth/soundcloud/status              — Check connection status (includes quota)
-DELETE /users/{userId}/oauth/soundcloud/tracks/{trackId}    — Delete a SoundCloud track
-DELETE /users/{userId}/oauth/soundcloud                     — Disconnect SoundCloud
-```
-
-### X (Twitter) OAuth
-
-```
-GET    /users/{userId}/oauth/x/authorize  — Get X authorization URL
-GET    /oauth/x/callback                  — OAuth callback (handled automatically)
-GET    /users/{userId}/oauth/x/status      — Check connection status
-DELETE /users/{userId}/oauth/x             — Disconnect X account
-```
-
-### Real-Time Events
-
-```
-GET    /users/{userId}/events                  — SSE event stream (pipeline progress, episode updates)
-```
-
-### Voices
-
-```
-GET    /users/{userId}/voices?provider=elevenlabs  — List available ElevenLabs voices
-GET    /users/{userId}/voices?provider=inworld     — List available Inworld AI voices
-```
-
-### Provider Configuration
-
-```
-GET    /users/{userId}/api-keys              — List configured providers
-PUT    /users/{userId}/api-keys/{category}   — Set provider (LLM, TTS, or RESEARCH)
-DELETE /users/{userId}/api-keys/{category}   — Remove provider config
-```
-
-Users can configure their own LLM, TTS, and research providers. Supported LLM providers: `openrouter`, `openai`, `ollama`. Supported TTS providers: `openai`, `elevenlabs`, `inworld`. Supported research providers: `tavily`. API keys are stored encrypted (AES-256).
+All resources are exposed over HTTP under `/users/{userId}/...`. See [docs/api-reference.md](docs/api-reference.md) for the full endpoint list (users, podcasts, episodes, sources, publishing, OAuth callbacks, SSE events, voices, provider configuration) plus an example podcast-creation payload.
 
 ## Running Tests
 

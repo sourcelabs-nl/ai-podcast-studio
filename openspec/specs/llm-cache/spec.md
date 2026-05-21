@@ -3,9 +3,7 @@
 ## Purpose
 
 Persistent caching layer for LLM responses to eliminate redundant API calls when identical prompts are sent to the same model, e.g. when multiple podcasts summarize the same article.
-
 ## Requirements
-
 ### Requirement: Persistent LLM response cache
 The system SHALL maintain a persistent cache of LLM responses in SQLite. The cache table `llm_cache` SHALL have columns: `id` (INTEGER PRIMARY KEY AUTOINCREMENT), `prompt_hash` (TEXT, NOT NULL), `model` (TEXT, NOT NULL), `response` (TEXT), `created_at` (TEXT, ISO-8601), `input_tokens` (INTEGER, nullable), and `output_tokens` (INTEGER, nullable). A unique constraint SHALL exist on `(prompt_hash, model)`. The cache SHALL be created via a Flyway migration (V5), with token columns added in a subsequent migration (V11).
 
@@ -83,3 +81,15 @@ The system SHALL support an optional configuration property `app.llm-cache.max-a
 - **WHEN** `app.llm-cache.max-age-days` is set to 30
 - **AND** a cache entry is 15 days old
 - **THEN** that entry is NOT deleted by the cleanup task
+
+### Requirement: Cache correctly handles tool-augmented compose calls
+
+`CachingChatModel` SHALL cache the final assistant `ChatResponse` (after any Spring AI tool-call loop has resolved) keyed on `(model, user-prompt-hash)`. Intermediate tool-call requests and responses MUST NOT be persisted as independent cache entries.
+
+A second invocation with the same `(model, user-prompt)` MUST return a cache hit without issuing any new outbound tool invocations.
+
+#### Scenario: Cache hit replays without tool invocations
+
+- **WHEN** the compose stage runs twice with the identical model and user prompt with `searchPastEpisodes` registered
+- **THEN** the second run returns the cached `ChatResponse` and records zero `searchPastEpisodes` invocations
+

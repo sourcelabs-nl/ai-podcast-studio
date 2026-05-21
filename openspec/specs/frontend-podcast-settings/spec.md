@@ -1,9 +1,7 @@
 ## Purpose
 
 Defines the requirements for the podcast settings page in the Next.js frontend dashboard, enabling users to view and edit all podcast configuration through a tabbed form interface.
-
 ## Requirements
-
 ### Requirement: Settings page route
 The system SHALL provide a settings page at `/podcasts/[podcastId]/settings` that fetches the podcast from `GET /users/{userId}/podcasts/{podcastId}` and displays all configuration fields in an editable form.
 
@@ -28,7 +26,7 @@ The settings form SHALL be organized into five sub-tabs: General, LLM, TTS, Cont
 
 #### Scenario: TTS tab fields
 - **WHEN** the TTS tab is active
-- **THEN** the form displays editable fields for: ttsProvider (select), ttsVoices (key-value editor), ttsSettings (key-value editor), speakerNames (key-value editor)
+- **THEN** the form displays editable fields for: ttsProvider (select), ttsModel (select, populated from `availableModels` for the selected provider), Delivery Mode (select, conditionally shown only when provider=`inworld` and model=`inworld-tts-2`), ttsVoices (key-value editor), ttsSettings (key-value editor for advanced overrides), speakerNames (key-value editor)
 
 #### Scenario: Content tab fields
 - **WHEN** the Content tab is active
@@ -113,8 +111,71 @@ The LLM Models selector SHALL display a "Using system default" hint per-stage wh
 - **THEN** no helper text or placeholder is displayed
 
 ### Requirement: Podcast type completeness
-The `Podcast` TypeScript interface SHALL include all fields returned by the `GET /users/{userId}/podcasts/{podcastId}` API endpoint: id, userId, name, topic, language, llmModels, ttsProvider, ttsVoices, ttsSettings, style, targetWords, cron, customInstructions, relevanceThreshold, requireReview, maxLlmCostCents, maxArticleAgeDays, speakerNames, fullBodyThreshold, sponsor, pronunciations, lastGeneratedAt.
+The `Podcast` TypeScript interface SHALL include all fields returned by the `GET /users/{userId}/podcasts/{podcastId}` API endpoint: id, userId, name, topic, language, llmModels, ttsProvider, ttsVoices, ttsSettings, style, targetWords, cron, timezone, customInstructions, relevanceThreshold, requireReview, maxLlmCostCents, maxArticleAgeDays, speakerNames, fullBodyThreshold, sponsor, pronunciations, lastGeneratedAt.
 
-#### Scenario: All API fields available in type
+#### Scenario: Timezone field available in type
 - **WHEN** the frontend fetches podcast data
-- **THEN** all fields from the API response are typed and accessible on the `Podcast` interface
+- **THEN** the `timezone` field is available on the Podcast type
+
+### Requirement: Settings UI exposes compose temperature
+
+The podcast settings page SHALL include a numeric input for the compose temperature constrained to `[0.0, 2.0]` with step `0.05`. The input is bound to the `temperature` key inside the `composeSettings` map. The input SHALL show the system default (`0.95`) as a placeholder when the value is unset. Saving SHALL round-trip the value through `PUT /users/{userId}/podcasts/{podcastId}` as `composeSettings = {"temperature": "<value>"}`.
+
+#### Scenario: User edits temperature
+
+- **WHEN** the user changes the compose temperature field to `0.7` and clicks Save
+- **THEN** the PUT request body includes `composeSettings = {"temperature": "0.7"}` and the value persists on reload
+
+#### Scenario: Unset temperature shows placeholder
+
+- **WHEN** the settings page loads for a podcast with no `composeSettings.temperature` override
+- **THEN** the input renders empty with placeholder text indicating the default `0.95`
+
+#### Scenario: Clearing the input clears only the temperature key
+
+- **WHEN** the user empties the temperature input and clicks Save
+- **THEN** the PUT request omits the `temperature` key from `composeSettings` (preserving any other keys present) — or sends `composeSettings = {}` when temperature was the only key, which clears the map per the customization spec
+
+### Requirement: Inworld TTS-2 delivery mode selector
+The TTS tab SHALL display a dedicated "Delivery Mode" `Select` control for Inworld TTS-2. The selector SHALL be rendered only when `ttsProvider` is `inworld` AND the selected TTS model (`ttsSettings.model`) is `inworld-tts-2`. The selector SHALL offer four options: an unset placeholder labeled `— (provider default)`, `STABLE`, `BALANCED`, and `EXPRESSIVE`. The selected value SHALL be persisted in `form.ttsSettings.deliveryMode`. Selecting the unset placeholder SHALL remove the `deliveryMode` key from `ttsSettings` rather than persisting an empty string.
+
+The generic `KeyValueEditor` for `ttsSettings` SHALL remain available below the dedicated controls so advanced users can override or add other Inworld parameters.
+
+#### Scenario: Delivery Mode shown for Inworld TTS-2
+- **WHEN** the TTS tab is active, `ttsProvider` is `inworld`, and `ttsSettings.model` is `inworld-tts-2`
+- **THEN** a Delivery Mode dropdown is rendered with options `— (provider default)`, `STABLE`, `BALANCED`, and `EXPRESSIVE`
+
+#### Scenario: Delivery Mode hidden for other Inworld models
+- **WHEN** the TTS tab is active, `ttsProvider` is `inworld`, and `ttsSettings.model` is `inworld-tts-1.5-max` or `inworld-tts-1.5-mini`
+- **THEN** the Delivery Mode dropdown is NOT rendered
+
+#### Scenario: Delivery Mode hidden for non-Inworld providers
+- **WHEN** the TTS tab is active and `ttsProvider` is `openai` or `elevenlabs`
+- **THEN** the Delivery Mode dropdown is NOT rendered regardless of model selection
+
+#### Scenario: Selecting an enum value persists to ttsSettings
+- **WHEN** the user selects `EXPRESSIVE` from the Delivery Mode dropdown
+- **THEN** `form.ttsSettings.deliveryMode` is set to `"EXPRESSIVE"`
+
+#### Scenario: Selecting unset removes the key
+- **WHEN** the user selects `— (provider default)` from the Delivery Mode dropdown
+- **THEN** the `deliveryMode` key is removed from `form.ttsSettings` (not persisted as an empty string)
+
+### Requirement: Settings UI exposes deepDiveEnabled toggle
+
+The podcast settings page SHALL include a toggle control for `deepDiveEnabled`. The control SHALL default to off and SHALL communicate that enabling it requires a configured Tavily key. Saving SHALL round-trip the value through `PUT /users/{userId}/podcasts/{podcastId}`.
+
+#### Scenario: User toggles deep-dive
+
+- **WHEN** the user enables the deep-dive toggle and clicks Save
+- **THEN** the PUT request body includes `deepDiveEnabled=true` and the value persists on reload
+
+### Requirement: API keys page exposes Tavily entry
+
+The API keys section SHALL include an entry for the research provider (Tavily). Users can add, update, and remove a Tavily key through this entry. UI text SHALL clarify that the key is only used when `deepDiveEnabled=true` on a podcast.
+
+#### Scenario: User saves Tavily key
+
+- **WHEN** the user enters a Tavily API key in the API keys page and saves
+- **THEN** the PUT request is sent to `/users/{userId}/api-keys/research` with `provider="tavily"`
+

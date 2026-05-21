@@ -3,23 +3,19 @@
 ## Purpose
 
 Generates and stores show notes for each episode, providing a recap summary for use in RSS feed descriptions and API responses.
-
 ## Requirements
-
 ### Requirement: Show notes generation
 The system SHALL generate show notes for each episode after the episode-article links are saved. Show notes SHALL consist of the episode recap followed by a "Sources:" section listing each linked article's title and URL. Articles SHALL be sorted by relevance score descending. Article titles longer than 100 characters SHALL be truncated with "...".
 
-#### Scenario: Show notes with recap and articles
-- **WHEN** an episode is created with a recap and 3 linked articles
-- **THEN** the show_notes field contains the recap text, a blank line, "Sources:", and one line per article with "- {title}" followed by "  {url}", sorted by relevance score descending, with titles truncated to 100 characters
+The recap generation prompt SHALL include the list of topic labels (from the dedup filter) so the LLM can naturally reference the topics discussed in the episode. The recap remains a natural prose paragraph; topics are provided as context, not as a rigid structure to follow.
 
-#### Scenario: Show notes without recap
-- **WHEN** an episode is created but recap generation fails
-- **THEN** the show_notes field contains only the "Sources:" section with article links
+#### Scenario: Recap references topics naturally
+- **WHEN** an episode is created from articles spanning topics ["AI Agent Safety", "New Model Releases", "Code Quality Benchmarks"] and a recap is generated
+- **THEN** the recap text naturally mentions at least some of the topic areas without being a bullet list of topics
 
-#### Scenario: Show notes with no linked articles
-- **WHEN** an episode is created but has no linked articles (edge case)
-- **THEN** the show_notes field contains only the recap text
+#### Scenario: Recap generated without topic data
+- **WHEN** an episode is recomposed (no topic data available) and a recap is generated
+- **THEN** the recap is generated from the script text alone, without topic context, matching current behavior
 
 ### Requirement: Show notes storage
 The Episode entity SHALL have a `show_notes` TEXT column to store the generated show notes.
@@ -34,3 +30,4 @@ The episode API response SHALL include a `showNotes` field.
 #### Scenario: Episode response includes show notes
 - **WHEN** a GET request is made for an episode that has show notes
 - **THEN** the response JSON includes a `showNotes` field with the show notes text
+

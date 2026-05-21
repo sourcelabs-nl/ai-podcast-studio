@@ -3,9 +3,7 @@
 ## Purpose
 
 Review workflow for episode scripts — status lifecycle, script editing, approval/discard, and async TTS trigger after approval.
-
 ## Requirements
-
 ### Requirement: Episode status lifecycle
 Each episode SHALL have a `status` field with one of the following values: `PENDING_REVIEW`, `APPROVED`, `GENERATING_AUDIO`, `GENERATED`, `FAILED`, `DISCARDED`. The status determines where the episode is in the review-to-audio pipeline. `GENERATING_AUDIO` indicates that TTS audio generation is actively in progress. An episode can enter `FAILED` status either from a TTS generation failure (after approval) or from a pipeline generation error (e.g., invalid model configuration). In the pipeline error case, a FAILED episode is created with an empty `scriptText`, the error stored in `errorMessage`, and `lastGeneratedAt` updated to prevent scheduler retries. After each status transition, the service SHALL publish a `PodcastEvent` via `ApplicationEventPublisher` to notify connected clients.
 
@@ -85,31 +83,24 @@ The system SHALL allow re-triggering TTS for a `FAILED` episode by approving it 
 - **THEN** the system updates the episode status to `APPROVED`, publishes an `episode.approved` event, triggers TTS generation asynchronously, and returns HTTP 202
 
 ### Requirement: Discard episode script
-The system SHALL allow discarding an episode script that is in `PENDING_REVIEW` or `GENERATED` status. Episodes in `GENERATING_AUDIO` status SHALL NOT be discardable. Episodes that are published to any target SHALL NOT be discardable. When an episode is discarded, the service SHALL publish an `episode.discarded` event. The system SHALL handle linked articles differently based on whether they are aggregated AND whether they are linked to published episodes:
+The system SHALL allow discarding an episode script that is in `PENDING_REVIEW` or `GENERATED` status. Episodes in `GENERATING_AUDIO` status SHALL NOT be discardable. Episodes that are published to any target SHALL NOT be discardable. When an episode is discarded, the service SHALL publish an `episode.discarded` event. The system SHALL handle linked articles differently based on whether they are aggregated:
 
-- **Articles linked to a GENERATED episode with PUBLISHED publications**: The system SHALL NOT reset `isProcessed` and SHALL NOT delete the article, regardless of aggregation status. These articles are considered "final."
-- **Non-aggregated articles** (0 or 1 linked posts in `post_articles`) not linked to any published episode: The system SHALL reset the article's `is_processed` flag to `false`, preserving the article's score and summary for reuse.
-- **Aggregated articles** (2+ linked posts in `post_articles`) not linked to any published episode: The system SHALL delete all `post_articles` entries for the article, then delete the article itself. This makes the original posts unlinked and eligible for re-aggregation on the next pipeline run.
-
-The system SHALL delegate the "is this article linked to a published episode" check to `ArticleEligibilityService`.
+- **Non-aggregated articles** (0 or 1 linked posts in `post_articles`): The system SHALL reset the article's `is_processed` flag to `false`, preserving the article's score and summary for reuse.
+- **Aggregated articles** (2+ linked posts in `post_articles`): The system SHALL delete all `post_articles` entries for the article, then delete the article itself. This makes the original posts unlinked and eligible for re-aggregation on the next pipeline run.
 
 The system SHALL look up linked articles via the `episode_articles` table. If no episode-article links exist (for episodes created before the tracking feature was added), the system SHALL log a warning indicating that no articles could be reset.
 
 #### Scenario: Discard pending episode with non-aggregated articles
-- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has 3 linked articles that each have 0 or 1 `post_articles` entries and are not linked to any published episode
+- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has 3 linked articles that each have 0 or 1 `post_articles` entries
 - **THEN** the system updates the episode status to `DISCARDED`, resets all 3 articles to `is_processed = false`, and returns HTTP 200
 
 #### Scenario: Discard pending episode with aggregated articles
-- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has 1 linked article that has 5 `post_articles` entries and is not linked to any published episode
+- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has 1 linked article that has 5 `post_articles` entries
 - **THEN** the system updates the episode status to `DISCARDED`, deletes all 5 `post_articles` entries for that article, deletes the article, and returns HTTP 200
 
 #### Scenario: Discard pending episode with mixed article types
-- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has 2 non-aggregated articles and 1 aggregated article (with 4 `post_articles` entries), none linked to published episodes
+- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has 2 non-aggregated articles and 1 aggregated article (with 4 `post_articles` entries)
 - **THEN** the system updates the episode status to `DISCARDED`, resets the 2 non-aggregated articles to `is_processed = false`, deletes the 4 `post_articles` entries and the aggregated article, and returns HTTP 200
-
-#### Scenario: Discard episode with articles linked to published episode
-- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, and 2 of its 3 linked articles are also linked to a GENERATED episode with PUBLISHED publications
-- **THEN** the system updates the episode status to `DISCARDED`, only resets the 1 article not linked to a published episode, and leaves the other 2 articles unchanged
 
 #### Scenario: Discard pending episode without article links
 - **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has no linked articles in `episode_articles`
@@ -171,3 +162,4 @@ Existing callers that do not pass these parameters SHALL behave identically to b
 #### Scenario: Pipeline does not mark articles as processed
 - **WHEN** `LlmPipeline.run()` completes composition
 - **THEN** the pipeline SHALL NOT set `is_processed = true` on any article; it returns the article IDs in `PipelineResult` for the caller to handle
+

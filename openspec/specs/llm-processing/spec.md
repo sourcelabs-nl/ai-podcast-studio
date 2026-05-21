@@ -3,65 +3,53 @@
 ## Purpose
 
 Three-stage LLM pipeline for processing articles (relevance scoring, conditional summarization, briefing script composition) using Spring AI and OpenRouter.
-
 ## Requirements
-
 ### Requirement: Two-step LLM pipeline
-The system SHALL process articles through a two-stage sequential LLM pipeline: (1) score, summarize, and filter, (2) briefing script composition. The pipeline SHALL be triggered by the `BriefingGenerationScheduler` on a configurable cron schedule.
+The system SHALL process articles through a three-stage sequential LLM pipeline: (1) score, summarize, and filter, (2) topic dedup filter, (3) briefing script composition. The pipeline SHALL be triggered by the `BriefingGenerationScheduler` on a configurable cron schedule.
 
 Before running the LLM stages, the pipeline SHALL invoke the `SourceAggregator` to create articles from unlinked posts. For each source belonging to the podcast, the aggregator queries unlinked posts within the configured time window and creates articles (aggregated or 1:1 depending on the source's `aggregate` setting). The resulting articles are persisted to the `articles` table with `post_articles` join entries.
 
 Stage 1 (score+summarize+filter) SHALL process each newly created article with a single LLM call that returns structured JSON containing: `relevanceScore` (integer 0-10) and `summary` (text — a concise summary focusing only on content relevant to the podcast's topic). The system SHALL persist `relevance_score` and `summary` on the article immediately. Articles with `relevanceScore` below the podcast's `relevanceThreshold` SHALL be excluded from composition.
 
-Between Stage 1 and Stage 2, the pipeline SHALL fetch the most recent episode for the podcast (any status). If a previous episode exists and has a non-null `recap` field, the pipeline SHALL pass the recap to the composer as continuity context.
+Stage 2 (topic dedup filter) SHALL run after scoring and before composition. The pipeline SHALL pass all relevant unprocessed articles and historical articles from recent GENERATED episodes to the `TopicDedupFilter`. The filter clusters articles by topic, deduplicates against history, selects top 3 per NEW topic, and annotates CONTINUATION topics with follow-up context. The filtered article set and annotations are passed to Stage 3.
 
-Stage 2 (composition) SHALL query articles where `relevance_score >= podcast.relevanceThreshold` AND `is_processed = false`, and compose a briefing script. The composer SHALL receive the previous episode recap (if available) to enable continuity references. After composition, articles SHALL be marked `is_processed = true`.
+Stage 3 (composition) SHALL compose the filtered articles into a briefing script. The composer SHALL receive the dedup filter's output including `[FOLLOW-UP: ...]` annotations for CONTINUATION topics. The composer SHALL NOT receive episode recaps — continuity context comes from the dedup filter annotations. After composition, articles SHALL be marked `is_processed = true`.
 
-Both stages SHALL track token usage. Stage 1 SHALL persist token counts on each article. Stage 2 SHALL return token counts in the `PipelineResult`.
+Article selection SHALL be delegated to `ArticleEligibilityService`, which applies the article age gate and `isProcessed` checks. The pipeline SHALL NOT query the article repository directly for eligibility.
+
+Both stages SHALL track token usage. Stage 1 SHALL persist token counts on each article. Stage 2 (dedup filter) SHALL track token usage. Stage 3 SHALL return token counts in the `PipelineResult`.
 
 The `PipelineResult` SHALL include a `processedArticleIds` field containing the IDs of all articles that were marked as processed. This enables the caller (`BriefingGenerationScheduler`) to record episode-article links after the episode is persisted.
 
-Stage 1 SHALL use the model resolved for the `filter` stage. Stage 2 SHALL use the model resolved for the `compose` stage.
+Stage 1 SHALL use the model resolved for the `filter` stage. Stage 2 SHALL use the model resolved for the `filter` stage. Stage 3 SHALL use the model resolved for the `compose` stage.
 
-#### Scenario: Full pipeline produces a briefing script
-- **WHEN** the pipeline runs and there are unlinked posts for the podcast's sources
-- **THEN** posts are aggregated into articles, each article is scored and summarized in one LLM call, and relevant articles are composed into a briefing script
+#### Scenario: Full pipeline with dedup filter produces a briefing script
+- **WHEN** the pipeline runs with 100 relevant candidate articles and 50 historical articles from recent episodes
+- **THEN** the dedup filter clusters and deduplicates articles, and only the filtered set (~15-25 articles) is passed to the composer
 
-#### Scenario: Pipeline skipped when no unlinked posts exist
-- **WHEN** the pipeline runs and there are no unlinked posts within the time window for any source
-- **THEN** no articles are created and the pipeline SHALL still check for existing unprocessed relevant articles to compose
+#### Scenario: Pipeline skipped when no new articles after dedup filter
+- **WHEN** the pipeline runs and all candidate articles are duplicates of historical episode articles
+- **THEN** no composition LLM call is made and no briefing is generated
 
-#### Scenario: Pipeline resumes after partial completion
-- **WHEN** the pipeline previously created articles and scored some but crashed before composition
-- **THEN** on the next run, already-scored articles are not re-scored; new unlinked posts are aggregated; the pipeline proceeds to composition
+#### Scenario: Pipeline with continuation topics
+- **WHEN** some candidate articles cover a topic that was in a recent episode but with genuinely new developments
+- **THEN** those articles are passed to the composer with `[FOLLOW-UP: ...]` annotations, and the script references previous coverage
+
+#### Scenario: Article age gate prevents old content from new sources
+- **WHEN** a new source is added with articles older than the latest published episode
+- **THEN** those old articles are excluded by the `ArticleEligibilityService` before reaching the dedup filter
 
 #### Scenario: No relevant articles after scoring
 - **WHEN** all scored articles have `relevanceScore` below the podcast's `relevanceThreshold`
-- **THEN** no composition LLM call is made and no briefing is generated
-
-#### Scenario: Summary focuses on relevant content
-- **WHEN** an aggregated article contains posts about AI and posts about celebrity gossip, scored against topic "artificial intelligence"
-- **THEN** the LLM's summary covers only the AI-relevant content, omitting irrelevant posts
+- **THEN** no dedup filter call is made, no composition LLM call is made, and no briefing is generated
 
 #### Scenario: PipelineResult contains processed article IDs
-- **WHEN** the pipeline composes a briefing from 5 relevant articles
-- **THEN** the `PipelineResult.processedArticleIds` contains the IDs of all 5 articles
+- **WHEN** the pipeline composes a briefing from 15 filtered articles
+- **THEN** the `PipelineResult.processedArticleIds` contains the IDs of all 15 articles
 
 #### Scenario: Episode-article links recorded after episode creation
 - **WHEN** the `BriefingGenerationScheduler` creates an episode from a `PipelineResult`
 - **THEN** the scheduler records one `episode_articles` row for each article ID in `PipelineResult.processedArticleIds`
-
-#### Scenario: Previous episode recap passed to composer
-- **WHEN** the pipeline runs and the podcast has a most recent episode with a non-null recap
-- **THEN** the pipeline passes the recap to the composer as continuity context
-
-#### Scenario: No recap when previous episode has null recap
-- **WHEN** the pipeline runs and the most recent episode has a null recap (old episode)
-- **THEN** the composer receives null for the recap parameter
-
-#### Scenario: No recap when no previous episode exists
-- **WHEN** the pipeline runs for a podcast with no episodes
-- **THEN** the composer receives null for the recap parameter
 
 ### Requirement: Score, summarize, and filter stage
 The system SHALL process each article through a single LLM call that performs scoring and summarization simultaneously. Articles SHALL be processed concurrently using coroutines with `supervisorScope` for fault isolation — a failure in one article's LLM call SHALL NOT cancel or affect processing of other articles.
@@ -237,3 +225,111 @@ The full-body threshold behavior SHALL be applied to all three composer variants
 #### Scenario: Sponsor name used as-is from configuration
 - **WHEN** a podcast has `sponsor: {"name": "Acme Corp", "message": "innovating tomorrow"}`
 - **THEN** the prompt uses "Acme Corp" as the sponsor name (no hardcoded name)
+
+### Requirement: Compose call passes temperature
+
+The compose stage SHALL include `temperature` in the `OpenAiChatOptions` passed at call time, sourced from `podcast.composeTemperature` or the system default `0.95`. Filter and score stages MAY continue to omit temperature.
+
+#### Scenario: Options include temperature
+
+- **WHEN** the compose stage invokes the LLM
+- **THEN** the `OpenAiChatOptions` instance carries the resolved temperature value
+
+### Requirement: Compose stage registers tools, other stages do not
+
+`ChatClientFactory` SHALL expose a compose-specific construction path that registers `searchPastEpisodes` as a callable tool. The filter and score stages SHALL receive a tool-less `ChatClient`.
+
+#### Scenario: Compose stage gets the history tool
+
+- **WHEN** the compose stage builds a `ChatClient` for any podcast
+- **THEN** the client has `searchPastEpisodes` registered as a callable tool
+
+#### Scenario: Filter stage gets no tools
+
+- **WHEN** the filter or score stage builds a `ChatClient`
+- **THEN** the client has zero tools registered
+
+### Requirement: Subtopic classification in score+summarize stage
+When the podcast has a non-empty `subtopics` map, the Stage 1 LLM prompt SHALL include the list of subtopic names (verbatim, with weights omitted from the prompt to avoid biasing classification) and SHALL request a JSON response with the structure `{ "relevanceScore": <int>, "subtopic": <string|null>, "summary": "<text>" }`. The system SHALL validate the LLM-returned `subtopic` against the configured subtopic names: any value not matching an entry in the podcast's `subtopics` map (case-insensitive comparison) SHALL be normalized to `null`. The validated value SHALL be persisted on the article (`articles.subtopic` column). When the podcast has no subtopics configured, the prompt and response schema SHALL remain identical to the pre-feature behavior (`{relevanceScore, summary}` only) and the `subtopic` column SHALL be left null.
+
+The prompt SHALL instruct the LLM to choose the subtopic that best matches the article's primary focus, returning `null` only when no listed subtopic reasonably applies. The classification SHALL be performed in the same LLM call as scoring and summarization — no additional round-trip.
+
+#### Scenario: Article matches a subtopic
+- **WHEN** a podcast has `subtopics: {"LLM releases": 10, "Dev tools": 5}` and an article about a new Anthropic model is scored
+- **THEN** the LLM returns `subtopic: "LLM releases"` and the article row is persisted with `subtopic = "LLM releases"`
+
+#### Scenario: Article does not match any subtopic
+- **WHEN** the same podcast scores an article about AI ethics that does not match any configured subtopic
+- **THEN** the LLM returns `subtopic: null` and the article row is persisted with `subtopic = null`
+
+#### Scenario: LLM returns an unknown subtopic name
+- **WHEN** the LLM returns `subtopic: "Frontier research"` but the podcast's subtopics map does not contain that name
+- **THEN** the value is normalized to `null` before persistence
+
+#### Scenario: Subtopics feature disabled
+- **WHEN** a podcast has empty or null `subtopics`
+- **THEN** the prompt does not mention subtopics, the response schema is `{relevanceScore, summary}`, and the article's `subtopic` column is left null
+
+#### Scenario: Subtopic classification adds no extra LLM calls
+- **WHEN** Stage 1 runs for a podcast with subtopics configured
+- **THEN** each article still makes exactly one LLM call, and token usage is recorded once per article
+
+### Requirement: Subtopic-aware briefing composition
+When a podcast has a non-empty `subtopics` map, the briefing composer (and its dialogue/interview variants) SHALL receive the subtopics map and the persisted `subtopic` value for each article. The composer prompt SHALL:
+- Group articles by their `subtopic` value, with `null` mapped to a synthetic "Other" bucket of effective weight 1.
+- Partition subtopics into a full-segment tier (`weight > podcast.rapidFireWeightThreshold`) and a rapid-fire tier (`weight <= podcast.rapidFireWeightThreshold`).
+- Allocate per-subtopic word budgets in the full-segment tier proportionally to weight, using a total full-segment budget of `targetWords * (1 - rapidFireBudgetFraction)`.
+- Instruct the LLM to emit a labeled rapid-fire segment after the full segments, covering each rapid-fire article in one to two sentences, with a total budget of `targetWords * rapidFireBudgetFraction`.
+- Use style-appropriate phrasing for the rapid-fire segment ("And in brief:" for briefing, "Quick hits before we wrap" for dialogue, "Lightning round to close" for interview).
+
+The `rapidFireBudgetFraction` SHALL default to 0.15 and SHALL be configurable via `app.compose.rapid-fire-budget-fraction`. When a podcast has no subtopics configured, the composer SHALL use the existing flat layout with no per-subtopic budgets and no rapid-fire segment.
+
+If after grouping articles by subtopic the full-segment tier holds zero articles — because every classified subtopic (including the synthetic "Other" bucket) has weight at or below `rapidFireWeightThreshold`, or because every article was classified `null` and "Other" is rapid-fire by default — the composer SHALL fall back to the legacy flat layout with no rapid-fire segment. The rapid-fire segment SHALL only be emitted when at least one full segment exists for it to contrast against.
+
+#### Scenario: Briefing script contains a labeled rapid-fire segment
+- **WHEN** a podcast has subtopics with weights both above and at-or-below the threshold and articles classified into both tiers
+- **THEN** the generated briefing contains a clearly demarcated rapid-fire segment after the main segments (text marker "And in brief" or style-appropriate equivalent)
+
+#### Scenario: No rapid-fire segment when all subtopics are full-tier
+- **WHEN** every classified subtopic has weight strictly greater than `rapidFireWeightThreshold`
+- **THEN** the composer prompt omits the rapid-fire instructions and the generated script has no rapid-fire segment
+
+#### Scenario: No full-segment tier falls back to flat layout
+- **WHEN** every classified subtopic has weight at or below the threshold (so the full-segment tier holds no articles)
+- **THEN** the composer prompt falls back to the legacy flat layout with no per-subtopic segments and no rapid-fire instructions
+
+#### Scenario: Every article classified as null falls back to flat layout
+- **WHEN** the LLM returned `subtopic = null` for every article (so only the synthetic "Other" rapid-fire bucket has content)
+- **THEN** the composer prompt is the legacy flat layout — no rapid-fire segment, no subtopic-shaped instructions
+
+#### Scenario: Word budgets proportional to weight
+- **WHEN** the full-tier contains `{"A": 10, "B": 5}` with `targetWords: 1500` and default `rapidFireBudgetFraction: 0.15`
+- **THEN** the composer prompt asks for approximately 850 words on "A", 425 words on "B", and ≤ 225 words on the rapid-fire segment
+
+#### Scenario: Dialogue/interview styles use style-appropriate rapid-fire phrasing
+- **WHEN** a dialogue or interview podcast has rapid-fire articles
+- **THEN** the rapid-fire segment uses conversational phrasing rather than a flat "And in brief:" header (e.g. one host says "Quick hits before we wrap")
+
+#### Scenario: Backwards-compatible composition without subtopics
+- **WHEN** a podcast has no subtopics configured
+- **THEN** the composer prompt is byte-identical to the pre-feature behavior, with no segmentation and no rapid-fire instructions
+
+### Requirement: Compose stage conditionally registers webSearch tool
+
+`ChatClientFactory` SHALL register the `webSearch` tool for the compose stage when `podcast.deepDiveEnabled=true`, and SHALL NOT register it otherwise. Filter and score stages MUST remain tool-less.
+
+#### Scenario: Enabled podcast registers webSearch
+
+- **WHEN** the compose stage builds a `ChatClient` for a podcast with `deepDiveEnabled=true`
+- **THEN** the client has `webSearch` registered as a callable tool
+
+#### Scenario: Disabled podcast omits webSearch
+
+- **WHEN** the compose stage builds a `ChatClient` for a podcast with `deepDiveEnabled=false`
+- **THEN** the client has no `webSearch` tool registered
+
+#### Scenario: Filter stage gets no tools
+
+- **WHEN** the filter or score stage builds a `ChatClient`
+- **THEN** the client has zero tools registered
+

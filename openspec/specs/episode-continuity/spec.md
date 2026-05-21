@@ -3,9 +3,7 @@
 ## Purpose
 
 Episode continuity context enables podcast scripts to reference previous episodes, creating a sense of ongoing narrative. A recap is generated from each episode's script and stored for use by subsequent episodes.
-
 ## Requirements
-
 ### Requirement: Episode recap generation
 The system SHALL provide an `EpisodeRecapGenerator` component that accepts an episode's `scriptText` and produces a 2-3 sentence plain-text recap of the key topics discussed. The recap SHALL be generated using the filter model (resolved via `ModelResolver` for the `filter` stage). The recap prompt SHALL instruct the LLM to summarize the main topics covered in the episode script concisely, without any meta-commentary or preamble. Token usage from the recap call SHALL be tracked.
 
@@ -51,7 +49,7 @@ When composing a script, the system SHALL NOT pass episode recaps to the compose
 
 The composer SHALL still naturally reference previous coverage when it sees `[FOLLOW-UP: ...]` headers above article groups, using phrasing like "following up on what we covered recently..." or "as we discussed last time..."
 
-Recap generation SHALL continue unchanged -- recaps are still generated and stored on episodes for use in publication descriptions (feed.xml, SoundCloud).
+Recap generation SHALL continue unchanged — recaps are still generated and stored on episodes for use in publication descriptions (feed.xml, SoundCloud).
 
 #### Scenario: Composer receives continuation articles with follow-up annotation
 - **WHEN** the dedup filter identifies a CONTINUATION topic about "Gemini 2.5 pricing" (previously covered: release and benchmarks)
@@ -61,10 +59,11 @@ Recap generation SHALL continue unchanged -- recaps are still generated and stor
 - **WHEN** the dedup filter identifies a NEW topic about "NVIDIA Blackwell pricing"
 - **THEN** the composer prompt includes the articles without any follow-up header, and the script presents it as fresh news
 
-#### Scenario: No previous episodes -- no annotations
+#### Scenario: No previous episodes — no annotations
 - **WHEN** the dedup filter has no historical articles (first episode)
 - **THEN** all articles appear as NEW clusters without annotations, and the composer produces a script with no back-references
 
 #### Scenario: Recap still generated for publication
 - **WHEN** an episode is created and its script is generated
 - **THEN** the `EpisodeRecapGenerator` still generates a 2-3 sentence recap stored on the episode for feed.xml and SoundCloud descriptions
+

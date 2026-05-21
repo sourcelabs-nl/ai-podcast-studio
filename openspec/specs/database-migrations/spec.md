@@ -3,9 +3,7 @@
 ## Purpose
 
 Versioned database schema management using Flyway, covering migration file conventions, baseline setup, and auto-configuration with Spring Boot.
-
 ## Requirements
-
 ### Requirement: Flyway dependency and auto-configuration
 The system SHALL include `spring-boot-starter-flyway` as a Maven dependency. Flyway SHALL be auto-configured by Spring Boot using the application's existing `DataSource` bean with no additional Flyway bean configuration.
 
@@ -144,3 +142,62 @@ The system SHALL include a migration file `V32__add_cascade_delete_episode_publi
 #### Scenario: Episode deletion cascades to publications
 - **WHEN** an episode with publication records is deleted
 - **THEN** all corresponding rows in `episode_publications` are automatically deleted
+
+### Requirement: Migration adds podcast compose_settings column
+
+A new Flyway migration `V53__add_podcast_compose_settings.sql` SHALL add column `compose_settings TEXT` (nullable, no default) to the `podcasts` table. The column stores a JSON-encoded `Map<String, String>` and is (de)serialised via the existing `Map<String, String> ↔ JSON` converter registered in `SqliteDialectConfig`.
+
+#### Scenario: Existing podcasts get null values
+
+- **WHEN** the migration runs against a database with existing rows in `podcasts`
+- **THEN** every existing row has `compose_settings IS NULL`
+
+#### Scenario: Migration is idempotent under Flyway
+
+- **WHEN** the application starts after the migration has already been applied
+- **THEN** Flyway does not re-run it
+
+### Requirement: Migration adds episode_history_fts virtual table
+
+A new Flyway migration (next available `V` number, e.g. `V53__add_episode_history_fts.sql`) SHALL create:
+
+- A SQLite FTS5 virtual table `episode_history_fts(episode_id UNINDEXED, podcast_id UNINDEXED, generated_at UNINDEXED, topics, recap, script_text, tokenize='porter unicode61')`.
+- Triggers on `episodes` (AFTER INSERT and AFTER UPDATE OF `status`, `recap`, `script_text`) that insert or update the FTS row when status is `GENERATED`.
+- Triggers on `episode_articles` (AFTER INSERT, AFTER UPDATE OF `topic`, AFTER DELETE) that recompute the joined `topics` column for the affected episode.
+- A backfill statement populating the table from existing `GENERATED` episodes.
+
+#### Scenario: Migration is idempotent under Flyway
+
+- **WHEN** the application starts after the migration has already been applied
+- **THEN** Flyway does not re-run it and the virtual table remains intact
+
+#### Scenario: Backfill matches existing generated episode count
+
+- **WHEN** the migration runs against a database with N `GENERATED` episodes
+- **THEN** `SELECT count(*) FROM episode_history_fts` equals N immediately after migration
+
+### Requirement: Migration adds deep-dive and research tracking
+
+A new Flyway migration (next available `V` number, e.g. `V53__add_deep_dive_and_research_tracking.sql`) SHALL:
+
+- Add column `deep_dive_enabled INTEGER NOT NULL DEFAULT 0` to `podcasts`.
+- Add columns `research_calls INTEGER NOT NULL DEFAULT 0` and `research_cost_cents INTEGER` (nullable) to `episodes`.
+- Create a `research_cache` table with at minimum `(query_hash TEXT PRIMARY KEY, query TEXT NOT NULL, max_results INTEGER NOT NULL, response_json TEXT NOT NULL, cached_at TIMESTAMP NOT NULL)`.
+
+All changes MUST be additive and idempotent under Flyway.
+
+#### Scenario: Existing podcasts default to disabled
+
+- **WHEN** the migration runs against a database with existing rows in `podcasts`
+- **THEN** every existing row has `deep_dive_enabled = 0`
+
+#### Scenario: Existing episodes get default counts
+
+- **WHEN** the migration runs against a database with existing rows in `episodes`
+- **THEN** every existing row has `research_calls = 0` and `research_cost_cents IS NULL`
+
+#### Scenario: Migration is idempotent under Flyway
+
+- **WHEN** the application starts after the migration has already been applied
+- **THEN** Flyway does not re-run it
+

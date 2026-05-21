@@ -3,9 +3,7 @@
 ## Purpose
 
 Multi-speaker dialogue composition for podcast scripts, producing natural conversations with XML speaker tags for TTS processing.
-
 ## Requirements
-
 ### Requirement: DialogueComposer generates speaker-tagged scripts
 The system SHALL provide a `DialogueComposer` component that generates multi-speaker dialogue scripts using XML-style speaker tags. The composer SHALL use the `compose` model (resolved via `ModelResolver`). The output format SHALL use tags matching the keys in the podcast's `ttsVoices` map (e.g., `<host>`, `<cohost>`). The composer SHALL NOT strip any tags from the output — the tags are required for downstream processing.
 
@@ -132,3 +130,22 @@ The system SHALL select the appropriate composer based on the podcast's `style` 
 #### Scenario: Casual style uses BriefingComposer
 - **WHEN** a podcast has `style: "casual"`
 - **THEN** the pipeline uses `BriefingComposer` for script generation
+
+### Requirement: Dialogue prompts use variety rotation
+
+The dialogue composer prompt SHALL be parameterized by the `PromptVarietyPicker` selection for the current `(podcastId, episodeDate)`. Opening style, transition vocabulary, and sign-off shape MUST come from the picker, not be hard-coded constants.
+
+#### Scenario: Different dates produce different prompt scaffolding
+
+- **WHEN** the dialogue composer builds prompts for the same podcast on two different dates with the same article set
+- **THEN** the prompt strings differ in the opening-style and sign-off-shape sections
+
+### Requirement: Dialogue prompts contain no verbatim example phrases
+
+The dialogue composer prompt SHALL NOT include verbatim sample sentences that the LLM is prone to copy into generated scripts. Structural beats may be described abstractly.
+
+#### Scenario: No banned phrases present
+
+- **WHEN** the dialogue composer prompt is built
+- **THEN** the prompt does not contain any documented banned example phrase verbatim
+

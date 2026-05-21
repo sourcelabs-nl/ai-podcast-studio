@@ -3,9 +3,7 @@
 ## Purpose
 
 Pre-flight LLM cost estimation and pipeline gating based on configurable per-podcast cost thresholds.
-
 ## Requirements
-
 ### Requirement: Pre-flight LLM cost estimation
 The system SHALL estimate the total LLM cost before making any API calls in `LlmPipeline.run()`. The estimation SHALL run after post aggregation (so article count and content are known) but before scoring/summarization. The estimate SHALL cover both pipeline stages: scoring/summarization (filter model) and composition (compose model).
 
@@ -72,3 +70,18 @@ The system SHALL support a global default cost threshold via the `app.llm.max-co
 #### Scenario: Custom global threshold
 - **WHEN** `app.llm.max-cost-cents` is set to 500 in `application.yaml`
 - **THEN** podcasts without a per-podcast override use 500 cents as the threshold
+
+### Requirement: Cost gate adds a research buffer when deep-dive is enabled
+
+When a podcast has `deepDiveEnabled=true`, the cost gate estimator SHALL add a configurable fixed buffer (default `app.research.cost-buffer-cents=5`) to the estimated total before comparing against `maxLlmCostCents`. When `deepDiveEnabled=false`, the buffer MUST NOT be applied.
+
+#### Scenario: Buffer applied for deep-dive podcasts
+
+- **WHEN** the cost gate estimator runs for a podcast with `deepDiveEnabled=true` and base estimate 50¢, with buffer 5¢
+- **THEN** the comparison uses 55¢ against `maxLlmCostCents`
+
+#### Scenario: Buffer omitted for standard podcasts
+
+- **WHEN** the cost gate estimator runs for a podcast with `deepDiveEnabled=false` and base estimate 50¢
+- **THEN** the comparison uses 50¢ against `maxLlmCostCents`
+
