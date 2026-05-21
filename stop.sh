@@ -9,7 +9,7 @@ FRONTEND_PID_FILE="$SCRIPT_DIR/.frontend.pid"
 if [ -f "$PID_FILE" ]; then
   APP_PID=$(cat "$PID_FILE")
   if kill -0 "$APP_PID" 2>/dev/null; then
-    echo "Stopping ai-summary-podcast (PID $APP_PID)..."
+    echo "Stopping ai-podcast-studio (PID $APP_PID)..."
     kill "$APP_PID"
     for i in $(seq 1 20); do
       if ! kill -0 "$APP_PID" 2>/dev/null; then

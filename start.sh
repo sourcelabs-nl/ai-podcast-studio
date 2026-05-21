@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="$SCRIPT_DIR/.app.pid"
 FRONTEND_PID_FILE="$SCRIPT_DIR/.frontend.pid"
-JAR_FILE="$SCRIPT_DIR/target/ai-summary-podcast-0.0.1-SNAPSHOT.jar"
+JAR_FILE="$SCRIPT_DIR/target/ai-podcast-studio-0.0.1-SNAPSHOT.jar"
 NPM="/Users/soudmaijer/.nvm/versions/node/v22.16.0/bin/npm"
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
@@ -12,11 +12,11 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
   exit 1
 fi
 
-echo "Building ai-summary-podcast..."
+echo "Building ai-podcast-studio..."
 cd "$SCRIPT_DIR"
 ./mvnw -q package -DskipTests
 
-echo "Starting ai-summary-podcast..."
+echo "Starting ai-podcast-studio..."
 java --enable-native-access=ALL-UNNAMED -jar "$JAR_FILE" > /dev/null 2>&1 &
 APP_PID=$!
 echo "$APP_PID" > "$PID_FILE"
