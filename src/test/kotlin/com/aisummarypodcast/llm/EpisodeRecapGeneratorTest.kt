@@ -1,5 +1,7 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.config.ModelCost
+import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.llm.ResolvedModel
 import com.aisummarypodcast.store.Podcast
 import io.mockk.every
@@ -91,6 +93,31 @@ class EpisodeRecapGeneratorTest {
 
         assertTrue(prompt.contains("AI Safety, New Releases, Code Quality"))
         assertTrue(prompt.contains("Naturally reference these topics"))
+    }
+
+    @Test
+    fun `recap computes cost from token usage when pricing configured`() {
+        val pricedModel = ResolvedModel(
+            provider = "openrouter", model = "anthropic/claude-haiku-4.5",
+            cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 1.00, outputCostPerMtok = 5.00)
+        )
+        val chatClient = mockChatClient("Recap.", inputTokens = 1_000_000, outputTokens = 200_000)
+        every { chatClientFactory.createForModel("u1", pricedModel) } returns chatClient
+
+        val result = generator.generate("Script", podcast, pricedModel)
+
+        // 1M input * $1/Mtok = $1.00; 200k output * $5/Mtok = $1.00; total = $2.00 = 200¢
+        assertEquals(200, result.costCents)
+    }
+
+    @Test
+    fun `recap costCents is null when model pricing missing`() {
+        val chatClient = mockChatClient("Recap.")
+        every { chatClientFactory.createForModel("u1", filterModelDef) } returns chatClient
+
+        val result = generator.generate("Script", podcast, filterModelDef)
+
+        assertEquals(null, result.costCents)
     }
 
     @Test

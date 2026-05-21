@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.user.UserService
@@ -16,8 +17,11 @@ import java.io.File
 class EpisodeController(
     private val podcastService: PodcastService,
     private val userService: UserService,
-    private val episodeService: EpisodeService
+    private val episodeService: EpisodeService,
+    private val appProperties: AppProperties
 ) {
+
+    private val stageCostFn = stageCostFnFromModels(appProperties.models)
 
     @GetMapping
     fun list(
@@ -54,7 +58,10 @@ class EpisodeController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        return ResponseEntity.ok(episode.toResponse())
+        return ResponseEntity.ok(episode.toResponse(
+            scoreCalls = episodeService.countArticles(episodeId),
+            costFor = stageCostFn
+        ))
     }
 
     @PutMapping("/{episodeId}/script")

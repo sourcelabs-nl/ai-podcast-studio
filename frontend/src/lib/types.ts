@@ -61,6 +61,36 @@ export interface Episode {
   pipelineStage?: string;
   researchCalls?: number;
   researchCostCents?: number;
+  costs?: EpisodeCosts;
+}
+
+export interface LlmStageCost {
+  model: string | null;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number;
+}
+
+export interface TtsCost {
+  model: string | null;
+  characters: number;
+  costCents: number;
+}
+
+export interface ResearchCost {
+  calls: number;
+  costCents: number;
+}
+
+export interface EpisodeCosts {
+  score: LlmStageCost;
+  dedup: LlmStageCost;
+  compose: LlmStageCost;
+  recap: LlmStageCost;
+  tts: TtsCost;
+  research: ResearchCost;
+  totalCostCents: number;
 }
 
 export interface Source {

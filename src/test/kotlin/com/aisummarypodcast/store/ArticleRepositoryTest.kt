@@ -16,6 +16,7 @@ class ArticleRepositoryTest {
     @Autowired lateinit var sourceRepository: SourceRepository
     @Autowired lateinit var podcastRepository: PodcastRepository
     @Autowired lateinit var userRepository: UserRepository
+    @Autowired lateinit var episodeRepository: EpisodeRepository
 
     @BeforeEach
     fun setUp() {
@@ -103,6 +104,32 @@ class ArticleRepositoryTest {
         )
         val loaded = articleRepository.findById(saved.id!!).orElseThrow()
         assertEquals("LLM releases", loaded.subtopic)
+    }
+
+    @Test
+    fun `episode per-stage cost columns round-trip through persistence`() {
+        val saved = episodeRepository.save(
+            Episode(
+                podcastId = "p1", generatedAt = "2026-05-21T00:00:00Z", scriptText = "",
+                scoreInputTokens = 900, scoreOutputTokens = 180, scoreCostCents = 3,
+                dedupInputTokens = 200, dedupOutputTokens = 100, dedupCostCents = 5,
+                composeInputTokens = 500, composeOutputTokens = 300, composeCostCents = 10,
+                recapInputTokens = 100, recapOutputTokens = 50, recapCostCents = 1
+            )
+        )
+        val loaded = episodeRepository.findById(saved.id!!).orElseThrow()
+        assertEquals(900, loaded.scoreInputTokens)
+        assertEquals(180, loaded.scoreOutputTokens)
+        assertEquals(3, loaded.scoreCostCents)
+        assertEquals(200, loaded.dedupInputTokens)
+        assertEquals(100, loaded.dedupOutputTokens)
+        assertEquals(5, loaded.dedupCostCents)
+        assertEquals(500, loaded.composeInputTokens)
+        assertEquals(300, loaded.composeOutputTokens)
+        assertEquals(10, loaded.composeCostCents)
+        assertEquals(100, loaded.recapInputTokens)
+        assertEquals(50, loaded.recapOutputTokens)
+        assertEquals(1, loaded.recapCostCents)
     }
 
     @Test

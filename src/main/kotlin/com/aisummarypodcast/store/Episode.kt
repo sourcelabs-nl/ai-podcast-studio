@@ -4,6 +4,13 @@ import org.springframework.data.annotation.Id
 import org.springframework.data.annotation.Version
 import org.springframework.data.relational.core.mapping.Table
 
+/**
+ * Episode entity. The aggregate LLM totals — [llmInputTokens], [llmOutputTokens],
+ * [llmCostCents] — are derived sums of the four per-stage triples below
+ * (score / dedup / compose / recap). They are written exclusively by
+ * `EpisodeService.finalizeEpisode`; no other code path may update them
+ * independently. Treat the four stage triples as the source of truth.
+ */
 @Table("episodes")
 data class Episode(
     @Id val id: Long? = null,
@@ -27,5 +34,17 @@ data class Episode(
     val pipelineStage: String? = null,
     val researchCalls: Int = 0,
     val researchCostCents: Int? = null,
+    val scoreInputTokens: Int = 0,
+    val scoreOutputTokens: Int = 0,
+    val scoreCostCents: Int = 0,
+    val dedupInputTokens: Int = 0,
+    val dedupOutputTokens: Int = 0,
+    val dedupCostCents: Int = 0,
+    val composeInputTokens: Int = 0,
+    val composeOutputTokens: Int = 0,
+    val composeCostCents: Int = 0,
+    val recapInputTokens: Int = 0,
+    val recapOutputTokens: Int = 0,
+    val recapCostCents: Int = 0,
     @Version val version: Long? = null
 )

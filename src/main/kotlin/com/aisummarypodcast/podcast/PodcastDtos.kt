@@ -111,7 +111,37 @@ data class EpisodeResponse(
     val errorMessage: String?,
     val pipelineStage: String?,
     val researchCalls: Int,
-    val researchCostCents: Int?
+    val researchCostCents: Int?,
+    val costs: EpisodeCostsResponse
+)
+
+data class LlmStageCostResponse(
+    val model: String?,
+    val calls: Int,
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val costCents: Int
+)
+
+data class TtsCostResponse(
+    val model: String?,
+    val characters: Int,
+    val costCents: Int
+)
+
+data class ResearchCostResponse(
+    val calls: Int,
+    val costCents: Int
+)
+
+data class EpisodeCostsResponse(
+    val score: LlmStageCostResponse,
+    val dedup: LlmStageCostResponse,
+    val compose: LlmStageCostResponse,
+    val recap: LlmStageCostResponse,
+    val tts: TtsCostResponse,
+    val research: ResearchCostResponse,
+    val totalCostCents: Int
 )
 
 data class UpdateScriptRequest(

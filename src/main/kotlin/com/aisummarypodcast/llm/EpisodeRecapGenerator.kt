@@ -8,7 +8,8 @@ import kotlin.time.measureTimedValue
 
 data class RecapResult(
     val recap: String,
-    val usage: TokenUsage
+    val usage: TokenUsage,
+    val costCents: Int?
 )
 
 @Component
@@ -34,7 +35,8 @@ class EpisodeRecapGenerator(
                 ?: throw IllegalStateException("Empty response from LLM for episode recap generation")
 
             val usage = TokenUsage.fromChatResponse(chatResponse)
-            RecapResult(recap.trim(), usage)
+            val costCents = CostEstimator.estimateLlmCostCents(usage.inputTokens, usage.outputTokens, filterModelDef.cost)
+            RecapResult(recap.trim(), usage, costCents)
         }
 
         log.info("[LLM] Episode recap generated for podcast '{}' ({}) in {}", podcast.name, podcast.id, elapsed)

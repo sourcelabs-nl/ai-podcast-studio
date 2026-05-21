@@ -22,12 +22,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScriptContent } from "@/components/script-viewer";
 import { ArticlesTab } from "@/components/articles-tab";
+import { CostsTab } from "@/components/costs-tab";
 import { PublicationsTab } from "@/components/publications-tab";
 import { PublishWizard } from "@/components/publish-wizard";
 import { useTabParam } from "@/hooks/use-tab-param";
 
 const WORDS_PER_MINUTE = 150;
-const TABS = ["script", "articles", "publications"] as const;
+const TABS = ["script", "articles", "publications", "costs"] as const;
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   GENERATED: "outline",
@@ -399,6 +400,7 @@ export default function EpisodeDetailPage() {
             Articles{articleCount !== null ? ` (${articleCount})` : ""}
           </TabsTrigger>
           <TabsTrigger value="publications">Publications</TabsTrigger>
+          <TabsTrigger value="costs">Costs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="script">
@@ -431,6 +433,12 @@ export default function EpisodeDetailPage() {
               refreshKey={refreshKey}
               onRepublished={handlePublished}
             />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="costs">
+          <div className="mt-4">
+            <CostsTab costs={episode.costs} />
           </div>
         </TabsContent>
       </Tabs>

@@ -73,7 +73,7 @@ class EpisodeServiceTest {
     private fun setupRecapMocks(podcast: Podcast) {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { episodeRecapGenerator.generate(any(), podcast, filterModelDef, any()) } returns RecapResult(
-            recap = "Recap text.", usage = TokenUsage(800, 60)
+            recap = "Recap text.", usage = TokenUsage(800, 60), costCents = 0
         )
     }
 
@@ -446,10 +446,11 @@ class EpisodeServiceTest {
     // --- saveComposeResult tests ---
 
     @Test
-    fun `saveComposeResult saves script and accumulates tokens`() {
+    fun `saveComposeResult saves script and aggregate sums per-stage tokens`() {
         val episode = Episode(
             id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "",
-            status = EpisodeStatus.GENERATING, llmInputTokens = 200, llmOutputTokens = 100
+            status = EpisodeStatus.GENERATING,
+            dedupInputTokens = 200, dedupOutputTokens = 100, dedupCostCents = 5
         )
         val composeResult = ComposeStageResult(
             script = "Today in tech...",
@@ -466,8 +467,44 @@ class EpisodeServiceTest {
         verify { episodeRepository.save(match {
             it.scriptText == "Today in tech..." &&
             it.composeModel == "anthropic/claude-sonnet-4" &&
+            it.composeInputTokens == 500 &&
+            it.composeOutputTokens == 300 &&
+            it.composeCostCents == 10 &&
             it.llmInputTokens == 700 &&
-            it.llmOutputTokens == 400
+            it.llmOutputTokens == 400 &&
+            it.llmCostCents == 15
+        }) }
+    }
+
+    @Test
+    fun `saveDedupResults persists per-stage score and dedup triples`() {
+        val episode = Episode(id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "", status = EpisodeStatus.GENERATING)
+        val article1 = Article(id = 10L, sourceId = "s1", title = "A1", body = "b", url = "https://x/1", contentHash = "h1", llmInputTokens = 400, llmOutputTokens = 80)
+        val article2 = Article(id = 20L, sourceId = "s1", title = "A2", body = "b", url = "https://x/2", contentHash = "h2", llmInputTokens = 500, llmOutputTokens = 100)
+        val dedupResult = DedupStageResult(
+            filteredArticles = listOf(FilteredArticle(article1), FilteredArticle(article2)),
+            filterModel = "anthropic/claude-haiku-4.5",
+            usage = TokenUsage(200, 100),
+            followUpAnnotations = emptyMap(),
+            topicLabels = emptyList(),
+            dedupCostCents = 5,
+            scoreInputTokens = 900, scoreOutputTokens = 180, scoreCostCents = 3
+        )
+        every { episodeRepository.findById(5L) } returns Optional.of(episode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.saveDedupResults(episode, dedupResult)
+
+        verify { episodeRepository.save(match {
+            it.scoreInputTokens == 900 &&
+            it.scoreOutputTokens == 180 &&
+            it.scoreCostCents == 3 &&
+            it.dedupInputTokens == 200 &&
+            it.dedupOutputTokens == 100 &&
+            it.dedupCostCents == 5 &&
+            it.llmInputTokens == 1100 &&
+            it.llmOutputTokens == 280 &&
+            it.llmCostCents == 8
         }) }
     }
 

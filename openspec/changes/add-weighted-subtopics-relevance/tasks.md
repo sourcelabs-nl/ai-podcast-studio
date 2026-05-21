@@ -49,10 +49,10 @@
 ## 7. Verification
 
 - [x] 7.1 Run `mvn test` and ensure all tests pass
-- [ ] 7.2 Restart the app via `./stop.sh && ./start.sh`
+- [x] 7.2 Restart the app via `./stop.sh && ./start.sh`
 - [ ] 7.3 Live run: configure 3-4 subtopics on a podcast, trigger generation; confirm articles persist a subtopic, the script contains an explicit "And in brief" segment for low-weight subtopics, and high-weight subtopics get visibly more script time
 - [ ] 7.4 Confirm backwards compatibility: a second podcast with no subtopics produces a script that matches the pre-feature output structure (no rapid-fire segment, no subtopic-shaped prompt)
 - [ ] 7.4a Confirm the full-tier-empty fallback: configure subtopics that the day's news doesn't match (or all-low-weight), regenerate, and confirm the script falls back to flat layout with no rapid-fire label
-- [ ] 7.5 Confirm validation: API rejects weight 0, weight 11, threshold -1, threshold 11
+- [x] 7.5 Confirm validation: API rejects weight 0, weight 11, threshold -1, threshold 11
 - [x] 7.6 Run `openspec validate add-weighted-subtopics-relevance --strict`
 - [x] 7.7 Update `README.md` to document the subtopics feature and the rapid-fire threshold

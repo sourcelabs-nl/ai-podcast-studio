@@ -1,10 +1,32 @@
 package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.config.LlmModelOverrides
+import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelReference
+import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.Subtopics
+
+/**
+ * Lazy cost lookup used by [Episode.toResponse]. Returns the cost cents for the given
+ * stage model + token counts, or null when the model has no pricing configured.
+ * Used to fill in stage costs for legacy episodes that have tokens but were
+ * persisted with `*_cost_cents = 0` (e.g. V57 backfilled score tokens without cost).
+ */
+typealias StageCostFn = (model: String?, inputTokens: Int, outputTokens: Int) -> Int?
+
+fun findModelCost(modelName: String?, models: Map<String, Map<String, ModelCost>>): ModelCost? {
+    if (modelName.isNullOrBlank()) return null
+    return models.values.firstNotNullOfOrNull { it[modelName] }
+}
+
+fun stageCostFnFromModels(models: Map<String, Map<String, ModelCost>>): StageCostFn =
+    { name, input, output ->
+        findModelCost(name, models)?.let { CostEstimator.estimateLlmCostCents(input, output, it) }
+    }
+
+private val noopStageCostFn: StageCostFn = { _, _, _ -> null }
 
 /**
  * Nullable update helper: absent (null) keeps existing value, empty clears to null, non-empty updates.
@@ -51,7 +73,7 @@ internal fun Podcast.toResponse() = PodcastResponse(
     lastGeneratedAt = lastGeneratedAt
 )
 
-internal fun Episode.toResponse() = EpisodeResponse(
+internal fun Episode.toResponse(scoreCalls: Int = 0, costFor: StageCostFn = noopStageCostFn) = EpisodeResponse(
     id = id!!,
     podcastId = podcastId,
     generatedAt = generatedAt,
@@ -72,8 +94,66 @@ internal fun Episode.toResponse() = EpisodeResponse(
     errorMessage = errorMessage,
     pipelineStage = pipelineStage,
     researchCalls = researchCalls,
-    researchCostCents = researchCostCents
+    researchCostCents = researchCostCents,
+    costs = buildCosts(scoreCalls, costFor)
 )
+
+private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCostsResponse {
+    fun llmCalls(input: Int, output: Int, cost: Int): Int =
+        if (input > 0 || output > 0 || cost > 0) 1 else 0
+    // Fall back to a runtime cost lookup when the persisted cost is 0 but we have tokens
+    // (true for V57-backfilled scoring on legacy episodes, where SQL had no model rates).
+    fun effective(persistedCost: Int, model: String?, input: Int, output: Int): Int =
+        if (persistedCost > 0 || (input == 0 && output == 0)) persistedCost
+        else costFor(model, input, output) ?: 0
+
+    val scoreCost = effective(scoreCostCents, filterModel, scoreInputTokens, scoreOutputTokens)
+    val dedupCost = effective(dedupCostCents, filterModel, dedupInputTokens, dedupOutputTokens)
+    val composeCost = effective(composeCostCents, composeModel, composeInputTokens, composeOutputTokens)
+    val recapCost = effective(recapCostCents, filterModel, recapInputTokens, recapOutputTokens)
+    val totalCostCents = scoreCost + dedupCost + composeCost + recapCost +
+        (ttsCostCents ?: 0) + (researchCostCents ?: 0)
+    return EpisodeCostsResponse(
+        score = LlmStageCostResponse(
+            model = filterModel,
+            calls = scoreCalls,
+            inputTokens = scoreInputTokens,
+            outputTokens = scoreOutputTokens,
+            costCents = scoreCost
+        ),
+        dedup = LlmStageCostResponse(
+            model = filterModel,
+            calls = llmCalls(dedupInputTokens, dedupOutputTokens, dedupCost),
+            inputTokens = dedupInputTokens,
+            outputTokens = dedupOutputTokens,
+            costCents = dedupCost
+        ),
+        compose = LlmStageCostResponse(
+            model = composeModel,
+            calls = llmCalls(composeInputTokens, composeOutputTokens, composeCost),
+            inputTokens = composeInputTokens,
+            outputTokens = composeOutputTokens,
+            costCents = composeCost
+        ),
+        recap = LlmStageCostResponse(
+            model = filterModel,
+            calls = llmCalls(recapInputTokens, recapOutputTokens, recapCost),
+            inputTokens = recapInputTokens,
+            outputTokens = recapOutputTokens,
+            costCents = recapCost
+        ),
+        tts = TtsCostResponse(
+            model = ttsModel,
+            characters = ttsCharacters ?: 0,
+            costCents = ttsCostCents ?: 0
+        ),
+        research = ResearchCostResponse(
+            calls = researchCalls,
+            costCents = researchCostCents ?: 0
+        ),
+        totalCostCents = totalCostCents
+    )
+}
 
 internal fun UpcomingContent.toResponse(): Map<String, Any> {
     val sourceMap = sources.associateBy { it.id }

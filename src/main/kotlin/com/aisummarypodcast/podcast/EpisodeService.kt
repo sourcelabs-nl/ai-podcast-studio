@@ -115,6 +115,15 @@ class EpisodeService(
                 llmCostCents = result.llmCostCents,
                 researchCalls = result.researchCalls,
                 researchCostCents = result.researchCostCents,
+                scoreInputTokens = result.scoreInputTokens,
+                scoreOutputTokens = result.scoreOutputTokens,
+                scoreCostCents = result.scoreCostCents,
+                dedupInputTokens = result.dedupInputTokens,
+                dedupOutputTokens = result.dedupOutputTokens,
+                dedupCostCents = result.dedupCostCents,
+                composeInputTokens = result.composeInputTokens,
+                composeOutputTokens = result.composeOutputTokens,
+                composeCostCents = result.composeCostCents,
                 pipelineStage = if (podcast.requireReview) null else "tts",
                 status = if (podcast.requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING
             )
@@ -184,13 +193,17 @@ class EpisodeService(
         return try {
             val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
             val recapResult = episodeRecapGenerator.generate(episode.scriptText, podcast, filterModelDef, topicLabels)
-            val updated = episodeRepository.save(
-                episode.copy(
-                    recap = recapResult.recap,
-                    llmInputTokens = (episode.llmInputTokens ?: 0) + recapResult.usage.inputTokens,
-                    llmOutputTokens = (episode.llmOutputTokens ?: 0) + recapResult.usage.outputTokens
-                )
+            val withStages = episode.copy(
+                recap = recapResult.recap,
+                recapInputTokens = recapResult.usage.inputTokens,
+                recapOutputTokens = recapResult.usage.outputTokens,
+                recapCostCents = recapResult.costCents ?: 0
             )
+            val updated = episodeRepository.save(withStages.copy(
+                llmInputTokens = sumStageInputTokens(withStages),
+                llmOutputTokens = sumStageOutputTokens(withStages),
+                llmCostCents = sumStageCostCents(withStages)
+            ))
             log.info("[Pipeline] Recap generated and stored for episode {} (podcast '{}' ({}))", episode.id, podcast.name, podcast.id)
             updated
         } catch (e: Exception) {
@@ -198,6 +211,20 @@ class EpisodeService(
             episode
         }
     }
+
+    /**
+     * Aggregate LLM totals are derived sums of the four per-stage triples.
+     * These helpers are the single write path; callers must NOT compute aggregates
+     * any other way. See KDoc on [Episode] for the invariant.
+     */
+    private fun sumStageInputTokens(e: Episode): Int =
+        e.scoreInputTokens + e.dedupInputTokens + e.composeInputTokens + e.recapInputTokens
+
+    private fun sumStageOutputTokens(e: Episode): Int =
+        e.scoreOutputTokens + e.dedupOutputTokens + e.composeOutputTokens + e.recapOutputTokens
+
+    private fun sumStageCostCents(e: Episode): Int =
+        e.scoreCostCents + e.dedupCostCents + e.composeCostCents + e.recapCostCents
 
     @Transactional
     fun saveDedupResults(episode: Episode, dedupResult: DedupStageResult) {
@@ -213,31 +240,46 @@ class EpisodeService(
             )
         }
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
-        episodeRepository.save(
-            fresh.copy(
-                filterModel = dedupResult.filterModel,
-                llmInputTokens = dedupResult.usage.inputTokens,
-                llmOutputTokens = dedupResult.usage.outputTokens,
-                llmCostCents = dedupResult.dedupCostCents
-            )
+        val withStages = fresh.copy(
+            filterModel = dedupResult.filterModel,
+            scoreInputTokens = dedupResult.scoreInputTokens,
+            scoreOutputTokens = dedupResult.scoreOutputTokens,
+            scoreCostCents = dedupResult.scoreCostCents,
+            dedupInputTokens = dedupResult.usage.inputTokens,
+            dedupOutputTokens = dedupResult.usage.outputTokens,
+            dedupCostCents = dedupResult.dedupCostCents ?: 0,
+            composeInputTokens = 0,
+            composeOutputTokens = 0,
+            composeCostCents = 0,
+            recapInputTokens = 0,
+            recapOutputTokens = 0,
+            recapCostCents = 0
         )
+        episodeRepository.save(withStages.copy(
+            llmInputTokens = sumStageInputTokens(withStages),
+            llmOutputTokens = sumStageOutputTokens(withStages),
+            llmCostCents = sumStageCostCents(withStages)
+        ))
         log.info("[Pipeline] Saved dedup results for episode {} ({} articles)", episode.id, dedupResult.filteredArticles.size)
     }
 
     @Transactional
     fun saveComposeResult(episode: Episode, composeResult: ComposeStageResult) {
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
-        episodeRepository.save(
-            fresh.copy(
-                scriptText = composeResult.script,
-                composeModel = composeResult.composeModel,
-                llmInputTokens = (fresh.llmInputTokens ?: 0) + composeResult.usage.inputTokens,
-                llmOutputTokens = (fresh.llmOutputTokens ?: 0) + composeResult.usage.outputTokens,
-                llmCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.llmCostCents, composeResult.composeCostCents),
-                researchCalls = fresh.researchCalls + composeResult.researchCalls,
-                researchCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.researchCostCents, composeResult.researchCostCents)
-            )
+        val withStages = fresh.copy(
+            scriptText = composeResult.script,
+            composeModel = composeResult.composeModel,
+            composeInputTokens = composeResult.usage.inputTokens,
+            composeOutputTokens = composeResult.usage.outputTokens,
+            composeCostCents = composeResult.composeCostCents ?: 0,
+            researchCalls = fresh.researchCalls + composeResult.researchCalls,
+            researchCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.researchCostCents, composeResult.researchCostCents)
         )
+        episodeRepository.save(withStages.copy(
+            llmInputTokens = sumStageInputTokens(withStages),
+            llmOutputTokens = sumStageOutputTokens(withStages),
+            llmCostCents = sumStageCostCents(withStages)
+        ))
         log.info("[Pipeline] Saved compose result for episode {}", episode.id)
     }
 
@@ -496,6 +538,8 @@ class EpisodeService(
     }
 
     fun findById(episodeId: Long): Episode? = episodeRepository.findByIdOrNull(episodeId)
+
+    fun countArticles(episodeId: Long): Int = episodeArticleRepository.findByEpisodeId(episodeId).size
 
     fun findByPodcastId(podcastId: String, status: EpisodeStatus? = null): List<Episode> {
         return if (status != null) {

@@ -26,7 +26,16 @@ data class PipelineResult(
     val articleTopics: Map<Long, String> = emptyMap(),
     val topicOrder: List<String> = emptyList(),
     val researchCalls: Int = 0,
-    val researchCostCents: Int? = null
+    val researchCostCents: Int? = null,
+    val scoreInputTokens: Int = 0,
+    val scoreOutputTokens: Int = 0,
+    val scoreCostCents: Int = 0,
+    val dedupInputTokens: Int = 0,
+    val dedupOutputTokens: Int = 0,
+    val dedupCostCents: Int = 0,
+    val composeInputTokens: Int = 0,
+    val composeOutputTokens: Int = 0,
+    val composeCostCents: Int = 0
 )
 
 data class PreviewResult(
@@ -40,7 +49,10 @@ data class DedupStageResult(
     val usage: TokenUsage,
     val followUpAnnotations: Map<Long, String>,
     val topicLabels: List<String>,
-    val dedupCostCents: Int?
+    val dedupCostCents: Int?,
+    val scoreInputTokens: Int = 0,
+    val scoreOutputTokens: Int = 0,
+    val scoreCostCents: Int = 0
 )
 
 data class ComposeStageResult(
@@ -168,13 +180,24 @@ class LlmPipeline(
             dedupResult.usage.inputTokens, dedupResult.usage.outputTokens, filterModelDef.cost
         )
 
+        // Score-stage totals: sum tokens from the articles surviving into this episode and
+        // compute cost from the SUM (not per-article costs, which lose sub-cent precision).
+        val scoreInputTokens = dedupResult.filteredArticles.sumOf { it.article.llmInputTokens ?: 0 }
+        val scoreOutputTokens = dedupResult.filteredArticles.sumOf { it.article.llmOutputTokens ?: 0 }
+        val scoreCostCents = CostEstimator.estimateLlmCostCents(
+            scoreInputTokens, scoreOutputTokens, filterModelDef.cost
+        ) ?: 0
+
         return DedupStageResult(
             filteredArticles = dedupResult.filteredArticles,
             filterModel = filterModelDef.model,
             usage = dedupResult.usage,
             followUpAnnotations = followUpAnnotations,
             topicLabels = topicLabels,
-            dedupCostCents = dedupCostCents
+            dedupCostCents = dedupCostCents,
+            scoreInputTokens = scoreInputTokens,
+            scoreOutputTokens = scoreOutputTokens,
+            scoreCostCents = scoreCostCents
         )
     }
 
@@ -244,7 +267,16 @@ class LlmPipeline(
             articleTopics = articleTopics,
             topicOrder = composeStageResult.topicOrder,
             researchCalls = composeStageResult.researchCalls,
-            researchCostCents = composeStageResult.researchCostCents
+            researchCostCents = composeStageResult.researchCostCents,
+            scoreInputTokens = dedupStageResult.scoreInputTokens,
+            scoreOutputTokens = dedupStageResult.scoreOutputTokens,
+            scoreCostCents = dedupStageResult.scoreCostCents,
+            dedupInputTokens = dedupStageResult.usage.inputTokens,
+            dedupOutputTokens = dedupStageResult.usage.outputTokens,
+            dedupCostCents = dedupStageResult.dedupCostCents ?: 0,
+            composeInputTokens = composeStageResult.usage.inputTokens,
+            composeOutputTokens = composeStageResult.usage.outputTokens,
+            composeCostCents = composeStageResult.composeCostCents ?: 0
         )
     }
 
@@ -270,6 +302,14 @@ class LlmPipeline(
             compositionResult.researchCalls * appProperties.research.tavily.costPerCallCents
         } else null
 
+        // Recompose reuses already-scored articles; score-stage totals are carried so the
+        // Costs tab still shows the cost of scoring this episode's articles.
+        val scoreInputTokens = articles.sumOf { it.llmInputTokens ?: 0 }
+        val scoreOutputTokens = articles.sumOf { it.llmOutputTokens ?: 0 }
+        val scoreCostCents = CostEstimator.estimateLlmCostCents(
+            scoreInputTokens, scoreOutputTokens, filterModelDef.cost
+        ) ?: 0
+
         log.info("[LLM] Recompose complete for podcast '{}' ({}): {} articles", podcast.name, podcast.id, articles.size)
         return PipelineResult(
             script = compositionResult.script,
@@ -281,7 +321,13 @@ class LlmPipeline(
             processedArticleIds = articles.map { it.id!! },
             topicOrder = compositionResult.topicOrder,
             researchCalls = compositionResult.researchCalls,
-            researchCostCents = researchCostCents
+            researchCostCents = researchCostCents,
+            scoreInputTokens = scoreInputTokens,
+            scoreOutputTokens = scoreOutputTokens,
+            scoreCostCents = scoreCostCents,
+            composeInputTokens = compositionResult.usage.inputTokens,
+            composeOutputTokens = compositionResult.usage.outputTokens,
+            composeCostCents = costCents ?: 0
         )
     }
 
