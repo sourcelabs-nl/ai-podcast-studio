@@ -265,6 +265,7 @@ export default function PodcastSettingsPage() {
             deepDiveEnabled: form.deepDiveEnabled ?? false,
             subtopics: form.subtopics ?? {},
             rapidFireWeightThreshold: form.rapidFireWeightThreshold ?? 3,
+            rapidFireMaxItems: form.rapidFireMaxItems ?? null,
           }),
         }
       );
@@ -771,6 +772,17 @@ export default function PodcastSettingsPage() {
                   value={form.rapidFireWeightThreshold ?? ""}
                   onChange={(e) => updateNumber("rapidFireWeightThreshold", e.target.value)}
                   placeholder="3"
+                  className={inputClass}
+                />
+              </FieldGroup>
+              <FieldGroup label="Rapid-fire Max Items" description="Maximum number of articles to cover in the rapid-fire segment. Articles past the cap are dropped from the episode entirely (ranked by subtopic weight, then relevance score). Keeps the closing segment readable instead of cramming 15+ items into a few sentences. Leave empty to use the system default (6).">
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={form.rapidFireMaxItems ?? ""}
+                  onChange={(e) => updateNumber("rapidFireMaxItems", e.target.value)}
+                  placeholder="6 (system default)"
                   className={inputClass}
                 />
               </FieldGroup>

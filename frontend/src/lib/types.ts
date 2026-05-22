@@ -40,6 +40,7 @@ export interface Podcast {
   deepDiveEnabled?: boolean;
   subtopics?: Record<string, number>;
   rapidFireWeightThreshold?: number;
+  rapidFireMaxItems?: number;
   lastGeneratedAt?: string;
 }
 

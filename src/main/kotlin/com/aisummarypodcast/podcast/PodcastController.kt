@@ -73,6 +73,7 @@ class PodcastController(
         validateComposeSettings(request.composeSettings)?.let { return it }
         validateSubtopics(request.subtopics)?.let { return it }
         validateRapidFireThreshold(request.rapidFireWeightThreshold)?.let { return it }
+        validateRapidFireMaxItems(request.rapidFireMaxItems)?.let { return it }
         val podcast = podcastService.create(
             userId = userId,
             name = request.name,
@@ -104,7 +105,8 @@ class PodcastController(
                 composeSettings = request.composeSettings,
                 deepDiveEnabled = request.deepDiveEnabled ?: false,
                 subtopics = request.subtopics?.takeIf { it.isNotEmpty() }?.let { Subtopics(it) },
-                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: 3
+                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: 3,
+                rapidFireMaxItems = request.rapidFireMaxItems
             )
         )
         return ResponseEntity.created(URI.create("/users/$userId/podcasts/${podcast.id}"))
@@ -160,6 +162,7 @@ class PodcastController(
         validateComposeSettings(request.composeSettings)?.let { return it }
         validateSubtopics(request.subtopics)?.let { return it }
         validateRapidFireThreshold(request.rapidFireWeightThreshold)?.let { return it }
+        validateRapidFireMaxItems(request.rapidFireMaxItems)?.let { return it }
         val updated = podcastService.update(
             podcastId,
             existing.copy(
@@ -187,7 +190,8 @@ class PodcastController(
                 composeSettings = request.composeSettings.orKeep(existing.composeSettings),
                 deepDiveEnabled = request.deepDiveEnabled ?: existing.deepDiveEnabled,
                 subtopics = request.subtopics.toSubtopics(existing.subtopics),
-                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: existing.rapidFireWeightThreshold
+                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: existing.rapidFireWeightThreshold,
+                rapidFireMaxItems = request.rapidFireMaxItems
             )
         ) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(updated.toResponse())
@@ -361,6 +365,15 @@ class PodcastController(
         if (threshold < 0 || threshold > 10) {
             return ResponseEntity.badRequest()
                 .body(mapOf("error" to "rapidFireWeightThreshold must be in [0, 10], got $threshold"))
+        }
+        return null
+    }
+
+    private fun validateRapidFireMaxItems(maxItems: Int?): ResponseEntity<Any>? {
+        if (maxItems == null) return null
+        if (maxItems < 0 || maxItems > 50) {
+            return ResponseEntity.badRequest()
+                .body(mapOf("error" to "rapidFireMaxItems must be in [0, 50], got $maxItems"))
         }
         return null
     }

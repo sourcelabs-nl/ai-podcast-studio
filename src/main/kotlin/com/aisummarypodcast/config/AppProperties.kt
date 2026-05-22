@@ -20,7 +20,8 @@ data class AppProperties(
 )
 
 data class ComposeProperties(
-    val rapidFireBudgetFraction: Double = 0.15
+    val rapidFireBudgetFraction: Double = 0.15,
+    val rapidFireMaxItems: Int = 6
 )
 
 data class ResearchProperties(

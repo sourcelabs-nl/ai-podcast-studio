@@ -69,7 +69,13 @@ class DialogueComposer(
 
         val useFullBody = shouldUseFullBody(articles.size, podcast, appProperties.briefing.fullBodyThreshold)
 
-        val plan = SubtopicPlan.from(podcast, articles, targetWords, appProperties.compose.rapidFireBudgetFraction)
+        val plan = SubtopicPlan.from(
+            podcast,
+            articles,
+            targetWords,
+            appProperties.compose.rapidFireBudgetFraction,
+            podcast.rapidFireMaxItems ?: appProperties.compose.rapidFireMaxItems
+        )
         val articleSubtopics = plan?.articleSubtopics ?: emptyMap()
         val subtopicPlanBlock = plan?.let { buildSubtopicPlanBlock(it, RapidFireStyle.DIALOGUE) } ?: ""
 

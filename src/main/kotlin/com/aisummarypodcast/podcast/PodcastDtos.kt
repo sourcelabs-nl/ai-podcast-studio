@@ -28,7 +28,8 @@ data class CreatePodcastRequest(
     val composeSettings: Map<String, String>? = null,
     @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null,
     val subtopics: Map<String, Int>? = null,
-    @JsonProperty("rapidFireWeightThreshold") val rapidFireWeightThreshold: Int? = null
+    @JsonProperty("rapidFireWeightThreshold") val rapidFireWeightThreshold: Int? = null,
+    @JsonProperty("rapidFireMaxItems") val rapidFireMaxItems: Int? = null
 )
 
 data class UpdatePodcastRequest(
@@ -56,7 +57,8 @@ data class UpdatePodcastRequest(
     val composeSettings: Map<String, String>? = null,
     @JsonProperty("deepDiveEnabled") val deepDiveEnabled: Boolean? = null,
     val subtopics: Map<String, Int>? = null,
-    @JsonProperty("rapidFireWeightThreshold") val rapidFireWeightThreshold: Int? = null
+    @JsonProperty("rapidFireWeightThreshold") val rapidFireWeightThreshold: Int? = null,
+    @JsonProperty("rapidFireMaxItems") val rapidFireMaxItems: Int? = null
 )
 
 data class PodcastResponse(
@@ -87,6 +89,7 @@ data class PodcastResponse(
     val deepDiveEnabled: Boolean,
     val subtopics: Map<String, Int>?,
     val rapidFireWeightThreshold: Int,
+    val rapidFireMaxItems: Int?,
     val lastGeneratedAt: String?
 )
 

@@ -34,6 +34,7 @@ data class Podcast(
     val deepDiveEnabled: Boolean = false,
     val subtopics: Subtopics? = null,
     val rapidFireWeightThreshold: Int = 3,
+    val rapidFireMaxItems: Int? = null,
     val lastGeneratedAt: String? = null,
     @Version val version: Long? = null
 )

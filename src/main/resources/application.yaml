@@ -82,6 +82,7 @@ app:
       cost-per-call-cents: 1
   compose:
     rapid-fire-budget-fraction: 0.15
+    rapid-fire-max-items: 6
   episodes:
     directory: ./data
     retention-days: 365

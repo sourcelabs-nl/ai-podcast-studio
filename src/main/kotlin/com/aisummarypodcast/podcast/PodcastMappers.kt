@@ -70,6 +70,7 @@ internal fun Podcast.toResponse() = PodcastResponse(
     deepDiveEnabled = deepDiveEnabled,
     subtopics = subtopics?.weights,
     rapidFireWeightThreshold = rapidFireWeightThreshold,
+    rapidFireMaxItems = rapidFireMaxItems,
     lastGeneratedAt = lastGeneratedAt
 )
 
