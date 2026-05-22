@@ -69,7 +69,7 @@ flowchart TD
     READY["Today's articles"] --> DEDUP["Group by topic,<br/>compare to recent episodes"]
     HIST[("Past episodes<br/>(searchable)")] --> DEDUP
     DEDUP -->|"new / follow-up / skip"| COMP["Script writer"]
-    SUBT["Your subtopic weights<br/>(more time on what matters)"] --> COMP
+    SUBT["Your subtopic weights<br/>(more time on what matters,<br/>capped rapid-fire for the rest)"] --> COMP
     ROT["Rotated openings,<br/>transitions, sign-offs"] --> COMP
     T1["Search past episodes<br/>(avoid repeating)"] --> COMP
     T2["Web search<br/>(extra context, optional)"] --> COMP
