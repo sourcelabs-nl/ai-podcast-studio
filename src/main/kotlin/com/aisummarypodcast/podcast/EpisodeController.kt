@@ -6,6 +6,8 @@ import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.user.UserService
 import org.springframework.core.io.FileSystemResource
 import org.springframework.core.io.Resource
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -27,21 +29,26 @@ class EpisodeController(
     fun list(
         @PathVariable userId: String,
         @PathVariable podcastId: String,
-        @RequestParam(required = false) status: String?
+        @RequestParam(required = false) status: List<String>?,
+        @RequestParam(required = false, defaultValue = "0") page: Int,
+        @RequestParam(required = false, defaultValue = "20") pageSize: Int
     ): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (podcast.userId != userId) return ResponseEntity.notFound().build()
 
-        val episodeStatus = status?.let {
+        if (page < 0) return ResponseEntity.badRequest().body(mapOf("error" to "page must be >= 0"))
+        if (pageSize < 1 || pageSize > 200) return ResponseEntity.badRequest().body(mapOf("error" to "pageSize must be in [1, 200]"))
+
+        val statuses = (status ?: emptyList()).map {
             try { EpisodeStatus.valueOf(it) } catch (_: IllegalArgumentException) {
                 return ResponseEntity.badRequest().body(mapOf("error" to "Invalid status: $it. Valid values: ${EpisodeStatus.entries.joinToString()}"))
             }
         }
 
-        val episodes = episodeService.findByPodcastId(podcastId, episodeStatus)
-
-        return ResponseEntity.ok(episodes.map { it.toResponse() })
+        val pageable = PageRequest.of(page, pageSize, Sort.by(Sort.Direction.DESC, "generatedAt", "id"))
+        val result = episodeService.findByPodcastIdPaged(podcastId, statuses, pageable)
+        return ResponseEntity.ok(result.toResponse { it.toResponse() })
     }
 
     @GetMapping("/{episodeId}")

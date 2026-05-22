@@ -24,3 +24,16 @@ data class PublicationTargetResponse(
 )
 
 data class AuthorizeResponse(val authorizationUrl: String)
+
+/** Lightweight episode reference embedded in podcast-level publication rows. */
+data class PublicationEpisodeRef(
+    val id: Long,
+    val generatedAt: String,
+    val status: String
+)
+
+/** A publication row in the podcast-level Publications tab. */
+data class PodcastPublicationRow(
+    val publication: PublicationResponse,
+    val episode: PublicationEpisodeRef
+)

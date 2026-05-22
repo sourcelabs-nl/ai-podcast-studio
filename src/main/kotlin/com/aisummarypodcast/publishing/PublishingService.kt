@@ -216,6 +216,29 @@ class PublishingService(
         return updated
     }
 
+    fun listByPodcast(
+        podcastId: String,
+        pageable: org.springframework.data.domain.Pageable
+    ): org.springframework.data.domain.Page<PodcastPublicationRow> {
+        val episodes = episodeRepository.findByPodcastId(podcastId)
+        if (episodes.isEmpty()) {
+            return org.springframework.data.domain.PageImpl(emptyList(), pageable, 0)
+        }
+        val episodesById = episodes.associateBy { it.id!! }
+        val publications = publicationRepository.findByEpisodeIdIn(episodesById.keys, pageable)
+        return publications.map { pub ->
+            val ep = episodesById[pub.episodeId]
+            PodcastPublicationRow(
+                publication = pub.toResponse(),
+                episode = PublicationEpisodeRef(
+                    id = pub.episodeId,
+                    generatedAt = ep?.generatedAt ?: "",
+                    status = ep?.status?.name ?: ""
+                )
+            )
+        }
+    }
+
     fun getPublications(episodeId: Long): List<EpisodePublication> =
         publicationRepository.findByEpisodeId(episodeId)
 

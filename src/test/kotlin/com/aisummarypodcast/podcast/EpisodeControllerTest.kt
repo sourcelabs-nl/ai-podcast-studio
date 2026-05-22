@@ -54,26 +54,66 @@ class EpisodeControllerTest {
     )
 
     @Test
-    fun `list episodes returns all episodes`() {
+    fun `list episodes returns paged envelope with all episodes`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
-        every { episodeService.findByPodcastId(podcastId, null) } returns listOf(pendingEpisode, generatedEpisode)
+        every { episodeService.findByPodcastIdPaged(podcastId, emptyList(), any()) } returns
+            org.springframework.data.domain.PageImpl(listOf(pendingEpisode, generatedEpisode))
 
         mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes"))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(2))
+            .andExpect(jsonPath("$.items.length()").value(2))
+            .andExpect(jsonPath("$.total").value(2))
+            .andExpect(jsonPath("$.page").value(0))
     }
 
     @Test
     fun `list episodes with status filter`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
-        every { episodeService.findByPodcastId(podcastId, EpisodeStatus.PENDING_REVIEW) } returns listOf(pendingEpisode)
+        every {
+            episodeService.findByPodcastIdPaged(podcastId, listOf(EpisodeStatus.PENDING_REVIEW), any())
+        } returns org.springframework.data.domain.PageImpl(listOf(pendingEpisode))
 
         mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?status=PENDING_REVIEW"))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].status").value("PENDING_REVIEW"))
+            .andExpect(jsonPath("$.items.length()").value(1))
+            .andExpect(jsonPath("$.items[0].status").value("PENDING_REVIEW"))
+    }
+
+    @Test
+    fun `list episodes accepts multiple status values`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every {
+            episodeService.findByPodcastIdPaged(
+                podcastId,
+                listOf(EpisodeStatus.PENDING_REVIEW, EpisodeStatus.GENERATED),
+                any()
+            )
+        } returns org.springframework.data.domain.PageImpl(listOf(pendingEpisode, generatedEpisode))
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?status=PENDING_REVIEW&status=GENERATED"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.items.length()").value(2))
+    }
+
+    @Test
+    fun `list episodes rejects negative page`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?page=-1"))
+            .andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `list episodes rejects pageSize above max`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?pageSize=500"))
+            .andExpect(status().isBadRequest)
     }
 
     @Test

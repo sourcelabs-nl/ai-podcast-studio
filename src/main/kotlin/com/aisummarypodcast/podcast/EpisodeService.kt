@@ -549,6 +549,14 @@ class EpisodeService(
         }
     }
 
+    fun findByPodcastIdPaged(
+        podcastId: String,
+        statuses: Collection<EpisodeStatus>,
+        pageable: org.springframework.data.domain.Pageable
+    ): org.springframework.data.domain.Page<Episode> =
+        if (statuses.isEmpty()) episodeRepository.findByPodcastId(podcastId, pageable)
+        else episodeRepository.findByPodcastIdAndStatusIn(podcastId, statuses, pageable)
+
     fun hasActiveEpisode(podcastId: String): Boolean {
         return episodeRepository.findByPodcastIdAndStatusIn(
             podcastId, listOf(EpisodeStatus.GENERATING.name, EpisodeStatus.PENDING_REVIEW.name, EpisodeStatus.APPROVED.name, EpisodeStatus.GENERATING_AUDIO.name)

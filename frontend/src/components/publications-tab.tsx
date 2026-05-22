@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Episode, EpisodePublication } from "@/lib/types";
+import type { PagedResponse, PodcastPublicationRow } from "@/lib/types";
 import { Cloud, RefreshCw, Server, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,11 +21,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Paginator } from "@/components/paginator";
 
 interface PublicationsTabProps {
   userId: string;
   podcastId: string;
-  episodes: Episode[];
+  /** When set, scopes the listing to a single episode (used by the episode detail page). */
+  episodeId?: number;
+  /** When `episodeId` is set, supplies the episode's generated-at timestamp for the table rows. */
+  episodeGeneratedAt?: string;
   refreshKey: number;
   onRepublished: () => void;
 }
@@ -37,81 +41,98 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "
   UNPUBLISHED: "secondary",
 };
 
+const DEFAULT_PAGE_SIZE = 20;
+
 export function PublicationsTab({
   userId,
   podcastId,
-  episodes,
+  episodeId,
+  episodeGeneratedAt,
   refreshKey,
   onRepublished,
 }: PublicationsTabProps) {
-  const [publications, setPublications] = useState<
-    (EpisodePublication & { episodeNumber: number; episodeDate: string })[]
-  >([]);
+  const [rows, setRows] = useState<PodcastPublicationRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
-  const [confirmPub, setConfirmPub] = useState<(EpisodePublication & { episodeNumber: number; episodeDate: string }) | null>(null);
+  const [confirmRow, setConfirmRow] = useState<PodcastPublicationRow | null>(null);
   const [confirmAction, setConfirmAction] = useState<"republish" | "unpublish">("republish");
   const [actionInProgress, setActionInProgress] = useState(false);
 
   useEffect(() => {
-    if (episodes.length === 0) {
-      setPublications([]);
-      setLoading(false);
+    setLoading(true);
+    if (episodeId != null) {
+      // Single-episode mode: existing per-episode endpoint returns a flat list (small).
+      fetch(`/api/users/${userId}/podcasts/${podcastId}/episodes/${episodeId}/publications`)
+        .then((res) => (res.ok ? res.json() : []))
+        .then((pubs: { id: number; episodeId: number; target: string; status: string; externalId: string | null; externalUrl: string | null; errorMessage: string | null; publishedAt: string | null; createdAt: string }[]) => {
+          const generatedAt = episodeGeneratedAt ?? "";
+          setRows(pubs.map((p) => ({
+            publication: p,
+            episode: { id: episodeId, generatedAt, status: "" },
+          })));
+          setTotal(pubs.length);
+          setTotalPages(1);
+        })
+        .catch(() => {
+          setRows([]);
+          setTotal(0);
+          setTotalPages(0);
+        })
+        .finally(() => setLoading(false));
       return;
     }
-
-    setLoading(true);
-    Promise.all(
-      episodes.map((ep) =>
-        fetch(
-          `/api/users/${userId}/podcasts/${podcastId}/episodes/${ep.id}/publications`
-        )
-          .then((res) => (res.ok ? res.json() : []))
-          .then((pubs: EpisodePublication[]) =>
-            pubs.map((p) => ({ ...p, episodeNumber: ep.id, episodeDate: ep.generatedAt }))
-          )
-          .catch(() => [] as (EpisodePublication & { episodeNumber: number; episodeDate: string })[])
-      )
+    fetch(
+      `/api/users/${userId}/podcasts/${podcastId}/publications?page=${page}&pageSize=${pageSize}`
     )
-      .then((results) => setPublications(results.flat()))
+      .then((res) => (res.ok ? res.json() : { items: [], total: 0, totalPages: 0 }))
+      .then((data: PagedResponse<PodcastPublicationRow>) => {
+        setRows(data.items);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => {
+        setRows([]);
+        setTotal(0);
+        setTotalPages(0);
+      })
       .finally(() => setLoading(false));
-  }, [userId, podcastId, episodes, refreshKey]);
+  }, [userId, podcastId, episodeId, episodeGeneratedAt, page, pageSize, refreshKey]);
 
   async function handleRepublish() {
-    if (!confirmPub) return;
+    if (!confirmRow) return;
     setActionInProgress(true);
     try {
       await fetch(
-        `/api/users/${userId}/podcasts/${podcastId}/episodes/${confirmPub.episodeId}/publish/${confirmPub.target}`,
+        `/api/users/${userId}/podcasts/${podcastId}/episodes/${confirmRow.publication.episodeId}/publish/${confirmRow.publication.target}`,
         { method: "POST" }
       );
       onRepublished();
-    } catch {
-      // error handled silently, refresh will show current state
     } finally {
       setActionInProgress(false);
-      setConfirmPub(null);
+      setConfirmRow(null);
     }
   }
 
   async function handleUnpublish() {
-    if (!confirmPub) return;
+    if (!confirmRow) return;
     setActionInProgress(true);
     try {
       await fetch(
-        `/api/users/${userId}/podcasts/${podcastId}/episodes/${confirmPub.episodeId}/publications/${confirmPub.target}`,
+        `/api/users/${userId}/podcasts/${podcastId}/episodes/${confirmRow.publication.episodeId}/publications/${confirmRow.publication.target}`,
         { method: "DELETE" }
       );
       onRepublished();
-    } catch {
-      // error handled silently
     } finally {
       setActionInProgress(false);
-      setConfirmPub(null);
+      setConfirmRow(null);
     }
   }
 
-  function openConfirm(pub: typeof publications[0], action: "republish" | "unpublish") {
-    setConfirmPub(pub);
+  function openConfirm(row: PodcastPublicationRow, action: "republish" | "unpublish") {
+    setConfirmRow(row);
     setConfirmAction(action);
   }
 
@@ -119,7 +140,7 @@ export function PublicationsTab({
     return <p className="text-muted-foreground">Loading publications...</p>;
   }
 
-  if (publications.length === 0) {
+  if (rows.length === 0) {
     return <p className="text-muted-foreground">No publications found.</p>;
   }
 
@@ -139,119 +160,133 @@ export function PublicationsTab({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {publications.map((pub) => (
-            <TableRow key={pub.id}>
-              <TableCell className="font-medium">{pub.episodeNumber}</TableCell>
-              <TableCell className="text-sm">
-                {new Date(pub.episodeDate).toLocaleDateString()}
-              </TableCell>
-              <TableCell className="text-sm text-muted-foreground">
-                {new Date(pub.episodeDate).toLocaleDateString(undefined, { weekday: "short" })}
-              </TableCell>
-              <TableCell className="text-sm">
-                {pub.publishedAt
-                  ? new Date(pub.publishedAt).toLocaleDateString()
-                  : "—"}
-              </TableCell>
-              <TableCell>
-                <Badge variant={STATUS_VARIANT[pub.status] ?? "default"} className="text-[11px] px-1.5 py-px">{pub.status}</Badge>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-1.5">
-                  {pub.target === "soundcloud" && <Cloud className="size-4 text-muted-foreground" />}
-                  {pub.target === "ftp" && <Server className="size-4 text-muted-foreground" />}
-                  <span>{pub.target === "soundcloud" ? "SoundCloud" : pub.target.toUpperCase()}</span>
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  {pub.externalUrl ? (
-                    <>
-                      <a
-                        href={pub.externalUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary underline"
-                      >
-                        Track
-                      </a>
-                      {pub.target === "soundcloud" && (() => {
-                        const match = pub.externalUrl?.match(/^https:\/\/soundcloud\.com\/([^/]+)\//);
-                        if (!match) return null;
-                        return (
-                          <>
-                            <span className="text-muted-foreground">|</span>
-                            <a
-                              href={`https://soundcloud.com/${match[1]}/sets`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary underline"
-                            >
-                              Playlist
-                            </a>
-                          </>
-                        );
-                      })()}
-                      {pub.target === "ftp" && (() => {
-                        const episodesIdx = pub.externalUrl?.lastIndexOf("/episodes/");
-                        if (episodesIdx == null || episodesIdx < 0) return null;
-                        const feedUrl = pub.externalUrl!.substring(0, episodesIdx + 1) + "feed.xml";
-                        return (
-                          <>
-                            <span className="text-muted-foreground">|</span>
-                            <a
-                              href={feedUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary underline"
-                            >
-                              Feed
-                            </a>
-                          </>
-                        );
-                      })()}
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <Button
-                    size="icon-lg"
-                    title="Republish"
-                    onClick={() => openConfirm(pub, "republish")}
-                  >
-                    <RefreshCw className="size-4" />
-                  </Button>
-                  {pub.status === "PUBLISHED" && (
+          {rows.map((row) => {
+            const pub = row.publication;
+            return (
+              <TableRow key={pub.id}>
+                <TableCell className="font-medium">{row.episode.id}</TableCell>
+                <TableCell className="text-sm">
+                  {new Date(row.episode.generatedAt).toLocaleDateString()}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {new Date(row.episode.generatedAt).toLocaleDateString(undefined, { weekday: "short" })}
+                </TableCell>
+                <TableCell className="text-sm">
+                  {pub.publishedAt
+                    ? new Date(pub.publishedAt).toLocaleDateString()
+                    : "—"}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={STATUS_VARIANT[pub.status] ?? "default"} className="text-[11px] px-1.5 py-px">{pub.status}</Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5">
+                    {pub.target === "soundcloud" && <Cloud className="size-4 text-muted-foreground" />}
+                    {pub.target === "ftp" && <Server className="size-4 text-muted-foreground" />}
+                    <span>{pub.target === "soundcloud" ? "SoundCloud" : pub.target.toUpperCase()}</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    {pub.externalUrl ? (
+                      <>
+                        <a
+                          href={pub.externalUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline"
+                        >
+                          Track
+                        </a>
+                        {pub.target === "soundcloud" && (() => {
+                          const match = pub.externalUrl?.match(/^https:\/\/soundcloud\.com\/([^/]+)\//);
+                          if (!match) return null;
+                          return (
+                            <>
+                              <span className="text-muted-foreground">|</span>
+                              <a
+                                href={`https://soundcloud.com/${match[1]}/sets`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline"
+                              >
+                                Playlist
+                              </a>
+                            </>
+                          );
+                        })()}
+                        {pub.target === "ftp" && (() => {
+                          const episodesIdx = pub.externalUrl?.lastIndexOf("/episodes/");
+                          if (episodesIdx == null || episodesIdx < 0) return null;
+                          const feedUrl = pub.externalUrl!.substring(0, episodesIdx + 1) + "feed.xml";
+                          return (
+                            <>
+                              <span className="text-muted-foreground">|</span>
+                              <a
+                                href={feedUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline"
+                              >
+                                Feed
+                              </a>
+                            </>
+                          );
+                        })()}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end gap-1">
                     <Button
                       size="icon-lg"
-                      variant="destructive"
-                      title="Unpublish"
-                      onClick={() => openConfirm(pub, "unpublish")}
+                      title="Republish"
+                      onClick={() => openConfirm(row, "republish")}
                     >
-                      <Trash2 className="size-4" />
+                      <RefreshCw className="size-4" />
                     </Button>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+                    {pub.status === "PUBLISHED" && (
+                      <Button
+                        size="icon-lg"
+                        variant="destructive"
+                        title="Unpublish"
+                        onClick={() => openConfirm(row, "unpublish")}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
 
-      <Dialog open={!!confirmPub} onOpenChange={(open) => { if (!open) setConfirmPub(null); }}>
+      {episodeId == null && (
+        <Paginator
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(0); }}
+        />
+      )}
+
+      <Dialog open={!!confirmRow} onOpenChange={(open) => { if (!open) setConfirmRow(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{confirmAction === "republish" ? "Republish" : "Unpublish"} Episode</DialogTitle>
             <DialogDescription>
-              Are you sure you want to {confirmAction} episode #{confirmPub?.episodeNumber} {confirmAction === "republish" ? "to" : "from"} {confirmPub?.target === "soundcloud" ? "SoundCloud" : confirmPub?.target}?
+              Are you sure you want to {confirmAction} episode #{confirmRow?.episode.id} {confirmAction === "republish" ? "to" : "from"} {confirmRow?.publication.target === "soundcloud" ? "SoundCloud" : confirmRow?.publication.target}?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmPub(null)}>
+            <Button variant="outline" onClick={() => setConfirmRow(null)}>
               Cancel
             </Button>
             {confirmAction === "republish" ? (

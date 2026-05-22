@@ -13,18 +13,35 @@ import org.springframework.data.convert.ReadingConverter
 import org.springframework.data.convert.WritingConverter
 import org.springframework.data.jdbc.core.convert.JdbcCustomConversions
 import org.springframework.data.jdbc.core.dialect.JdbcDialect
-import org.springframework.data.relational.core.dialect.AnsiDialect
+import org.springframework.data.jdbc.repository.config.AbstractJdbcConfiguration
+import org.springframework.data.relational.core.dialect.MySqlDialect
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations
 
+/**
+ * Extending [AbstractJdbcConfiguration] is required to override Spring Boot's default
+ * [org.springframework.boot.autoconfigure.data.jdbc.JdbcRepositoriesAutoConfiguration].
+ * That auto-config only registers its built-in beans when no AbstractJdbcConfiguration
+ * subclass exists, so subclassing here is what gives us a clean takeover of the
+ * dialect + custom conversions wiring.
+ */
 @Configuration
-class SqliteDialectConfig {
+open class SqliteDialectConfig : AbstractJdbcConfiguration() {
 
+    /**
+     * SQLite isn't in Spring Data's built-in dialect set, but it speaks the same
+     * `LIMIT n OFFSET m` syntax as MySQL, so we delegate to [MySqlDialect] in full.
+     * Important: do NOT delegate to [org.springframework.data.relational.core.dialect.AnsiDialect],
+     * whose `SelectRenderContext` hard-codes the SQL:2008 `OFFSET n ROWS FETCH FIRST m ROWS ONLY`
+     * form that SQLite rejects at parse time — this is independent of the `LimitClause`,
+     * so overriding only `limit()` is not enough.
+     */
     @Bean
-    fun jdbcDialect(): JdbcDialect = object : JdbcDialect {
-        private val delegate = AnsiDialect.INSTANCE
-
+    override fun jdbcDialect(operations: NamedParameterJdbcOperations): JdbcDialect = object : JdbcDialect {
+        private val delegate = MySqlDialect.INSTANCE
         override fun limit() = delegate.limit()
         override fun lock() = delegate.lock()
         override fun getSelectContext() = delegate.selectContext
+        override fun getIdentifierProcessing() = delegate.identifierProcessing
     }
 
     @Bean

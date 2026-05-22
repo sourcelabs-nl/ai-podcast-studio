@@ -160,3 +160,27 @@ export interface EpisodePublication {
   publishedAt: string | null;
   createdAt: string;
 }
+
+/**
+ * Standard envelope returned by paginated list endpoints (`page` is 0-indexed).
+ * Mirrors backend `PagedResponse<T>`.
+ */
+export interface PagedResponse<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+/** Lightweight episode reference embedded in podcast-level publication rows. */
+export interface PublicationEpisodeRef {
+  id: number;
+  generatedAt: string;
+  status: string;
+}
+
+export interface PodcastPublicationRow {
+  publication: EpisodePublication;
+  episode: PublicationEpisodeRef;
+}

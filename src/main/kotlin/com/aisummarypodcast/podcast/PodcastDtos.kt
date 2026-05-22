@@ -151,6 +151,18 @@ data class UpdateScriptRequest(
     val scriptText: String
 )
 
+/**
+ * Standard API envelope for paginated list endpoints. `page` is zero-indexed.
+ * Mapped from Spring Data's `Page<T>` so the framework type never leaks to clients.
+ */
+data class PagedResponse<T>(
+    val items: List<T>,
+    val page: Int,
+    val pageSize: Int,
+    val total: Long,
+    val totalPages: Int
+)
+
 data class ArticleSourceResponse(
     val id: String,
     val type: String,

@@ -205,12 +205,12 @@ The dashboard provides:
 - **User settings**, gear icon in the header opens a settings page to edit your profile name and manage API keys (LLM and TTS provider configs) with a wizard-style dialog. All API keys are stored encrypted
 - **Podcast overview**, browse all podcasts with style badges, topics, and quick-access settings gear icon
 - **Podcast settings**, edit all podcast configuration (general, LLM, TTS, content, publishing) via a tabbed settings page with provider/model dropdowns for LLM and TTS selection
-- **Episode management**, view episodes with status filtering; approve/discard/regenerate pending reviews; regenerate audio on generated episodes; retry failed episodes from the stage that failed; play the MP3 inline from the table. Click any episode row to open the detail page. Shows the generation schedule in human-readable form, in the podcast's timezone
+- **Episode management**, view episodes with server-side pagination (10/20/50/100 per page, default 20) and multi-select status filtering; approve/discard/regenerate pending reviews; regenerate audio on generated episodes; retry failed episodes from the stage that failed; play the MP3 inline from the table. Click any episode row to open the detail page. Shows the generation schedule in human-readable form, in the podcast's timezone
 - **Episode detail page**, dedicated page per episode with tabs for Script (chat-bubble rendering), Articles (grouped by source with relevance scores and collapsible sections), Publications, and **Costs** (per-stage breakdown: scoring, dedup, compose, recap, TTS, research, plus total). Shows episode metadata, recap, inline audio player, and contextual action buttons (Approve, Discard, Publish, Regenerate, Regenerate Audio, Retry, Regenerate Recap)
 - **Upcoming episode preview**, see collected articles for the next episode, preview the script via Server-Sent Events with real-time progress stages (aggregating, scoring, deduplicating, composing), and trigger episode generation on demand. Shows next scheduled generation time
 - **Source export**, download all configured sources as a markdown file from the Sources tab
 - **Publish wizard**, publish generated episodes to FTP or SoundCloud via a step-by-step wizard with automatic quota detection and recovery (re-authorize on OAuth expiry, remove oldest track on quota exceeded)
-- **Publications tab**, view all publications with track/playlist links, republish with confirmation
+- **Publications tab**, view all publications across the podcast in one paginated table (newest first) with track/playlist links and republish/unpublish actions
 
 The frontend proxies API calls to `http://localhost:8085` via Next.js rewrites.
 

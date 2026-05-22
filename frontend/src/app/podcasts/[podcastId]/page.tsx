@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import cronstrue from "cronstrue";
 import { CronExpressionParser } from "cron-parser";
 import { Check, ChevronDown, ChevronRight, Clock, Headphones, Loader2, RefreshCw, Settings, Upload, Volume2, X } from "lucide-react";
 import { useUser } from "@/lib/user-context";
 import { useEventStream } from "@/lib/event-context";
-import type { Podcast, Episode, EpisodePublication, EpisodeArticle } from "@/lib/types";
+import type { Podcast, Episode, EpisodePublication, PagedResponse } from "@/lib/types";
+import { Paginator } from "@/components/paginator";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -69,15 +70,19 @@ type PendingAction = {
   onConfirm: () => Promise<void>;
 };
 
+const DEFAULT_PAGE_SIZE = 20;
+
 export default function EpisodesPage() {
   const params = useParams<{ podcastId: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { selectedUser, loading: userLoading } = useUser();
   const [podcast, setPodcast] = useState<Podcast | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [episodesTotal, setEpisodesTotal] = useState(0);
+  const [episodesTotalPages, setEpisodesTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [publishEpisode, setPublishEpisode] = useState<Episode | null>(null);
-  const router = useRouter();
   const [publishedEpisodeIds, setPublishedEpisodeIds] = useState<Set<number>>(new Set());
   const [fullyPublishedEpisodeIds, setFullyPublishedEpisodeIds] = useState<Set<number>>(new Set());
   const [refreshKey, setRefreshKey] = useState(0);
@@ -86,6 +91,32 @@ export default function EpisodesPage() {
   const [countdown, setCountdown] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [currentTab, setTab] = useTabParam("episodes", TABS);
+
+  // URL-synced pagination + multi-select status filter
+  const page = Math.max(0, parseInt(searchParams.get("page") ?? "0", 10) || 0);
+  const pageSize = (() => {
+    const raw = parseInt(searchParams.get("pageSize") ?? `${DEFAULT_PAGE_SIZE}`, 10);
+    return raw > 0 && raw <= 200 ? raw : DEFAULT_PAGE_SIZE;
+  })();
+  const statusFilter = useMemo(() => new Set(searchParams.getAll("status")), [searchParams]);
+
+  const updateQuery = useCallback((patch: Record<string, string | string[] | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(patch)) {
+      next.delete(k);
+      if (v === null) continue;
+      if (Array.isArray(v)) v.forEach((x) => next.append(k, x));
+      else next.set(k, v);
+    }
+    router.replace(`?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+
+  const toggleStatus = (status: string) => {
+    const next = new Set(statusFilter);
+    if (next.has(status)) next.delete(status); else next.add(status);
+    updateQuery({ status: Array.from(next), page: "0" });
+  };
+  const clearStatuses = () => updateQuery({ status: null, page: "0" });
 
   const publishedDates = useMemo(() => {
     const dates = new Set<string>();
@@ -134,20 +165,26 @@ export default function EpisodesPage() {
     [selectedUser, params.podcastId]
   );
 
+  const episodesQueryString = useMemo(() => {
+    const qs = new URLSearchParams();
+    qs.set("page", String(page));
+    qs.set("pageSize", String(pageSize));
+    statusFilter.forEach((s) => qs.append("status", s));
+    return qs.toString();
+  }, [page, pageSize, statusFilter]);
+
   const fetchEpisodes = useCallback(() => {
     if (!selectedUser) return;
-    const url =
-      statusFilter === "all"
-        ? `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/episodes`
-        : `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/episodes?status=${statusFilter}`;
-    fetch(url)
+    fetch(`/api/users/${selectedUser.id}/podcasts/${params.podcastId}/episodes?${episodesQueryString}`)
       .then((res) => res.json())
-      .then((data) => {
-        setEpisodes(data);
-        fetchPublications(data);
+      .then((data: PagedResponse<Episode>) => {
+        setEpisodes(data.items);
+        setEpisodesTotal(data.total);
+        setEpisodesTotalPages(data.totalPages);
+        fetchPublications(data.items);
       })
       .catch(() => setEpisodes([]));
-  }, [selectedUser, params.podcastId, statusFilter, fetchPublications]);
+  }, [selectedUser, params.podcastId, episodesQueryString, fetchPublications]);
 
   useEventStream(params.podcastId, useCallback((event: string, data: { data: Record<string, unknown> }) => {
     if (event === "episode.generating" || event === "episode.stage" || event === "pipeline.progress") {
@@ -165,24 +202,24 @@ export default function EpisodesPage() {
         (res) => res.json()
       ),
       fetch(
-        `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/episodes${
-          statusFilter !== "all" ? `?status=${statusFilter}` : ""
-        }`
+        `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/episodes?${episodesQueryString}`
       ).then((res) => res.json()),
       fetch(`/api/users/${selectedUser.id}/podcasts/${params.podcastId}/upcoming-articles`)
         .then((res) => (res.ok ? res.json() : { articles: [], postCount: 0 }))
         .catch(() => ({ articles: [], postCount: 0 })),
     ])
-      .then(([podcastData, episodeData, upcomingData]) => {
+      .then(([podcastData, episodeData, upcomingData]: [Podcast, PagedResponse<Episode>, { articleCount?: number; postCount?: number }]) => {
         setPodcast(podcastData);
-        setEpisodes(episodeData);
+        setEpisodes(episodeData.items);
+        setEpisodesTotal(episodeData.total);
+        setEpisodesTotalPages(episodeData.totalPages);
         setUpcomingCount(upcomingData.articleCount ?? 0);
         setUpcomingPostCount(upcomingData.postCount ?? 0);
-        fetchPublications(episodeData);
+        fetchPublications(episodeData.items);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [selectedUser, params.podcastId, statusFilter, fetchPublications]);
+  }, [selectedUser, params.podcastId, episodesQueryString, fetchPublications]);
 
   async function doAction(episodeId: number, action: string) {
     if (!selectedUser) return;
@@ -304,6 +341,7 @@ export default function EpisodesPage() {
           {episodes.length === 0 ? (
             <p className="text-muted-foreground">No episodes found.</p>
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -313,21 +351,21 @@ export default function EpisodesPage() {
                   <TableHead className="w-32">
                     <DropdownMenu>
                       <DropdownMenuTrigger className="flex items-center gap-1 hover:text-foreground transition-colors">
-                        Status
+                        Status{statusFilter.size > 0 && <span className="text-primary">({statusFilter.size})</span>}
                         <ChevronDown className="size-3.5" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start">
                         <DropdownMenuCheckboxItem
-                          checked={statusFilter === "all"}
-                          onCheckedChange={() => setStatusFilter("all")}
+                          checked={statusFilter.size === 0}
+                          onCheckedChange={clearStatuses}
                         >
                           All statuses
                         </DropdownMenuCheckboxItem>
                         {STATUSES.map((status) => (
                           <DropdownMenuCheckboxItem
                             key={status}
-                            checked={statusFilter === status}
-                            onCheckedChange={() => setStatusFilter(status)}
+                            checked={statusFilter.has(status)}
+                            onCheckedChange={() => toggleStatus(status)}
                           >
                             {status.replace("_", " ").toLowerCase()}
                           </DropdownMenuCheckboxItem>
@@ -551,6 +589,15 @@ export default function EpisodesPage() {
                 ))}
               </TableBody>
             </Table>
+            <Paginator
+              page={page}
+              pageSize={pageSize}
+              total={episodesTotal}
+              totalPages={episodesTotalPages}
+              onPageChange={(p) => updateQuery({ page: String(p) })}
+              onPageSizeChange={(s) => updateQuery({ pageSize: String(s), page: "0" })}
+            />
+            </>
           )}
         </TabsContent>
 
@@ -559,7 +606,6 @@ export default function EpisodesPage() {
             <PublicationsTab
               userId={selectedUser.id}
               podcastId={params.podcastId}
-              episodes={episodes}
               refreshKey={refreshKey}
               onRepublished={handlePublished}
             />

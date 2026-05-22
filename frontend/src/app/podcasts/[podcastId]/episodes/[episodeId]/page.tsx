@@ -429,7 +429,8 @@ export default function EpisodeDetailPage() {
             <PublicationsTab
               userId={selectedUser.id}
               podcastId={params.podcastId}
-              episodes={[episode]}
+              episodeId={episode.id}
+              episodeGeneratedAt={episode.generatedAt}
               refreshKey={refreshKey}
               onRepublished={handlePublished}
             />

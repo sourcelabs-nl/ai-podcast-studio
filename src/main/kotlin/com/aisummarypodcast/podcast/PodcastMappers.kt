@@ -74,6 +74,12 @@ internal fun Podcast.toResponse() = PodcastResponse(
     lastGeneratedAt = lastGeneratedAt
 )
 
+internal fun <T : Any> org.springframework.data.domain.Page<T>.toResponse(): PagedResponse<T> =
+    PagedResponse(items = content, page = number, pageSize = size, total = totalElements, totalPages = totalPages)
+
+internal fun <T : Any, R : Any> org.springframework.data.domain.Page<T>.toResponse(mapper: (T) -> R): PagedResponse<R> =
+    PagedResponse(items = content.map(mapper), page = number, pageSize = size, total = totalElements, totalPages = totalPages)
+
 internal fun Episode.toResponse(scoreCalls: Int = 0, costFor: StageCostFn = noopStageCostFn) = EpisodeResponse(
     id = id!!,
     podcastId = podcastId,
