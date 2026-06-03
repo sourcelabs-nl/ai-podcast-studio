@@ -360,6 +360,28 @@ class BriefingComposerTest {
     }
 
     @Test
+    fun `buildPrompt includes spoken model names guidance`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("MODEL, PRODUCT & PACKAGE NAMES"))
+        assertTrue(prompt.contains("May Code One Flash"))
+    }
+
+    @Test
+    fun `buildPrompt includes source-names-not-handles guidance`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("SOURCE NAMES, NOT HANDLES"))
+    }
+
+    @Test
+    fun `buildPrompt includes research-names-for-the-ear guidance`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("RESEARCH NAMES FOR THE EAR"))
+    }
+
+    @Test
     fun `buildPrompt includes explain-for-non-experts guidance`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
         val prompt = composer.buildPrompt(sampleArticles, podcast)

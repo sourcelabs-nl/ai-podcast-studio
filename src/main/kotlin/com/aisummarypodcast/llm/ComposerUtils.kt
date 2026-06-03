@@ -147,6 +147,38 @@ fun buildAudienceBlock(): String =
 fun buildNumbersBlock(): String =
     "\n            - NUMBERS FOR THE EAR: Spoken numbers overwhelm listeners far faster than written ones. Speak figures the way a person would aloud: round to a clean value (\"70.06%\" becomes \"about 70 percent\", \"11,039 tests\" becomes \"over 11,000\"). Lead with what a result MEANS, then the number, and prefer plain-language comparisons (\"nearly half\", \"doubled\", \"three times faster\") over raw decimals. Voice AT MOST ONE number per sentence or claim: never stack two or three stats in a single breath. When a story carries several metrics, speak only the one that matters most and summarize the rest qualitatively. De-emphasize benchmark proper-names: describe what a benchmark measures (\"a coding benchmark\", \"a computer-use test\") rather than reciting an exact name and score together, unless the name itself is the news."
 
+/**
+ * Shared "spoken names for the ear" rule for every compose-stage prompt. AI model, product,
+ * software package, repository, and domain names are full of hyphens, slashes, dots,
+ * abbreviations, and version numbers that the TTS engine mispronounces (reading the punctuation
+ * aloud, spelling out letter clusters). This block tells the LLM to write such names the way a
+ * person says them, so the audio sounds natural. Included verbatim in briefing, dialogue, and
+ * interview prompts so the rule lives in one place.
+ */
+fun buildModelNamesBlock(): String =
+    "\n            - MODEL, PRODUCT & PACKAGE NAMES: Write AI model, product, software package, repository, and domain names the way a person says them aloud, not as written on a page. Replace hyphens, slashes, and dots with natural spoken words or pauses, speak version numbers and standalone digits as words, and expand letter-clusters to how they actually sound. For example \"MAI-Code-1-Flash\" is spoken \"May Code One Flash\", \"GPT-4o\" is \"GPT four oh\", \"Claude 3.5 Sonnet\" is \"Claude three point five Sonnet\", the package \"datasette-agent-micropython\" becomes \"the Datasette agent for MicroPython\", and \"warp.dev\" is simply \"Warp\". Otherwise the TTS engine reads the hyphens, slashes, and dots aloud and spells out the letters."
+
+/**
+ * Shared "source names, not handles" rule for every compose-stage prompt. The composer often cites
+ * sources by their raw social-media handle (an X or GitHub username), which the TTS engine cannot
+ * voice naturally and sometimes even feeds to the phoneme engine. This block tells the LLM to use
+ * real names or generic descriptors instead, and reinforces that the IPA slash notation belongs
+ * only to listed pronunciation terms. Included verbatim in briefing, dialogue, and interview
+ * prompts so the rule lives in one place.
+ */
+fun buildHandlesBlock(): String =
+    "\n            - SOURCE NAMES, NOT HANDLES: Never read social-media usernames or handles aloud (e.g. an X or GitHub handle like \"@hwchase17\" or \"trq212\"). When you know the real person or organization behind a handle, use their real name; otherwise attribute generically (\"a developer on X\", \"the project's maintainer\"). Do NOT wrap handles in slashes or any phoneme notation: the IPA slash notation is reserved exclusively for the listed pronunciation-guide terms."
+
+/**
+ * Shared "research names for the ear" rule for every compose-stage prompt. The compose stage tends
+ * to recite a rapid list of paper codenames plus author surnames ("X from Smith and colleagues"),
+ * which fatigues a listener. This block tells the LLM to lead with what the research does and to
+ * ration unfamiliar proper names. Included verbatim in briefing, dialogue, and interview prompts so
+ * the rule lives in one place.
+ */
+fun buildResearchNamesBlock(): String =
+    "\n            - RESEARCH NAMES FOR THE EAR: A spoken episode cannot absorb a rapid list of paper codenames and author surnames. Lead with what a piece of research DOES, and voice its codename only when the name itself is the news. Do not stack author attributions like \"X from Smith and colleagues\" on every paper: drop or soften the surnames (at most credit a notable lab or company), and never recite more than one unfamiliar proper name per sentence."
+
 fun extractDomainAndPath(url: String): String =
     try {
         val uri = URI(url)

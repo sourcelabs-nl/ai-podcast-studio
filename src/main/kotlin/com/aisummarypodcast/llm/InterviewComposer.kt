@@ -123,7 +123,7 @@ class InterviewComposer(
             - Naturally attribute information to its source and credit original authors when known
             - Do NOT include any stage directions, sound effects, or non-spoken text outside of speaker tags. Inside speaker tags, TTS-supported cues (described in the TTS formatting section below, if present) ARE allowed
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
-            - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}
+            - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
             Engagement techniques:${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction

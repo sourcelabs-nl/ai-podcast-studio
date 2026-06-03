@@ -194,6 +194,25 @@ class DialogueComposerTest {
     }
 
     @Test
+    fun `prompt includes spoken model names guidance`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("MODEL, PRODUCT & PACKAGE NAMES"))
+        assertTrue(prompt.contains("May Code One Flash"))
+    }
+
+    @Test
+    fun `prompt includes source-names-not-handles guidance`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("SOURCE NAMES, NOT HANDLES"))
+    }
+
+    @Test
+    fun `prompt includes research-names-for-the-ear guidance`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("RESEARCH NAMES FOR THE EAR"))
+    }
+
+    @Test
     fun `prompt includes explain-for-non-experts guidance`() {
         val prompt = composer.buildPrompt(articles, podcast)
         assertTrue(prompt.contains("EXPLAIN FOR NON-EXPERTS"))
