@@ -90,4 +90,6 @@ The frontend lives in `frontend/` and uses Next.js (App Router), shadcn/ui, and 
 
 All code changes must go through an OpenSpec change — either created before implementation (`/opsx:new`) or retroactively after implementation (`/opsx:new` covering the work done). Never implement features without a corresponding OpenSpec change.
 
+For small changes (e.g. a one-function prompt tweak, a copy fix, a localized bug fix), it is fine to implement first and retrofit the OpenSpec change after the fact rather than creating it up front. Larger or architectural changes should still create the OpenSpec change before implementation.
+
 When archiving an OpenSpec change (`/opsx:archive`), always update `README.md` to reflect any new or changed capabilities introduced by the change. Follow the README Structure rules in the `readme-structure` skill when making updates. After completing the archive, always ask the user to commit the changes with `/conventional-commits:cc`.
