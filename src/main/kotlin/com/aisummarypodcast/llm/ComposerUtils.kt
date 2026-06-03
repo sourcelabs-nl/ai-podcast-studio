@@ -126,6 +126,27 @@ fun buildWebSearchBlock(deepDiveEnabled: Boolean, hasSubtopics: Boolean = false)
 fun buildPunctuationBlock(): String =
     "\n            - PUNCTUATION: Do NOT use em-dashes (—) or en-dashes (–) anywhere in the script. Use commas, colons, parentheses, or short sentences instead. The TTS engine mispronounces dash characters."
 
+/**
+ * Shared "explain for non-experts" rule for every compose-stage prompt. The audience is not
+ * all specialists, so for complex or unfamiliar subjects the script is allowed (and encouraged)
+ * to slow down and explain what something is, how it works, or why it matters, rather than
+ * rushing past it. Pairs with the deep-dive / webSearch tool: when outside context is needed to
+ * make a topic understandable, the model may pull it in (within budget). Included verbatim in
+ * briefing, dialogue, and interview prompts so the rule lives in one place.
+ */
+fun buildAudienceBlock(): String =
+    "\n            - EXPLAIN FOR NON-EXPERTS: Not every listener is a specialist. For a complex or unfamiliar subject, it is GOOD to spend a few extra sentences explaining what it is, how it works, or why it matters (the consequences) before moving on. A clear plain-language explanation of one important topic is worth more than cramming in another story. Use everyday analogies, define jargon the first time it appears, and when a topic genuinely needs outside context to make sense and a web search tool is available, use it (within budget) to enrich the explanation. Keep it conversational, not a lecture, and reserve this depth for topics that actually warrant it."
+
+/**
+ * Shared "numbers for the ear" rule for every compose-stage prompt. Dense benchmark scores,
+ * percentages, and parameter counts read fine on a page but overwhelm a listener when spoken.
+ * This block tells the LLM to round, frame, and ration numbers so stories stay digestible in
+ * audio without losing their meaning. Included verbatim in briefing, dialogue, and interview
+ * prompts so the rule lives in one place.
+ */
+fun buildNumbersBlock(): String =
+    "\n            - NUMBERS FOR THE EAR: Spoken numbers overwhelm listeners far faster than written ones. Speak figures the way a person would aloud: round to a clean value (\"70.06%\" becomes \"about 70 percent\", \"11,039 tests\" becomes \"over 11,000\"). Lead with what a result MEANS, then the number, and prefer plain-language comparisons (\"nearly half\", \"doubled\", \"three times faster\") over raw decimals. Voice AT MOST ONE number per sentence or claim: never stack two or three stats in a single breath. When a story carries several metrics, speak only the one that matters most and summarize the rest qualitatively. De-emphasize benchmark proper-names: describe what a benchmark measures (\"a coding benchmark\", \"a computer-use test\") rather than reciting an exact name and score together, unless the name itself is the news."
+
 fun extractDomainAndPath(url: String): String =
     try {
         val uri = URI(url)

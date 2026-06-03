@@ -44,7 +44,7 @@ class SourcePoller(
                         result.posts
                     }
                 }
-                SourceType.YOUTUBE -> rssFeedFetcher.fetch(source.url, source.id, source.lastSeenId, source.categoryFilter)
+                SourceType.YOUTUBE -> rssFeedFetcher.fetch(source.url, source.id, source.lastSeenId, source.categoryFilter, deepFetch = false)
             }
 
             var latestTimestamp = source.lastSeenId

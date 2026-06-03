@@ -106,7 +106,20 @@ data class SourceProperties(
     val maxFailures: Int = 15,
     val maxBackoffHours: Int = 24,
     val pollDelaySeconds: Map<String, Int> = emptyMap(),
-    val hostOverrides: Map<String, HostOverride> = emptyMap()
+    val hostOverrides: Map<String, HostOverride> = emptyMap(),
+    val deepFetch: DeepFetchProperties = DeepFetchProperties()
+)
+
+/**
+ * Controls "deep-fetching" the full article behind an RSS link. When [enabled], the RSS fetcher
+ * retrieves each entry's linked page and prefers its extracted text over the (often summary-only)
+ * feed body. Hosts matching any entry in [skipHosts] are left on their feed text, since their
+ * links are not scrapeable articles (e.g. Twitter/X and its mirrors, YouTube watch pages).
+ */
+data class DeepFetchProperties(
+    val enabled: Boolean = true,
+    val timeoutMs: Int = 15_000,
+    val skipHosts: List<String> = listOf("x.com", "twitter.com", "nitter", "youtube.com", "youtu.be")
 )
 
 data class HostOverride(

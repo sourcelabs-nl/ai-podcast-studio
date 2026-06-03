@@ -186,6 +186,8 @@ class SubtopicPlanTest {
         // Budget = 1500 * 0.15 = 225 words, 2 items => 112 per item
         assertTrue(block.contains("~112 words per item"), "Expected per-item budget, got:\n$block")
         assertTrue(block.contains("exactly 2 items"))
+        assertTrue(block.contains("voice AT MOST ONE number"), "Expected rapid-fire number limit, got:\n$block")
+        assertTrue(block.contains("do NOT announce ordinal numbers or count the items aloud"), "Expected no-counting rule, got:\n$block")
     }
 
     @Test

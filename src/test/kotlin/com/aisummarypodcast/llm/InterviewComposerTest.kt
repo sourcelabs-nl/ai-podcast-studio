@@ -196,6 +196,19 @@ class InterviewComposerTest {
     }
 
     @Test
+    fun `prompt includes numbers-for-the-ear guidance`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("NUMBERS FOR THE EAR"))
+        assertTrue(prompt.contains("AT MOST ONE number per sentence or claim"))
+    }
+
+    @Test
+    fun `prompt includes explain-for-non-experts guidance`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("EXPLAIN FOR NON-EXPERTS"))
+    }
+
+    @Test
     fun `prompt allows TTS cues inside speaker tags`() {
         val prompt = composer.buildPrompt(articles, podcast)
 

@@ -352,6 +352,21 @@ class BriefingComposerTest {
     }
 
     @Test
+    fun `buildPrompt includes numbers-for-the-ear guidance`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("NUMBERS FOR THE EAR"))
+        assertTrue(prompt.contains("AT MOST ONE number per sentence or claim"))
+    }
+
+    @Test
+    fun `buildPrompt includes explain-for-non-experts guidance`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("EXPLAIN FOR NON-EXPERTS"))
+    }
+
+    @Test
     fun `buildPrompt allows TTS cues inside content`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
         val prompt = composer.buildPrompt(sampleArticles, podcast)
