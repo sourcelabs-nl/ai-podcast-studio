@@ -202,7 +202,8 @@ class PodcastService(
             composeSettings = updates.composeSettings,
             deepDiveEnabled = updates.deepDiveEnabled,
             subtopics = updates.subtopics,
-            rapidFireWeightThreshold = updates.rapidFireWeightThreshold
+            rapidFireWeightThreshold = updates.rapidFireWeightThreshold,
+            rapidFireMaxItems = updates.rapidFireMaxItems
         )
         return podcastRepository.save(updated)
     }
