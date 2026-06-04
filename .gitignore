@@ -15,6 +15,7 @@ data/
 .frontend.pid
 app.log
 frontend.log
+logs/
 soudmaijer-sources.txt
 
 HELP.md

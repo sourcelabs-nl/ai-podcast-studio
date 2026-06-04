@@ -114,7 +114,7 @@ logging:
     name: app.log
   logback:
     rollingpolicy:
-      file-name-pattern: app.%d{yyyy-MM-dd}.%i.log.gz
+      file-name-pattern: logs/app.%d{yyyy-MM-dd}.%i.log.gz
       max-history: 7
 
 server:
