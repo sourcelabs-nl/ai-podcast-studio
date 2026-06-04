@@ -555,7 +555,7 @@ class BriefingComposerTest {
             Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s")
         )
         val prompt = composer.buildPrompt(articles, podcast)
-        assertTrue(prompt.contains("DEEP DIVE: Identify the SINGLE most newsworthy"))
+        assertTrue(prompt.contains("DEEP DIVE: Identify the 2-3 most newsworthy"))
         assertFalse(prompt.contains("full-segment subtopics"))
     }
 

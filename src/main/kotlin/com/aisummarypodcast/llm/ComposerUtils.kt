@@ -106,16 +106,17 @@ fun buildHistoryLookupBlock(): String = """
             - HISTORY CHECK: Before treating any subject as new, call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}). If the tool returns a prior episode that covered the topic, either skip it, treat it as a follow-up referencing the prior coverage, or angle the segment as an update. You have a small budget for these lookups; spend them on topics most likely to have been covered before"""
 
 /**
- * Prompt block instructing the LLM to use the `webSearch` Tavily tool to enrich the most
- * newsworthy story with outside context. Empty when [deepDiveEnabled] is false; in that
- * case the tool is not registered at all and the LLM must not be hinted to call it.
+d * Prompt block instructing the LLM to use the `webSearch` Tavily tool to enrich the 2-3 most
+ * newsworthy stories with outside context, within the episode-wide call budget. Empty when
+ * [deepDiveEnabled] is false; in that case the tool is not registered at all and the LLM must
+ * not be hinted to call it.
  */
 fun buildWebSearchBlock(deepDiveEnabled: Boolean, hasSubtopics: Boolean = false): String {
     if (!deepDiveEnabled) return ""
     if (!hasSubtopics) return """
-            - DEEP DIVE: Identify the SINGLE most newsworthy story in this episode and call the `webSearch` tool 1-2 times to pull outside context (background, related developments, dissenting takes). Weave the snippets into that segment with proper attribution. You have a small budget; use it only on the standout story"""
+            - DEEP DIVE: Identify the 2-3 most newsworthy stories in this episode and call the `webSearch` tool roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of 3 calls total; aim to spend 2-3 of them across the standout stories rather than all on one"""
     return """
-            - DEEP DIVE: Use the `webSearch` tool ONLY for stories you will cover in a full segment, never for rapid-fire stories (a one-sentence mention cannot absorb fetched context). Pick the most newsworthy story among the full-segment subtopics, preferring higher-weight subtopics when stories are comparable, and call `webSearch` 1-2 times to pull outside context (background, related developments, dissenting takes). Weave the snippets into that segment with proper attribution. You have a small episode-wide budget of 3 calls total; do not multiply it by the number of subtopics"""
+            - DEEP DIVE: Use the `webSearch` tool ONLY for stories you will cover in a full segment, never for rapid-fire stories (a one-sentence mention cannot absorb fetched context). Pick the 2-3 most newsworthy full-segment stories, preferring higher-weight subtopics when stories are comparable, and call `webSearch` roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of 3 calls total; aim to spend 2-3 of them across the standout stories rather than all on one, and never multiply it by the number of subtopics"""
 }
 
 /**
@@ -135,7 +136,7 @@ fun buildPunctuationBlock(): String =
  * briefing, dialogue, and interview prompts so the rule lives in one place.
  */
 fun buildAudienceBlock(): String =
-    "\n            - EXPLAIN FOR NON-EXPERTS: Not every listener is a specialist. For a complex or unfamiliar subject, it is GOOD to spend a few extra sentences explaining what it is, how it works, or why it matters (the consequences) before moving on. A clear plain-language explanation of one important topic is worth more than cramming in another story. Use everyday analogies, define jargon the first time it appears, and when a topic genuinely needs outside context to make sense and a web search tool is available, use it (within budget) to enrich the explanation. Keep it conversational, not a lecture, and reserve this depth for topics that actually warrant it."
+    "\n            - EXPLAIN FOR NON-EXPERTS: This is cutting-edge material and not every listener already follows each subject. Whenever a genuinely complex or unfamiliar concept comes up, take a moment to explain it clearly in plain language before moving on: what it is, how it works at a high level, and why it matters (the consequences). Define jargon the first time it appears and reach for an everyday analogy when it helps. Do not go super in-depth or turn it into a lecture: aim for just enough that a non-specialist understands what is being discussed, which also gives advanced listeners a beat to absorb the information. Keep each explanation brief, and prioritise the concepts that genuinely warrant it over cramming in another story. When a topic genuinely needs outside context to make sense and a web search tool is available, use it (within budget) to enrich the explanation."
 
 /**
  * Shared "numbers for the ear" rule for every compose-stage prompt. Dense benchmark scores,
