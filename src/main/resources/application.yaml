@@ -46,6 +46,10 @@ app:
         type: llm
         input-cost-per-mtok: 5.00
         output-cost-per-mtok: 25.00
+      "[deepseek/deepseek-v4-flash]":
+        type: llm
+        input-cost-per-mtok: 0.0983
+        output-cost-per-mtok: 0.1966
     openai:
       "[tts-1-hd]":
         type: tts
