@@ -52,10 +52,12 @@ fun buildArticleSummaryBlock(
  * bullet (not appended to the sign-off, where it reads as a sign-off-only instruction) so it
  * frames the whole episode. Deliberately concrete and countable, mirroring the interruptions
  * rule: vague "be playful" phrasing loses against the prompt's many strict structural rules.
- * On Fridays an extra beat of end-of-week energy is requested.
+ * On Fridays an extra beat of end-of-week energy is requested; the end of the week may only
+ * be acknowledged conversationally, never as a "Happy Friday" style shout-out (listener
+ * feedback: too much).
  */
 fun buildHumorBlock(): String {
-    val fridayExtra = if (LocalDate.now().dayOfWeek == DayOfWeek.FRIDAY) " Today is FRIDAY: add one extra humorous beat, let the energy run a notch higher, and acknowledge the end of the work week (weekend plans, winding down, drinks with friends) in the opening or sign-off." else ""
+    val fridayExtra = if (LocalDate.now().dayOfWeek == DayOfWeek.FRIDAY) " Today is FRIDAY: add one extra humorous beat and let the energy run a notch higher. You may acknowledge the end of the week, but only conversationally and in passing (\"It's the end of the week...\", \"What a week...\"); never as a direct greeting or shout-out like \"Happy Friday\"." else ""
     return "\n            - HUMOR & TONE: The vibe is relaxed and playful throughout: colleagues who genuinely enjoy the subject, not news anchors reading a wire feed. Include 2-3 genuine moments of humor per episode, each tied to a specific story, never generic filler. This is a HARD REQUIREMENT, like the interruption count. Vary the flavour across these categories: an absurd or everyday comparison, a playful exaggeration, a self-deprecating aside about the hosts or the AI field itself, or a deadpan one-liner. Land each joke in one or two sentences and move on; never explain the joke or let it derail the segment. Keep humor away from genuinely serious or negative stories.$fridayExtra"
 }
 
