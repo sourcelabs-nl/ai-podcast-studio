@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
 import io.netty.resolver.DefaultAddressResolverGroup
 import reactor.netty.http.client.HttpClient
+import reactor.netty.resources.ConnectionProvider
 import java.time.Duration
 import java.util.Base64
 
@@ -31,6 +32,12 @@ class InworldApiClient(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    // Evict idle pooled connections before Inworld's load balancer closes them server-side,
+    // otherwise reusing a stale keep-alive connection fails with "Connection reset"
+    private val connectionProvider = ConnectionProvider.builder("inworld-tts")
+        .maxIdleTime(Duration.ofSeconds(30))
+        .build()
 
     fun synthesizeSpeech(userId: String, voiceId: String, text: String, modelId: String, options: InworldSynthesisOptions = InworldSynthesisOptions()): InworldSpeechResponse {
         val client = createClient(userId)
@@ -110,7 +117,7 @@ class InworldApiClient(
 
         val basicToken = buildBasicToken(apiKey)
 
-        val httpClient = HttpClient.create()
+        val httpClient = HttpClient.create(connectionProvider)
             .resolver(DefaultAddressResolverGroup.INSTANCE)
             .responseTimeout(Duration.ofMinutes(5))
         val requestFactory = ReactorClientHttpRequestFactory(httpClient)

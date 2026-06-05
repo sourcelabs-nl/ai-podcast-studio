@@ -82,7 +82,7 @@ If you turned on "require review", the pipeline pauses here so you can read, edi
 
 ### Step 4: Recording the audio
 
-The finished script is sent to a text-to-speech provider of your choice (OpenAI, ElevenLabs, or Inworld). Before sending, the app cleans the script up for TTS: it strips out em-dashes and en-dashes (which TTS models tend to read out loud as "dash"), and it injects pronunciation hints if you've set up a pronunciation dictionary for the podcast. Long scripts are split into chunks at sentence boundaries so the TTS model doesn't choke, then the resulting audio chunks are stitched back together into a single MP3. ElevenLabs and Inworld support multiple voices for dialogue and interview styles.
+The finished script is sent to a text-to-speech provider of your choice (OpenAI, ElevenLabs, or Inworld). Before sending, the app cleans the script up for TTS: it strips out em-dashes and en-dashes (which TTS models tend to read out loud as "dash"), and it injects pronunciation hints if you've set up a pronunciation dictionary for the podcast. Long scripts are split into chunks at sentence boundaries so the TTS model doesn't choke, then the resulting audio chunks are stitched back together into a single MP3. ElevenLabs and Inworld support multiple voices for dialogue and interview styles. Transient hiccups during generation (a rate limit, a dropped connection, a timeout) are retried automatically per chunk with exponential backoff, so a single flaky request doesn't fail the whole episode.
 
 ```mermaid
 flowchart LR

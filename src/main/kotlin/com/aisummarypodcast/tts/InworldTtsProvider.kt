@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import org.springframework.web.client.ResourceAccessException
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -173,6 +174,12 @@ class InworldTtsProvider(
                 if (attempt == MAX_RETRY_ATTEMPTS - 1) throw e
                 val delayMs = RETRY_DELAYS_MS[attempt]
                 log.warn("Inworld rate limited (attempt {}/{}), retrying in {}ms", attempt + 1, MAX_RETRY_ATTEMPTS, delayMs)
+                delay(delayMs)
+            } catch (e: ResourceAccessException) {
+                // Transient I/O failure (connection reset, timeout) — retry on a fresh connection
+                if (attempt == MAX_RETRY_ATTEMPTS - 1) throw e
+                val delayMs = RETRY_DELAYS_MS[attempt]
+                log.warn("Inworld I/O error '{}' (attempt {}/{}), retrying in {}ms", e.message, attempt + 1, MAX_RETRY_ATTEMPTS, delayMs)
                 delay(delayMs)
             }
         }
