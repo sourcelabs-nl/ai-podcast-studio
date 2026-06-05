@@ -44,7 +44,7 @@ class InterviewComposer(
             val extraction = TopicOrderExtractor.extract(rawScript)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             CompositionResult(
-                script = extraction.script,
+                script = stripOutsideSpeakerTags(extraction.script),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
                 researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME)
@@ -83,7 +83,7 @@ class InterviewComposer(
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
         val currentDate = buildCurrentDate(podcast.language)
-        val toneBlock = buildToneBlock()
+        val humorBlock = buildHumorBlock()
         val languageInstruction = buildLanguageInstruction(podcast.language, "interview")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor, speakerPrefix = "the interviewer should ")
 
@@ -125,7 +125,7 @@ class InterviewComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
-            Engagement techniques:${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
+            Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode (do not lean on the same hook construction twice)
@@ -141,9 +141,9 @@ class InterviewComposer(
               * Playful disagreement (taking the opposite side for friction)
               Each interruption MUST be phrased differently from the others in this episode. The expert can push back too with their own voice when their thought is being cut off mid-argument.
             - STRICT TURN LENGTH: The expert MUST NOT speak for more than 3-4 sentences in a single turn. This is a HARD RULE, not a suggestion. After 3-4 sentences, the interviewer MUST jump in, even if it's just a short reaction. Long expert monologues are the number one cause of listener drop-off. Keep the rhythm tight
-            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not everything is exciting; save the energy for what truly stands out
+            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not every story warrants peak emphasis; reserve the strongest emphasis for the news that truly stands out. This tempers emphasis only, NOT the playful tone from the HUMOR & TONE rule, which applies throughout
             - PENULTIMATE EXCHANGE: $penultimateDirective
-            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$toneBlock
+            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes
 
             Speaker transitions:
             - Speaker transitions must sound natural: do NOT start a turn with a bare name address. Instead, use conversational bridges, reactions, follow-ups, or connectors before transitioning

@@ -44,7 +44,7 @@ class DialogueComposer(
             val extraction = TopicOrderExtractor.extract(rawScript)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             CompositionResult(
-                script = extraction.script,
+                script = stripOutsideSpeakerTags(extraction.script),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
                 researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME)
@@ -83,7 +83,7 @@ class DialogueComposer(
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
         val currentDate = buildCurrentDate(podcast.language)
-        val toneBlock = buildToneBlock()
+        val humorBlock = buildHumorBlock()
         val languageInstruction = buildLanguageInstruction(podcast.language, "dialogue")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor)
         val ttsGuidelinesBlock = buildTtsGuidelinesBlock(ttsScriptGuidelines)
@@ -119,7 +119,7 @@ class DialogueComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
-            Engagement techniques:${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
+            Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - CURIOSITY HOOKS: The ${speakerRoles.first()} should use rhetorical questions and teaser hooks before transitions. Create micro-curiosity loops that pull listeners forward, but vary the phrasing each transition (do not reuse the same hook twice in one episode)
@@ -127,9 +127,9 @@ class DialogueComposer(
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise (roughly 60-90 seconds each). $transitionsDirective${buildAudienceBlock()}
             - TOPIC ENTRY: $topicEntryDirective
             - NATURAL INTERRUPTIONS: Speakers should occasionally interrupt each other MID-TOPIC, not at the end of a complete explanation, but while the other speaker is still building their point. Keep each speaker turn to 3-5 sentences max, then have the other speaker jump in with a reaction, follow-up question, or interjection in their own voice. The original speaker then continues in their NEXT turn. Aim for 3-4 interruptions per episode, spread across different topics. Vary the interruption style across the episode (excited, skeptical, confused, connecting-dots, playful disagreement); do not reuse the same opener phrase for two interruptions
-            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not everything is exciting; save the energy for what truly stands out
+            - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not every story warrants peak emphasis; reserve the strongest emphasis for the news that truly stands out. This tempers emphasis only, NOT the playful tone from the HUMOR & TONE rule, which applies throughout
             - PENULTIMATE EXCHANGE: $penultimateDirective
-            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$toneBlock
+            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes
 
             Speaker transitions:
             - NEVER place two consecutive tags of the same speaker (e.g., <${speakerRoles.first()}>...</${speakerRoles.first()}><${speakerRoles.first()}>...</${speakerRoles.first()}> is FORBIDDEN). Every speaker turn MUST be followed by the OTHER speaker before the same speaker can speak again

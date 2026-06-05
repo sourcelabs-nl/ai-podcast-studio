@@ -47,9 +47,16 @@ fun buildArticleSummaryBlock(
     }
 }
 
-fun buildToneBlock(): String {
-    val fridayExtra = if (LocalDate.now().dayOfWeek == DayOfWeek.FRIDAY) " It's Friday! Extra energy, wrap up the week with friends over drinks." else ""
-    return "\n            - Go loose and have fun with it. Be playful, crack jokes, use humor freely, riff on the topics. Let the energy be high and the vibe relaxed.$fridayExtra"
+/**
+ * Shared humor-and-tone rule for every compose-stage prompt. Placed as the FIRST engagement
+ * bullet (not appended to the sign-off, where it reads as a sign-off-only instruction) so it
+ * frames the whole episode. Deliberately concrete and countable, mirroring the interruptions
+ * rule: vague "be playful" phrasing loses against the prompt's many strict structural rules.
+ * On Fridays an extra beat of end-of-week energy is requested.
+ */
+fun buildHumorBlock(): String {
+    val fridayExtra = if (LocalDate.now().dayOfWeek == DayOfWeek.FRIDAY) " Today is FRIDAY: add one extra humorous beat, let the energy run a notch higher, and acknowledge the end of the work week (weekend plans, winding down, drinks with friends) in the opening or sign-off." else ""
+    return "\n            - HUMOR & TONE: The vibe is relaxed and playful throughout: colleagues who genuinely enjoy the subject, not news anchors reading a wire feed. Include 2-3 genuine moments of humor per episode, each tied to a specific story, never generic filler. This is a HARD REQUIREMENT, like the interruption count. Vary the flavour across these categories: an absurd or everyday comparison, a playful exaggeration, a self-deprecating aside about the hosts or the AI field itself, or a deadpan one-liner. Land each joke in one or two sentences and move on; never explain the joke or let it derail the segment. Keep humor away from genuinely serious or negative stories.$fridayExtra"
 }
 
 fun buildCurrentDate(language: String): String {
@@ -179,6 +186,47 @@ fun buildHandlesBlock(): String =
  */
 fun buildResearchNamesBlock(): String =
     "\n            - RESEARCH NAMES FOR THE EAR: A spoken episode cannot absorb a rapid list of paper codenames and author surnames. Lead with what a piece of research DOES, and voice its codename only when the name itself is the news. Do not stack author attributions like \"X from Smith and colleagues\" on every paper: drop or soften the surnames (at most credit a notable lab or company), and never recite more than one unfamiliar proper name per sentence."
+
+private val SPEAKER_TURN_PATTERN = Regex("<(\\w+)>.*?</\\1>", RegexOption.DOT_MATCHES_ALL)
+
+/**
+ * Strips any text before the first opening speaker tag and after the last closing speaker tag.
+ * The compose LLM tends to "think out loud" after its last tool call (e.g. "I have enough
+ * context. Writing the script now.") before emitting the tagged script, despite the prompt
+ * forbidding text outside speaker tags. The TTS parser already ignores such text, but it must
+ * not be stored in the episode script (it shows in the dashboard and pollutes word counts).
+ * Scripts without any speaker tags (briefing style) are returned unchanged.
+ */
+fun stripOutsideSpeakerTags(script: String): String {
+    val turns = SPEAKER_TURN_PATTERN.findAll(script).toList()
+    if (turns.isEmpty()) return script
+    return script.substring(turns.first().range.first, turns.last().range.last + 1)
+}
+
+private val META_PREAMBLE_PATTERN = Regex(
+    "(?i)\\b(?:writ(?:e|ing)|draft(?:ing)?|compos(?:e|ing))\\b[^.]*\\bscript\\b" +
+        "|\\bscript\\b[^.]*\\b(?:now|next)\\b" +
+        "|\\b(?:enough|plenty of|the full|all the) (?:context|information)\\b" +
+        "|\\bwhat i need\\b"
+)
+
+/**
+ * Strips a leading meta-commentary paragraph from a monologue script (e.g. "I have enough
+ * context. Writing the script now."). Monologue scripts have no speaker tags, so the whole
+ * text reaches TTS verbatim and a leaked preamble would be read aloud. Conservative on
+ * purpose: only the FIRST paragraph is considered, and only when it is short and matches
+ * known "I'm about to write" phrasings, so genuine spoken openings are never dropped.
+ */
+fun stripLeadingMetaCommentary(script: String): String {
+    val trimmed = script.trimStart()
+    val paragraphEnd = trimmed.indexOf("\n")
+    if (paragraphEnd == -1) return script
+    val firstParagraph = trimmed.substring(0, paragraphEnd).trim()
+    if (firstParagraph.length <= 300 && META_PREAMBLE_PATTERN.containsMatchIn(firstParagraph)) {
+        return trimmed.substring(paragraphEnd).trimStart()
+    }
+    return script
+}
 
 fun extractDomainAndPath(url: String): String =
     try {
