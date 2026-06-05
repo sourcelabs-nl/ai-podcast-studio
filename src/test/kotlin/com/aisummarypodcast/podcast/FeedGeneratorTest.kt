@@ -221,7 +221,7 @@ class FeedGeneratorTest {
     }
 
     @Test
-    fun `episode includes content encoded with html and article links`() {
+    fun `episode includes content encoded with html show notes and sources link`() {
         val episode = Episode(
             id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",
             scriptText = "Script", status = EpisodeStatus.GENERATED,
@@ -241,13 +241,13 @@ class FeedGeneratorTest {
         val xml = feedGenerator.generate(podcast, user)
         assertTrue(xml.contains("content:encoded"), "Expected content:encoded element")
         assertTrue(xml.contains("Great episode about AI."), "Expected show notes in content:encoded")
-        assertTrue(xml.contains("href=\"https://example.com/gpt5\""), "Expected article link in content:encoded")
-        assertTrue(xml.contains("OpenAI launches GPT-5"), "Expected article title in content:encoded")
-        assertTrue(xml.contains("Anthropic updates Claude"), "Expected second article in content:encoded")
+        assertFalse(xml.contains("href=\"https://example.com/gpt5\""), "Expected no article links in content:encoded")
+        assertFalse(xml.contains("OpenAI launches GPT-5"), "Expected no article titles in content:encoded")
+        assertTrue(xml.contains("view all sources and show notes"), "Expected sources link text")
     }
 
     @Test
-    fun `content encoded shows all articles per topic grouped by topic heading when topics present`() {
+    fun `content encoded lists topic names without article titles when topics present`() {
         val episode = Episode(
             id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",
             scriptText = "Script", status = EpisodeStatus.GENERATED,
@@ -268,22 +268,20 @@ class FeedGeneratorTest {
         )
 
         val xml = feedGenerator.generate(podcast, user)
-        // All article titles should appear, grouped under topic headings
-        assertTrue(xml.contains("GPT-5 release"), "Expected GPT-5 topic heading")
-        assertTrue(xml.contains("Anthropic Claude"), "Expected Claude topic heading")
-        assertTrue(xml.contains("MCP ecosystem"), "Expected MCP topic heading")
-        assertTrue(xml.contains("GPT-5 launched"), "Expected first GPT-5 article title")
-        assertTrue(xml.contains("GPT-5 benchmarks"), "Expected second GPT-5 article title")
-        assertTrue(xml.contains("Claude update"), "Expected first Claude article title")
-        assertTrue(xml.contains("Claude pricing"), "Expected second Claude article title")
-        assertTrue(xml.contains("New MCP tools"), "Expected MCP article title")
+        // Only topic names should appear, no article titles or links
         assertTrue(xml.contains("Topics Covered"), "Expected topics header")
+        assertTrue(xml.contains("GPT-5 release"), "Expected GPT-5 topic name")
+        assertTrue(xml.contains("Anthropic Claude"), "Expected Claude topic name")
+        assertTrue(xml.contains("MCP ecosystem"), "Expected MCP topic name")
+        assertFalse(xml.contains("GPT-5 launched"), "Expected no article titles")
+        assertFalse(xml.contains("Claude update"), "Expected no article titles")
+        assertFalse(xml.contains("href=\"https://example.com/gpt5\""), "Expected no article links")
         assertTrue(xml.contains("view all sources and show notes"), "Expected sources link text")
         assertTrue(xml.contains("mailto:test@example.com"), "Expected mailto link in footer")
     }
 
     @Test
-    fun `content encoded shows all articles when no topics present`() {
+    fun `content encoded omits article list when no topics present`() {
         val episode = Episode(
             id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",
             scriptText = "Script", status = EpisodeStatus.GENERATED,
@@ -302,9 +300,9 @@ class FeedGeneratorTest {
         )
 
         val xml = feedGenerator.generate(podcast, user)
-        // All articles should be shown (no topic data = legacy fallback)
-        assertTrue(xml.contains("Article one"), "Expected all articles in legacy mode")
-        assertTrue(xml.contains("Article two"), "Expected all articles in legacy mode")
-        assertTrue(xml.contains("Article three"), "Expected all articles in legacy mode")
+        // Legacy episodes without topic data rely on the sources page link instead
+        assertFalse(xml.contains("Article one"), "Expected no article titles in legacy mode")
+        assertFalse(xml.contains("Topics Covered"), "Expected no topics header without topic data")
+        assertTrue(xml.contains("view all sources and show notes"), "Expected sources link text")
     }
 }

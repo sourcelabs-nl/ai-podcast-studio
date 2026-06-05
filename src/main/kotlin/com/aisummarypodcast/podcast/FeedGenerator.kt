@@ -186,29 +186,15 @@ class FeedGenerator(
                     append("<p>${escapeHtml(trimmed)}</p>")
                 }
             }
-            // Source article links
-            if (articles.isNotEmpty()) {
-                if (hasTopics) {
-                    val discussed = articles.filter { it.topicOrder != null }
-                    if (discussed.isNotEmpty()) {
-                        append("<h2>Topics Covered</h2>")
-                        var currentTopic: String? = null
-                        for (article in discussed) {
-                            val topicLabel = article.topic ?: "Other"
-                            if (topicLabel != currentTopic) {
-                                if (currentTopic != null) append("</ul>")
-                                append("<h3>${escapeHtml(topicLabel)}</h3>")
-                                append("<ul>")
-                                currentTopic = topicLabel
-                            }
-                            append("<li><a href=\"${escapeHtml(article.url)}\">${escapeHtml(article.title)}</a></li>")
-                        }
-                        if (currentTopic != null) append("</ul>")
-                    }
-                } else {
-                    append("<p><strong>Sources:</strong></p><ul>")
-                    for (article in articles) {
-                        append("<li><a href=\"${escapeHtml(article.url)}\">${escapeHtml(article.title)}</a></li>")
+            // Topic names only — the full per-article list lives on the linked sources page
+            if (hasTopics) {
+                val topics = articles.filter { it.topicOrder != null }
+                    .map { it.topic ?: "Other" }
+                    .distinct()
+                if (topics.isNotEmpty()) {
+                    append("<h2>Topics Covered</h2><ul>")
+                    for (topic in topics) {
+                        append("<li>${escapeHtml(topic)}</li>")
                     }
                     append("</ul>")
                 }
