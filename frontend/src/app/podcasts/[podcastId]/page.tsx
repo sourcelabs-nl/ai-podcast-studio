@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import cronstrue from "cronstrue";
 import { CronExpressionParser } from "cron-parser";
-import { Check, ChevronDown, ChevronRight, Clock, Headphones, Loader2, RefreshCw, Settings, Upload, Volume2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Clock, Headphones, Loader2, RefreshCw, RotateCcw, Settings, Upload, Volume2, X } from "lucide-react";
 import { useUser } from "@/lib/user-context";
 import { useEventStream } from "@/lib/event-context";
 import type { Podcast, Episode, EpisodePublication, PagedResponse } from "@/lib/types";
@@ -534,15 +534,15 @@ export default function EpisodesPage() {
                         {episode.status === "FAILED" && (
                           <Button
                             size="icon-lg"
-                            title="Retry audio generation"
+                            title="Retry generation"
                             onClick={() => setPendingAction({
-                              title: "Retry audio generation?",
-                              description: "This will attempt to generate audio for the existing script.",
+                              title: "Retry generation?",
+                              description: "This will resume generation for this episode from the stage where it failed.",
                               actionLabel: "Retry",
-                              onConfirm: () => doAction(episode.id, "approve"),
+                              onConfirm: () => doAction(episode.id, "retry"),
                             })}
                           >
-                            <Check className="size-4" />
+                            <RotateCcw className="size-4" />
                           </Button>
                         )}
                         {(episode.status === "DISCARDED" || episode.status === "FAILED") && !publishedDates.has(new Date(episode.generatedAt).toLocaleDateString()) && (
