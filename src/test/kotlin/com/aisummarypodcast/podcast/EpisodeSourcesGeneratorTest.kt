@@ -165,6 +165,48 @@ class EpisodeSourcesGeneratorTest {
     }
 
     @Test
+    fun `meta line shows duration, source count and listen link`() {
+        val timedEpisode = episode.copy(durationSeconds = 754)
+        val articles = listOf(
+            TopicGroupedArticle("A", "https://example.com/a", "Topic A", 0),
+            TopicGroupedArticle("B", "https://example.com/b", "Topic B", 1)
+        )
+
+        val content = Files.readString(generator.generate(timedEpisode, podcast, articles)!!)
+        assertTrue(content.contains("class=\"meta\""), "Expected meta line")
+        assertTrue(content.contains("12 min"), "Expected formatted duration")
+        assertTrue(content.contains("2 sources"), "Expected source count")
+        assertTrue(content.contains("&#9654; Listen"), "Expected listen link label")
+        assertTrue(content.contains("href=\"briefing-20260312-100000.mp3\""), "Expected relative audio link")
+    }
+
+    @Test
+    fun `source count reflects discussed articles when additional sources present`() {
+        val articles = listOf(
+            TopicGroupedArticle("Discussed", "https://example.com/d", "Topic A", 0),
+            TopicGroupedArticle("Background", "https://example.com/bg", "Topic B", null)
+        )
+
+        val content = Files.readString(generator.generate(episode, podcast, articles)!!)
+        assertTrue(content.contains("1 source"), "Expected only discussed article counted")
+        assertFalse(content.contains("2 sources"), "Additional (non-discussed) sources should not be counted")
+    }
+
+    @Test
+    fun `summary falls back to sanitized script when no recap or show notes`() {
+        val taggedScript = "I have enough context. Writing the script now.\n\n" +
+            "<interviewer>Welcome to today's episode.</interviewer><expert>Glad to be here.</expert>"
+        val noRecapEpisode = episode.copy(recap = null, showNotes = null, scriptText = taggedScript)
+        val articles = listOf(TopicGroupedArticle("A", "https://example.com/a", "Topic A", 0))
+
+        val content = Files.readString(generator.generate(noRecapEpisode, podcast, articles)!!)
+        assertTrue(content.contains("<h2>Summary</h2>"), "Expected a Summary section")
+        assertTrue(content.contains("Welcome to today's episode."), "Expected spoken text in summary")
+        assertFalse(content.contains("&lt;interviewer&gt;"), "Expected no speaker tags in summary")
+        assertFalse(content.contains("Writing the script now"), "Expected leaked preamble stripped")
+    }
+
+    @Test
     fun `does not truncate short article titles`() {
         val shortTitle = "Short Title"
         val articles = listOf(

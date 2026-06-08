@@ -34,7 +34,9 @@ class EpisodeSourcesGenerator(private val appProperties: AppProperties) {
             appendLine("<style>")
             appendLine("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.6; }")
             appendLine("h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }")
-            appendLine(".date { color: #666; font-style: italic; margin-bottom: 1.5rem; }")
+            appendLine(".date { color: #666; font-style: italic; margin-bottom: 0.25rem; }")
+            appendLine(".meta { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }")
+            appendLine(".meta a { color: #c2410c; font-weight: 600; }")
             appendLine(".summary { margin-bottom: 1.5rem; }")
             appendLine("h2 { font-size: 1.1rem; border-bottom: 1px solid #ddd; padding-bottom: 0.3rem; }")
             appendLine("h3 { font-size: 1rem; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #333; }")
@@ -46,12 +48,17 @@ class EpisodeSourcesGenerator(private val appProperties: AppProperties) {
             appendLine("<body>")
             appendLine("<h1>${escapeHtml(podcast.name)}</h1>")
             appendLine("<p class=\"date\">$date</p>")
-            if (episode.recap != null) {
-                appendLine("<div class=\"summary\">")
-                appendLine("<h2>Summary</h2>")
-                appendLine("<p>${escapeHtml(episode.recap!!)}</p>")
-                appendLine("</div>")
+
+            val metaParts = buildMetaParts(episode, articles)
+            if (metaParts.isNotEmpty()) {
+                appendLine("<p class=\"meta\">${metaParts.joinToString(" &middot; ")}</p>")
             }
+
+            val summary = episode.showNotes ?: episode.recap ?: scriptFallbackSummary(episode.scriptText)
+            appendLine("<div class=\"summary\">")
+            appendLine("<h2>Summary</h2>")
+            appendLine("<p>${escapeHtml(summary)}</p>")
+            appendLine("</div>")
             if (articles.isNotEmpty()) {
                 val hasTopics = articles.any { it.topicOrder != null }
                 if (hasTopics) {
@@ -106,6 +113,29 @@ class EpisodeSourcesGenerator(private val appProperties: AppProperties) {
 
         log.info("Generated sources.html for episode {} at {}", episode.id, sourcesPath)
         return sourcesPath
+    }
+
+    /**
+     * Builds the metadata line shown under the date: audio length, number of sources, and a link
+     * to play the episode. Parts that have no data (e.g. unknown duration, no audio file) are omitted.
+     * Source count reflects the articles actually discussed when topic data is present, otherwise all
+     * linked articles.
+     */
+    private fun buildMetaParts(episode: Episode, articles: List<TopicGroupedArticle>): List<String> {
+        val parts = mutableListOf<String>()
+        formatDuration(episode.durationSeconds)?.let { parts.add(escapeHtml(it)) }
+
+        val discussedCount = articles.count { it.topicOrder != null }
+        val sourceCount = if (discussedCount > 0) discussedCount else articles.size
+        if (sourceCount > 0) {
+            parts.add(if (sourceCount == 1) "1 source" else "$sourceCount sources")
+        }
+
+        episode.audioFilePath?.let { audioPath ->
+            val audioFileName = Path.of(audioPath).fileName.toString()
+            parts.add("<a href=\"${escapeHtml(audioFileName)}\">&#9654; Listen</a>")
+        }
+        return parts
     }
 
     private fun truncateTitle(title: String): String =
