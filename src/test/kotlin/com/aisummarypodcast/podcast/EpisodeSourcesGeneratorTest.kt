@@ -78,7 +78,7 @@ class EpisodeSourcesGeneratorTest {
     }
 
     @Test
-    fun `generates mixed topics with ungrouped articles in Additional Sources section`() {
+    fun `omits non-discussed articles and the Additional Sources section`() {
         val articles = listOf(
             TopicGroupedArticle("Grouped Article", "https://example.com/grouped", "AI Safety", 0),
             TopicGroupedArticle("Ungrouped Article", "https://example.com/ungrouped", "Code Quality", null)
@@ -90,9 +90,11 @@ class EpisodeSourcesGeneratorTest {
         val content = Files.readString(path!!)
         assertTrue(content.contains("<h2>Topics Covered</h2>"))
         assertTrue(content.contains("<h3>AI Safety</h3>"))
-        assertTrue(content.contains("<h2>Additional Sources</h2>"))
-        assertTrue(content.contains("Background material"))
-        assertTrue(content.contains("<h3>Code Quality</h3>"))
+        assertTrue(content.contains("Grouped Article"))
+        assertFalse(content.contains("<h2>Additional Sources</h2>"))
+        assertFalse(content.contains("Background material"))
+        assertFalse(content.contains("Ungrouped Article"), "Non-discussed articles should be omitted")
+        assertFalse(content.contains("<h3>Code Quality</h3>"))
     }
 
     @Test

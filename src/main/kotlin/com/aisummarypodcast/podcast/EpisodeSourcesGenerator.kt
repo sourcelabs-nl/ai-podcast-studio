@@ -62,8 +62,9 @@ class EpisodeSourcesGenerator(private val appProperties: AppProperties) {
             if (articles.isNotEmpty()) {
                 val hasTopics = articles.any { it.topicOrder != null }
                 if (hasTopics) {
+                    // Only the topics actually discussed in the episode (topicOrder != null) are listed.
+                    // Articles not discussed are intentionally omitted from the public sources page.
                     val discussed = articles.filter { it.topicOrder != null }
-                    val additional = articles.filter { it.topicOrder == null }
 
                     appendLine("<h2>Topics Covered</h2>")
                     var currentTopic: String? = null
@@ -78,20 +79,6 @@ class EpisodeSourcesGenerator(private val appProperties: AppProperties) {
                         appendLine("<li><a href=\"${escapeHtml(article.url)}\">${escapeHtml(truncateTitle(article.title))}</a></li>")
                     }
                     if (currentTopic != null) appendLine("</ul>")
-
-                    if (additional.isNotEmpty()) {
-                        appendLine("<h2>Additional Sources</h2>")
-                        appendLine("<p class=\"date\">Background material used for context but not explicitly discussed in the episode.</p>")
-                        val groupedByTopic = additional.groupBy { it.topic ?: "Uncategorized" }
-                        for ((topic, topicArticles) in groupedByTopic) {
-                            appendLine("<h3>${escapeHtml(topic)}</h3>")
-                            appendLine("<ul>")
-                            for (article in topicArticles) {
-                                appendLine("<li><a href=\"${escapeHtml(article.url)}\">${escapeHtml(truncateTitle(article.title))}</a></li>")
-                            }
-                            appendLine("</ul>")
-                        }
-                    }
                 } else {
                     appendLine("<h2>Sources</h2>")
                     appendLine("<ul>")
