@@ -17,7 +17,11 @@ spring:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
       - org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration
   datasource:
-    url: jdbc:sqlite:./data/ai-summary-podcast.db?busy_timeout=5000&journal_mode=WAL
+    # SQLite permits only one writer at a time; WAL keeps reads non-blocking. busy_timeout makes a
+    # connection that hits a write lock wait-and-retry (up to 30s) instead of failing with
+    # SQLITE_BUSY. A single-connection pool is NOT used: the coroutine-based generation pipeline
+    # needs several connections concurrently and would otherwise starve (HikariPool timeout).
+    url: jdbc:sqlite:./data/ai-summary-podcast.db?busy_timeout=30000&journal_mode=WAL
     driver-class-name: org.sqlite.JDBC
     hikari:
       connection-init-sql: "PRAGMA foreign_keys = ON"

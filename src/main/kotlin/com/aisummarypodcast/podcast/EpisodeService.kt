@@ -87,7 +87,14 @@ class EpisodeService(
         episodeRepository.save(episode.copy(pipelineStage = stage))
     }
 
-    @Transactional
+    /**
+     * NOT @Transactional: this method runs the slow TTS pipeline and the recap LLM call between its
+     * database writes. A transaction would pin a JDBC connection (and a SQLite write lock) for the
+     * entire TTS+LLM duration — minutes — starving the connection pool and causing SQLITE_BUSY for
+     * other writers. Each write is atomic on its own; the writes are idempotent and the episode is
+     * retryable, and persisting the script before TTS is actually desirable so a TTS failure can be
+     * resumed without losing the generated script.
+     */
     fun createEpisodeFromPipelineResult(
         podcast: Podcast,
         result: PipelineResult,
@@ -283,7 +290,12 @@ class EpisodeService(
         log.info("[Pipeline] Saved compose result for episode {}", episode.id)
     }
 
-    @Transactional
+    /**
+     * NOT @Transactional: like [createEpisodeFromPipelineResult], this runs the slow TTS pipeline and
+     * the recap LLM call between its writes. Holding a transaction (and SQLite write lock) across that
+     * I/O starves the pool and causes SQLITE_BUSY. Each write is atomic and idempotent, and persisting
+     * progress before TTS lets a failed episode resume rather than rolling back.
+     */
     fun finalizeEpisode(
         episode: Episode,
         podcast: Podcast,
@@ -463,7 +475,12 @@ class EpisodeService(
         audioGenerationService.regenerateAudioAsync(episode.id!!, podcast.id)
     }
 
-    @Transactional
+    /**
+     * NOT @Transactional: this method makes a slow LLM call (recap generation). A transaction here
+     * would pin a JDBC connection (and a SQLite write lock) for the LLM's full duration, starving the
+     * pool and risking SQLITE_BUSY. Each internal episode save is atomic on its own, and the recap →
+     * show-notes → sources steps are independent idempotent updates that are safe to apply separately.
+     */
     fun regenerateRecap(episode: Episode, podcast: Podcast): Episode {
         val recapEpisode = generateAndStoreRecap(episode, podcast)
         val finalEpisode = generateAndStoreShowNotes(recapEpisode)
@@ -508,7 +525,12 @@ class EpisodeService(
         return path?.toString()
     }
 
-    @Transactional
+    /**
+     * NOT @Transactional: this admin batch iterates every episode and generates source files (I/O).
+     * A single transaction would pin one connection for the whole loop. Each per-episode save is
+     * atomic, and the operation is idempotent, so per-episode independence is preferable to one
+     * long-held connection.
+     */
     fun regenerateAllShowNotes(): Map<String, Int> {
         val episodes = episodeRepository.findAll()
         var updatedShowNotes = 0
