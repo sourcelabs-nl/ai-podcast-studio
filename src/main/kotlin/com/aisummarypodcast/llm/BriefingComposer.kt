@@ -122,7 +122,7 @@ class BriefingComposer(
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
             Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
-            - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
+            - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction${buildColdOpenPacingBlock()}
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise. Use clear verbal signposts and smooth transitions so listeners always know where they are. $transitionsDirective${buildAudienceBlock()}
             - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not every story warrants peak emphasis; reserve the strongest emphasis for the news that truly stands out. This tempers emphasis only, NOT the playful tone from the HUMOR & TONE rule, which applies throughout

@@ -126,9 +126,9 @@ class InterviewComposer(
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
             Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
-            - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction
+            - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction${buildColdOpenPacingBlock()}
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
-            - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode (do not lean on the same hook construction twice)
+            - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode (do not lean on the same hook construction twice)${buildNoEmptySetupBlock()}
             - MID-ROLL CALLBACKS: Reference earlier topics later in the episode to create narrative cohesion. Cross-reference at least once per episode without resorting to a stock phrasing
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise (roughly 60-90 seconds each). $transitionsDirective${buildAudienceBlock()}
             - TOPIC ENTRY: $topicEntryDirective Vary the entry wording across topics within the same episode

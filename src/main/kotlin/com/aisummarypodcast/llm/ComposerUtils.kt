@@ -137,6 +137,28 @@ fun buildPunctuationBlock(): String =
     "\n            - PUNCTUATION: Do NOT use em-dashes (—) or en-dashes (–) anywhere in the script. Use commas, colons, parentheses, or short sentences instead. The TTS engine mispronounces dash characters."
 
 /**
+ * Shared "pace the opening" rule for every compose-stage prompt. The hook/cold-open tends to be
+ * written as one long, comma-stacked run-on sentence, which the TTS engine reads at a noticeably
+ * faster clip than the short conversational turns that follow, so the intro sounds rushed relative
+ * to the rest of the episode. This block tells the LLM to write the opening as a few short
+ * sentences with full-stop (and occasional ellipsis) pacing beats. Included verbatim in briefing,
+ * dialogue, and interview prompts so the rule lives in one place.
+ */
+fun buildColdOpenPacingBlock(): String =
+    "\n            - OPENING PACING: Write the hook/cold-open as a few short, punchy sentences, NOT one long comma-stacked run-on. Use full stops as pacing beats (and an occasional ... for a deliberate pause) so the TTS engine does not rush the opening and its spoken pace stays even with the rest of the episode."
+
+/**
+ * Shared "no empty setup" rule for multi-speaker (dialogue/interview) compose prompts. The model
+ * likes conversational handoffs and sometimes writes a contentless setup turn — one speaker
+ * announces a point ("One small skeptical flag though.") and the OTHER speaker supplies the actual
+ * substance, leaving a dangling, incoherent gap. This block forbids that: whoever teases a point
+ * must state it in the same turn. Only included in dialogue and interview prompts (monologue has
+ * no handoff).
+ */
+fun buildNoEmptySetupBlock(): String =
+    "\n            - NO EMPTY SETUP TURNS: When a speaker announces or teases a specific point (a caveat, skeptical flag, question, fact, or statistic), that SAME speaker must state its substance in the same turn. Do NOT write a contentless setup line (e.g. \"One small skeptical flag though.\") and then have the other speaker supply the actual point — that is a dangling, incoherent handoff. A handoff is fine only when the next speaker adds genuinely new information, never when they complete a point the first speaker merely gestured at."
+
+/**
  * Shared "explain for non-experts" rule for every compose-stage prompt. The audience is not
  * all specialists, so for complex or unfamiliar subjects the script is allowed (and encouraged)
  * to slow down and explain what something is, how it works, or why it matters, rather than
