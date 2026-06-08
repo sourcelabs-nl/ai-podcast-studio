@@ -3,9 +3,7 @@
 ## Purpose
 
 RSS 2.0 podcast feed generation and HTTP serving of feed XML and MP3 audio files, plus scheduled episode cleanup.
-
 ## Requirements
-
 ### Requirement: RSS 2.0 podcast feed generation
 The system SHALL generate a valid RSS 2.0 XML file using ROME's `SyndFeed` API. The feed SHALL include standard podcast metadata (title, description, link) from application configuration, and each episode SHALL be represented as an `<item>` with an `<enclosure>` tag pointing to the MP3 file URL. The feed SHALL be regenerated each time a new episode is produced. The feed SHALL include a `<language>` element set to the podcast's configured language code. When the podcast has a stored image file, the feed SHALL include an `<image>` element with `<url>`, `<title>`, and `<link>` sub-elements. The image URL SHALL use the effective base URL (e.g., `{baseUrl}/episodes/{podcastId}/podcast-image.jpg`).
 
@@ -165,36 +163,20 @@ The global `/feed.xml` endpoint SHALL be removed. The global `/generate` endpoin
 ### Requirement: Feed content:encoded shows topic-representative sources
 Each episode item in the RSS feed SHALL include a `<content:encoded>` element with HTML content. The HTML SHALL contain:
 
-1. The show notes (or recap, or script fallback) formatted as `<p>` paragraphs
-2. A "Topics covered:" section listing one representative article per distinct dedup topic, where the topic label is used as the clickable link text (not the article title)
-3. A sentence linking to the full sources page: "For the full list of sources that inspired this episode, [view all sources and show notes](url)."
-4. A `<hr/>` separator followed by a contact footer: "Tips, comments, or feedback? Mail us at [email](mailto:email)" using the configured `ownerEmail`
+1. The show notes (or recap, or sanitized script fallback) formatted as `<p>` paragraphs
+2. A "Topics Covered" section listing the distinct topic names of the articles **actually discussed in the episode script** as plain `<li>` items (no article titles, no links), in topic order
+3. A sentence linking to the full sources page
+4. A `<hr/>` separator followed by a contact footer using the configured `ownerEmail`
 
-Articles SHALL be grouped by their stored `topic` label from the `episode_articles` table, and the first article per topic (ordered by relevance score descending) SHALL be selected as representative. The topic label SHALL be used as the link text, linking to the representative article's URL.
+A topic SHALL be considered discussed only when at least one of its linked articles has a non-null `topicOrder`. `topicOrder` SHALL be retained only for articles whose topic was identified as discussed in the script (see the episode-show-notes capability); articles whose topic was not discussed SHALL have `topicOrder` set to `NULL` and SHALL NOT contribute to "Topics Covered". Blank topic labels are coalesced to "Other", and the section is omitted entirely when no discussed, non-blank topic remains.
 
-When an episode has no topic data (e.g., pre-migration episodes with `NULL` topic values), all articles SHALL be shown with article titles as link text under a "Sources:" header instead.
+#### Scenario: Topics Covered reflects only discussed topics
+- **WHEN** an episode links 57 articles spanning 42 candidate topics but the script discusses only 15 of them
+- **THEN** the `content:encoded` "Topics Covered" section lists only those 15 discussed topics, not all 42
 
-When no `ownerEmail` is configured, the contact footer SHALL be omitted.
-
-#### Scenario: Content encoded with topic-grouped sources
-- **WHEN** the feed is generated for an episode with 15 articles across 5 distinct topics
-- **THEN** the `content:encoded` contains "Topics covered:" with 5 clickable topic names, each linking to the highest-relevance article for that topic
-
-#### Scenario: Content encoded with null topics (legacy episode)
-- **WHEN** the feed is generated for an episode where all articles have `NULL` topic values
-- **THEN** the `content:encoded` contains "Sources:" with all 15 article titles as links (no grouping applied)
-
-#### Scenario: Content encoded with no articles
-- **WHEN** the feed is generated for an episode with no linked articles
-- **THEN** the `content:encoded` contains the show notes, the full sources link, and the contact footer, but no topic/sources list
-
-#### Scenario: Content encoded contact footer
-- **WHEN** the feed is generated with `ownerEmail` configured as "podcast@example.com"
-- **THEN** the `content:encoded` HTML ends with a `mailto:` link to "podcast@example.com"
-
-#### Scenario: Content encoded without ownerEmail
-- **WHEN** the feed is generated without `ownerEmail` configured
-- **THEN** the `content:encoded` HTML omits the contact footer
+#### Scenario: Non-discussed articles remain available via the sources page
+- **WHEN** an article's topic was not discussed in the script
+- **THEN** it does not appear under "Topics Covered" in the feed, but remains linked and listed on the episode sources page
 
 ### Requirement: Feed article query includes topic
 The feed generator's article query SHALL return the `topic` column from `episode_articles` alongside each article's title and URL. The query SHALL order results by relevance score descending (highest first) so that when grouping by topic, the first article per group is the most relevant.
@@ -206,3 +188,4 @@ The feed generator's article query SHALL return the `topic` column from `episode
 #### Scenario: Query returns null topic for legacy articles
 - **WHEN** articles are queried for a pre-migration episode
 - **THEN** each article result has a `NULL` topic value
+

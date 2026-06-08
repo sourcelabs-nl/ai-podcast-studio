@@ -5,4 +5,4 @@
 - [x] 1.3 Remove `@Transactional` from `createEpisodeFromPipelineResult`, `finalizeEpisode`, `regenerateRecap`, and `regenerateAllShowNotes` so no transaction is held across TTS/LLM calls
 - [x] 1.4 Run `mvn test` and verify the suite passes
 - [x] 1.5 Restart the application so the new busy_timeout and code take effect
-- [ ] 1.6 Verify a full episode generation (retry of the failed episode) completes without `SQLITE_BUSY` or connection-timeout errors
+- [x] 1.6 Verify a full episode generation (retry of the failed episode) completes without `SQLITE_BUSY` or connection-timeout errors
