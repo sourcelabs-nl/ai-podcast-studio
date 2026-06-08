@@ -9,7 +9,8 @@ import kotlin.time.measureTimedValue
 data class RecapResult(
     val recap: String,
     val usage: TokenUsage,
-    val costCents: Int?
+    val costCents: Int?,
+    val coveredTopics: List<String> = emptyList()
 )
 
 @Component
@@ -31,12 +32,13 @@ class EpisodeRecapGenerator(
                 .call()
                 .chatResponse()
 
-            val recap = chatResponse?.result?.output?.text
+            val rawResponse = chatResponse?.result?.output?.text
                 ?: throw IllegalStateException("Empty response from LLM for episode recap generation")
 
+            val extraction = CoveredTopicsExtractor.extract(rawResponse)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             val costCents = CostEstimator.estimateLlmCostCents(usage.inputTokens, usage.outputTokens, filterModelDef.cost)
-            RecapResult(recap.trim(), usage, costCents)
+            RecapResult(extraction.recap, usage, costCents, extraction.coveredTopics)
         }
 
         log.info("[LLM] Episode recap generated for podcast '{}' ({}) in {}", podcast.name, podcast.id, elapsed)
@@ -45,8 +47,19 @@ class EpisodeRecapGenerator(
 
     internal fun buildPrompt(scriptText: String, topicLabels: List<String> = emptyList()): String {
         val topicContext = if (topicLabels.isNotEmpty()) {
-            val labels = topicLabels.joinToString(", ")
-            "\n\nTopics discussed in this episode: $labels\nNaturally reference these topics in your summary where relevant."
+            val labelList = topicLabels.joinToString("\n") { "- $it" }
+            """
+
+
+            Candidate topics (some may NOT actually be discussed in the script):
+            $labelList
+
+            Naturally reference the discussed topics in your summary where relevant. Then, after the summary, append a metadata block listing ONLY the candidate topics above that are genuinely discussed in the script (a topic counts as discussed only if the script talks about it, not merely if it sounds related). Use the EXACT labels above, do not rename or rephrase them. Omit any candidate the script does not discuss.
+
+            Format:
+            |||COVERED_TOPICS|||
+            ["first discussed topic", "second discussed topic", ...]
+            |||END_COVERED_TOPICS|||"""
         } else ""
 
         return """

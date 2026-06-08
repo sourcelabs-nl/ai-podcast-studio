@@ -85,14 +85,30 @@ class EpisodeRecapGeneratorTest {
     }
 
     @Test
-    fun `buildPrompt includes topic labels when provided`() {
+    fun `buildPrompt includes topic labels and covered-topics instruction when provided`() {
         val scriptText = "Welcome to Tech Daily."
         val topicLabels = listOf("AI Safety", "New Releases", "Code Quality")
 
         val prompt = generator.buildPrompt(scriptText, topicLabels)
 
-        assertTrue(prompt.contains("AI Safety, New Releases, Code Quality"))
-        assertTrue(prompt.contains("Naturally reference these topics"))
+        assertTrue(prompt.contains("- AI Safety"))
+        assertTrue(prompt.contains("- New Releases"))
+        assertTrue(prompt.contains("Naturally reference the discussed topics"))
+        assertTrue(prompt.contains("|||COVERED_TOPICS|||"))
+        assertTrue(prompt.contains("genuinely discussed in the script"))
+    }
+
+    @Test
+    fun `generate parses covered topics from response`() {
+        val response = "AI safety and code quality were the focus.\n\n" +
+            "|||COVERED_TOPICS|||\n[\"AI Safety\", \"Code Quality\"]\n|||END_COVERED_TOPICS|||"
+        val chatClient = mockChatClient(response)
+        every { chatClientFactory.createForModel("u1", filterModelDef) } returns chatClient
+
+        val result = generator.generate("Script", podcast, filterModelDef, listOf("AI Safety", "New Releases", "Code Quality"))
+
+        assertEquals(listOf("AI Safety", "Code Quality"), result.coveredTopics)
+        assertEquals("AI safety and code quality were the focus.", result.recap)
     }
 
     @Test

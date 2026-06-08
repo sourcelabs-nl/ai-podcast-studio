@@ -212,6 +212,13 @@ class EpisodeService(
                 llmCostCents = sumStageCostCents(withStages)
             ))
             log.info("[Pipeline] Recap generated and stored for episode {} (podcast '{}' ({}))", episode.id, podcast.name, podcast.id)
+            // Demote topics the script did not actually discuss to "background" so the feed's
+            // "Topics Covered" reflects the episode. Guard on non-empty: an empty set would clear
+            // every topic_order (NOT IN () is true in SQLite).
+            if (recapResult.coveredTopics.isNotEmpty()) {
+                episodeArticleRepository.clearTopicOrderForUncoveredTopics(episode.id!!, recapResult.coveredTopics)
+                log.info("[Pipeline] Episode {} covers {} of its candidate topics; others demoted to background", episode.id, recapResult.coveredTopics.size)
+            }
             updated
         } catch (e: Exception) {
             log.warn("[Pipeline] Failed to generate recap for episode {} (podcast '{}' ({})) — continuing without recap: {} {}", episode.id, podcast.name, podcast.id, e.javaClass.simpleName, e.message)
@@ -482,7 +489,15 @@ class EpisodeService(
      * show-notes → sources steps are independent idempotent updates that are safe to apply separately.
      */
     fun regenerateRecap(episode: Episode, podcast: Podcast): Episode {
-        val recapEpisode = generateAndStoreRecap(episode, podcast)
+        // Derive the candidate topic labels from the episode's existing links (distinct topics that
+        // currently carry a topic_order, in order) so re-running recap recomputes — and prunes — the
+        // discussed set for already-generated episodes.
+        val topicLabels = episodeArticleRepository.findByEpisodeId(episode.id!!)
+            .filter { it.topicOrder != null && !it.topic.isNullOrBlank() }
+            .sortedBy { it.topicOrder }
+            .mapNotNull { it.topic }
+            .distinct()
+        val recapEpisode = generateAndStoreRecap(episode, podcast, topicLabels)
         val finalEpisode = generateAndStoreShowNotes(recapEpisode)
         generateSourcesFile(finalEpisode, podcast)
         return finalEpisode
