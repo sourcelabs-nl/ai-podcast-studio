@@ -172,12 +172,11 @@ class FeedGenerator(
     }
 
     private fun buildPlainDescription(episode: Episode): String {
-        return episode.showNotes ?: episode.recap ?: (episode.scriptText.take(500) + "...")
+        return episode.showNotes ?: episode.recap ?: scriptFallbackSummary(episode.scriptText)
     }
 
     private fun buildHtmlDescription(episode: Episode, articles: List<FeedArticle>, sourcesUrl: String, ownerEmail: String?): String {
-        val recap = episode.showNotes ?: episode.recap ?: (episode.scriptText.take(500) + "...")
-        val hasTopics = articles.any { it.topicOrder != null }
+        val recap = episode.showNotes ?: episode.recap ?: scriptFallbackSummary(episode.scriptText)
         return buildString {
             // Show notes as paragraphs
             for (paragraph in recap.split("\n\n")) {
@@ -186,18 +185,17 @@ class FeedGenerator(
                     append("<p>${escapeHtml(trimmed)}</p>")
                 }
             }
-            // Topic names only — the full per-article list lives on the linked sources page
-            if (hasTopics) {
-                val topics = articles.filter { it.topicOrder != null }
-                    .map { it.topic ?: "Other" }
-                    .distinct()
-                if (topics.isNotEmpty()) {
-                    append("<h2>Topics Covered</h2><ul>")
-                    for (topic in topics) {
-                        append("<li>${escapeHtml(topic)}</li>")
-                    }
-                    append("</ul>")
+            // Topic names only — the full per-article list lives on the linked sources page.
+            // Blank topic labels are coalesced to "Other"; the section is omitted entirely when
+            // no real (non-blank) topic name exists, so a broken episode never renders empty bullets.
+            val topicLabels = articles.filter { it.topicOrder != null }.map { it.topic }
+            if (topicLabels.any { !it.isNullOrBlank() }) {
+                val topics = topicLabels.map { it?.takeIf { label -> label.isNotBlank() } ?: "Other" }.distinct()
+                append("<h2>Topics Covered</h2><ul>")
+                for (topic in topics) {
+                    append("<li>${escapeHtml(topic)}</li>")
                 }
+                append("</ul>")
             }
             append("<p>For the full list of sources that inspired this episode, <a href=\"${escapeHtml(sourcesUrl)}\">view all sources and show notes</a>.</p>")
             if (ownerEmail != null) {

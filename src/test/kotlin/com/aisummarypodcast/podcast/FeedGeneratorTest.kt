@@ -305,4 +305,76 @@ class FeedGeneratorTest {
         assertFalse(xml.contains("Topics Covered"), "Expected no topics header without topic data")
         assertTrue(xml.contains("view all sources and show notes"), "Expected sources link text")
     }
+
+    @Test
+    fun `content encoded omits topics section when all topic labels are blank`() {
+        val episode = Episode(
+            id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",
+            scriptText = "Script", status = EpisodeStatus.GENERATED,
+            audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
+            showNotes = "Topic extraction failed for this episode."
+        )
+        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { podcastImageService.get("p1") } returns null
+        every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
+        // topicOrder is set but every label is an empty string (the broken-data case from 2026-06-04)
+        every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns mapOf(
+            1L to listOf(
+                FeedArticle("Article one", "https://example.com/1", topic = "", topicOrder = 0),
+                FeedArticle("Article two", "https://example.com/2", topic = "", topicOrder = 0)
+            )
+        )
+
+        val xml = feedGenerator.generate(podcast, user)
+        assertFalse(xml.contains("Topics Covered"), "Expected no topics header when all labels are blank")
+        assertFalse(xml.contains("&lt;li&gt;&lt;/li&gt;"), "Expected no empty list item")
+        assertTrue(xml.contains("view all sources and show notes"), "Expected sources link text")
+    }
+
+    @Test
+    fun `content encoded labels blank topics as Other alongside named topics`() {
+        val episode = Episode(
+            id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",
+            scriptText = "Script", status = EpisodeStatus.GENERATED,
+            audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
+            showNotes = "AI news roundup."
+        )
+        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { podcastImageService.get("p1") } returns null
+        every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
+        every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns mapOf(
+            1L to listOf(
+                FeedArticle("GPT-5 launched", "https://example.com/gpt5", topic = "GPT-5 release", topicOrder = 0),
+                FeedArticle("Loose end", "https://example.com/misc", topic = "", topicOrder = 1)
+            )
+        )
+
+        val xml = feedGenerator.generate(podcast, user)
+        assertTrue(xml.contains("Topics Covered"), "Expected topics header")
+        assertTrue(xml.contains("GPT-5 release"), "Expected named topic")
+        assertTrue(xml.contains("&lt;li&gt;Other&lt;/li&gt;"), "Expected blank topic labeled Other")
+    }
+
+    @Test
+    fun `content encoded script fallback strips speaker tags and leaked preamble`() {
+        val episode = Episode(
+            id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",
+            scriptText = "I have enough context. Writing the script now.\n\n" +
+                "<interviewer>Welcome to the show, this is the spoken opening.</interviewer>" +
+                "<expert>Glad to be here.</expert>",
+            status = EpisodeStatus.GENERATED,
+            audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120
+            // no showNotes, no recap -> falls back to the script
+        )
+        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { podcastImageService.get("p1") } returns null
+        every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
+        every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns emptyMap()
+
+        val xml = feedGenerator.generate(podcast, user)
+        assertFalse(xml.contains("interviewer"), "Expected speaker tags stripped from fallback")
+        assertFalse(xml.contains("expert"), "Expected speaker tags stripped from fallback")
+        assertFalse(xml.contains("Writing the script now"), "Expected leaked preamble stripped")
+        assertTrue(xml.contains("Welcome to the show, this is the spoken opening."), "Expected spoken text retained")
+    }
 }
