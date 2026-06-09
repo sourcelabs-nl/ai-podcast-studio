@@ -98,6 +98,11 @@ app:
   episodes:
     directory: ./data
     retention-days: 365
+  backup:
+    enabled: true
+    cron: "0 0 2 * * *"
+    directory: ./data/backups
+    retention-count: 7
   source:
     max-article-age-days: 90
   feed:

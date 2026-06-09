@@ -2,7 +2,9 @@
 
 import { Suspense, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Lock, Pencil, Plus, Save, TestTube, Trash2 } from "lucide-react";
+import { Archive, Database, Lock, Pencil, Plus, Save, TestTube, Trash2 } from "lucide-react";
+import cronstrue from "cronstrue";
+import { CronExpressionParser } from "cron-parser";
 import { toast } from "sonner";
 import { useUser } from "@/lib/user-context";
 import { Button } from "@/components/ui/button";
@@ -44,10 +46,28 @@ interface SoundCloudForm {
   callbackUri: string;
 }
 
-const TABS = ["profile", "api-keys", "publishing"] as const;
+interface BackupSettings {
+  enabled: boolean;
+  cron: string;
+  retentionCount: number;
+}
+
+interface BackupInfo {
+  name: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+const TABS = ["profile", "api-keys", "publishing", "backups"] as const;
 
 const defaultFtp: FtpForm = { host: "", port: 21, username: "", password: "", useTls: true };
 const defaultSoundCloud: SoundCloudForm = { clientId: "", clientSecret: "", callbackUri: "" };
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 const inputClass =
   "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -85,6 +105,13 @@ function SettingsContent() {
   const [testingSc, setTestingSc] = useState(false);
   const [pubTab, setPubTab] = useState<"ftp" | "soundcloud">("ftp");
 
+  // Backups state (system-level, not user-scoped)
+  const [backup, setBackup] = useState<BackupSettings>({ enabled: true, cron: "0 0 2 * * *", retentionCount: 7 });
+  const [backupLoading, setBackupLoading] = useState(true);
+  const [savingBackup, setSavingBackup] = useState(false);
+  const [runningBackup, setRunningBackup] = useState(false);
+  const [backups, setBackups] = useState<BackupInfo[]>([]);
+
   useEffect(() => {
     if (selectedUser) setName(selectedUser.name);
   }, [selectedUser]);
@@ -121,6 +148,58 @@ function SettingsContent() {
   useEffect(() => {
     fetchConfigs();
   }, [fetchConfigs]);
+
+  const fetchBackups = useCallback(() => {
+    setBackupLoading(true);
+    Promise.all([
+      fetch(`/api/admin/backup/settings`).then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/admin/backup`).then((r) => (r.ok ? r.json() : [])),
+    ])
+      .then(([settings, list]: [BackupSettings | null, BackupInfo[]]) => {
+        if (settings) setBackup({ enabled: settings.enabled, cron: settings.cron, retentionCount: settings.retentionCount });
+        setBackups(list ?? []);
+      })
+      .catch(() => { /* ignore */ })
+      .finally(() => setBackupLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchBackups();
+  }, [fetchBackups]);
+
+  async function handleSaveBackup() {
+    setSavingBackup(true);
+    try {
+      const res = await fetch(`/api/admin/backup/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backup),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to save backup settings");
+      }
+      toast.success("Backup settings saved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save backup settings.");
+    } finally {
+      setSavingBackup(false);
+    }
+  }
+
+  async function handleRunBackup() {
+    setRunningBackup(true);
+    try {
+      const res = await fetch(`/api/admin/backup`, { method: "POST" });
+      if (!res.ok) throw new Error("Backup failed");
+      toast.success("Backup created.");
+      fetchBackups();
+    } catch {
+      toast.error("Backup failed.");
+    } finally {
+      setRunningBackup(false);
+    }
+  }
 
   // Profile handlers
   async function handleSaveName() {
@@ -265,6 +344,17 @@ function SettingsContent() {
     return <p className="text-muted-foreground">No user selected.</p>;
   }
 
+  // Derive a human-readable cron description + next run for the Backups tab
+  let cronHuman = "";
+  let cronValid = true;
+  let cronNextRun = "";
+  try {
+    cronHuman = cronstrue.toString(backup.cron);
+    cronNextRun = CronExpressionParser.parse(backup.cron, { tz: "UTC" }).next().toDate().toUTCString();
+  } catch {
+    cronValid = false;
+  }
+
   return (
     <div>
       <div className="mb-4">
@@ -279,6 +369,7 @@ function SettingsContent() {
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="api-keys">API Keys</TabsTrigger>
           <TabsTrigger value="publishing">Publishing</TabsTrigger>
+          <TabsTrigger value="backups">Backups</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -521,6 +612,95 @@ function SettingsContent() {
               </>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="backups">
+          <Card>
+            <CardHeader>
+              <CardTitle>Database Backups</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                <Database className="size-4 shrink-0" />
+                Scheduled, compressed snapshots of the database are written to the data folder. Changes to the schedule take effect immediately.
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="backup-enabled"
+                  checked={backup.enabled}
+                  onCheckedChange={(checked) => setBackup({ ...backup, enabled: checked })}
+                />
+                <Label htmlFor="backup-enabled">Enable scheduled backups</Label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="backup-cron">Cron schedule (UTC)</Label>
+                  <Input
+                    id="backup-cron"
+                    value={backup.cron}
+                    onChange={(e) => setBackup({ ...backup, cron: e.target.value })}
+                    placeholder="0 0 2 * * *"
+                  />
+                  {cronValid ? (
+                    <p className="text-xs text-muted-foreground">{cronHuman}. Next run: {cronNextRun}</p>
+                  ) : (
+                    <p className="text-xs text-destructive">Invalid cron expression</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="backup-retention">Keep last N backups</Label>
+                  <Input
+                    id="backup-retention"
+                    type="number"
+                    min={1}
+                    value={backup.retentionCount}
+                    onChange={(e) => setBackup({ ...backup, retentionCount: parseInt(e.target.value) || 1 })}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button onClick={handleSaveBackup} disabled={savingBackup || !cronValid || backup.retentionCount < 1}>
+                  <Save className="mr-2 size-4" />
+                  {savingBackup ? "Saving..." : "Save"}
+                </Button>
+                <Button variant="outline" onClick={handleRunBackup} disabled={runningBackup}>
+                  <Archive className="mr-2 size-4" />
+                  {runningBackup ? "Backing up..." : "Back up now"}
+                </Button>
+              </div>
+
+              <div>
+                <h3 className="mb-2 text-sm font-medium">Existing backups</h3>
+                {backupLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading...</p>
+                ) : backups.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No backups yet.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>File</TableHead>
+                        <TableHead className="text-right">Size</TableHead>
+                        <TableHead>Created</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {backups.map((b) => (
+                        <TableRow key={b.name}>
+                          <TableCell className="font-mono text-xs">{b.name}</TableCell>
+                          <TableCell className="text-right text-sm">{formatBytes(b.sizeBytes)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{new Date(b.createdAt).toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

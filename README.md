@@ -246,6 +246,16 @@ When `deepDiveEnabled` is set on a podcast, the script composer is given a `webS
 
 Episodes can be published to multiple targets after generation: **FTP** and **SoundCloud** are supported, configured per-podcast, with per-target publication status tracking. The dashboard's publish wizard handles OAuth, quota detection, and re-auth. See [docs/publishing.md](docs/publishing.md) for FTP setup, SoundCloud OAuth, X (Twitter) OAuth for sources, and using Nitter as a free alternative.
 
+## Database Backups
+
+The application can take scheduled, compressed snapshots of its SQLite database. Each backup is produced with SQLite `VACUUM INTO` (a transactionally consistent, compact copy of schema + data, safe to take while the app is running) and gzip-compressed to `data/backups/ai-summary-podcast-<yyyyMMdd-HHmmss>.db.gz`. Older backups beyond the configured retention count are pruned automatically.
+
+The schedule is editable at runtime from the **Settings → Backups** tab (no restart needed): toggle backups on/off, set the cron expression (UTC, with a human-readable preview and next-run time), and set how many backups to keep. A **Back up now** button triggers an immediate backup, and the tab lists existing backups with size and timestamp. Initial defaults come from `app.backup.*` in `application.yaml` (`enabled`, `cron`, `directory`, `retention-count`); the persisted settings are the runtime source of truth.
+
+The admin API lives under `/admin/backup`: `GET/PUT /admin/backup/settings`, `POST /admin/backup` (run now), and `GET /admin/backup` (list).
+
+**Restore:** stop the app, decompress a backup (`gunzip -c data/backups/ai-summary-podcast-<timestamp>.db.gz > data/ai-summary-podcast.db`), remove any stale `-wal`/`-shm` sidecar files, and start the app.
+
 ## API
 
 All resources are exposed over HTTP under `/users/{userId}/...`. See [docs/api-reference.md](docs/api-reference.md) for the full endpoint list (users, podcasts, episodes, sources, publishing, OAuth callbacks, SSE events, voices, provider configuration) plus an example podcast-creation payload.

@@ -16,7 +16,20 @@ data class AppProperties(
     val x: XProperties = XProperties(),
     val episode: EpisodeProperties = EpisodeProperties(),
     val research: ResearchProperties = ResearchProperties(),
-    val compose: ComposeProperties = ComposeProperties()
+    val compose: ComposeProperties = ComposeProperties(),
+    val backup: BackupProperties = BackupProperties()
+)
+
+/**
+ * Scheduled SQLite backup configuration. [directory] is a fixed filesystem path (not runtime-editable);
+ * [enabled], [cron], and [retentionCount] only seed the persisted `backup_settings` row on first run —
+ * the database row is the runtime source of truth and is edited from the settings page.
+ */
+data class BackupProperties(
+    val enabled: Boolean = true,
+    val cron: String = "0 0 2 * * *",
+    val directory: String = "./data/backups",
+    val retentionCount: Int = 7
 )
 
 data class ComposeProperties(
