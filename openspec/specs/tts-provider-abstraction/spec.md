@@ -1,5 +1,9 @@
-## MODIFIED Requirements
+# Capability: TTS Provider Abstraction
 
+## Purpose
+
+A provider-agnostic TTS layer: a `TtsProvider` interface and a `TtsProviderFactory` that resolves the right implementation (OpenAI, ElevenLabs, Inworld; monologue vs dialogue/interview) from the podcast's settings, plus the parsing of tagged dialogue scripts into speaker turns.
+## Requirements
 ### Requirement: TTS provider interface
 The system SHALL define a `TtsProvider` interface with a `generate(request: TtsRequest): TtsResult` method, a `scriptGuidelines(style: PodcastStyle): String` method, and a `maxChunkSize: Int` property. The `TtsRequest` SHALL contain the script text, voice configuration (`ttsVoices` map), provider-specific settings (`ttsSettings` map), and language. The `TtsResult` SHALL contain audio chunks (list of byte arrays), total character count, and a flag indicating whether FFmpeg concatenation is needed.
 
@@ -49,3 +53,27 @@ The system SHALL provide a `TtsProviderFactory` that resolves the appropriate `T
 #### Scenario: Unknown provider rejected
 - **WHEN** a podcast has `ttsProvider` set to an unsupported value
 - **THEN** the factory throws an `IllegalArgumentException` with a message listing supported providers
+
+### Requirement: Tolerant dialogue script parsing
+The system SHALL parse tagged dialogue scripts into ordered speaker turns where each turn's role is taken from its opening tag (`<role>`), and the turn's text runs until the next tag token (opening or closing) or the end of the script. The parser SHALL NOT require the closing tag to match the opening tag. This makes parsing robust to the malformed tags an LLM occasionally emits (a turn closed with a different role's closing tag, or a closing tag omitted before the next opening tag) so that spoken turns are never silently dropped. Text that appears before any opening tag, or after a turn ends and before the next opening tag, SHALL be ignored with a warning.
+
+#### Scenario: Closing tag does not match opening tag
+- **WHEN** the script contains `<interviewer>What happened?</interviewer><expert>A lot happened.</interviewer>`
+- **THEN** two turns are returned: `(interviewer, "What happened?")` and `(expert, "A lot happened.")`
+
+#### Scenario: Closing tag missing before next opening tag
+- **WHEN** the script contains `<interviewer>First question<expert>The answer.</expert>`
+- **THEN** two turns are returned: `(interviewer, "First question")` and `(expert, "The answer.")`
+
+#### Scenario: Consecutive turns of the same speaker
+- **WHEN** the script contains `<interviewer>One.</interviewer><interviewer>Two.</interviewer>`
+- **THEN** two separate `interviewer` turns are returned in order
+
+#### Scenario: Final turn without a closing tag
+- **WHEN** the script ends with an opened turn that is never closed, e.g. `<expert>Unterminated answer.`
+- **THEN** the final turn is recovered as `(expert, "Unterminated answer.")`
+
+#### Scenario: Text outside speaker tags ignored
+- **WHEN** the script contains text before the first opening tag or after a turn closes and before the next opening tag
+- **THEN** that text is ignored and a warning is logged
+

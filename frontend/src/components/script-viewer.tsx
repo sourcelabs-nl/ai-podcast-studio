@@ -26,16 +26,29 @@ interface SpeakerBlock {
 const FIRST_SPEAKER_STYLE = { bg: "bg-muted border-border text-foreground", name: "text-muted-foreground" };
 const SECOND_SPEAKER_STYLE = { bg: "bg-primary border-primary text-primary-foreground", name: "text-primary" };
 
+// Tolerant of malformed tags the LLM occasionally emits (mismatched or missing closing tags):
+// a turn's speaker comes from its opening tag, and the turn ends at the next tag token regardless
+// of what that token says. Mirrors the backend DialogueScriptParser so turns are never dropped.
 function parseMultiSpeakerScript(scriptText: string): SpeakerBlock[] | null {
-  const tagPattern = /<(\w+)>([\s\S]*?)<\/\1>/g;
+  const tagPattern = /<\/?(\w+)>/g;
   const blocks: SpeakerBlock[] = [];
+  let openSpeaker: string | null = null;
+  let lastEnd = 0;
   let match;
 
   while ((match = tagPattern.exec(scriptText)) !== null) {
-    blocks.push({
-      speaker: match[1],
-      text: match[2].trim(),
-    });
+    const preceding = scriptText.slice(lastEnd, match.index).trim();
+    if (openSpeaker !== null && preceding) {
+      blocks.push({ speaker: openSpeaker, text: preceding });
+    }
+    const isClosing = match[0].startsWith("</");
+    openSpeaker = isClosing ? null : match[1];
+    lastEnd = tagPattern.lastIndex;
+  }
+
+  const trailing = scriptText.slice(lastEnd).trim();
+  if (openSpeaker !== null && trailing) {
+    blocks.push({ speaker: openSpeaker, text: trailing });
   }
 
   return blocks.length > 0 ? blocks : null;

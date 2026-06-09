@@ -73,4 +73,44 @@ class DialogueScriptParserTest {
 
         assertEquals(2, turns.size)
     }
+
+    @Test
+    fun `recovers turn when closing tag does not match opening tag`() {
+        // LLM emits <expert>...</interviewer> — the role comes from the opening tag.
+        val script = "<interviewer>What happened?</interviewer><expert>A lot happened.</interviewer>"
+        val turns = DialogueScriptParser.parse(script)
+
+        assertEquals(2, turns.size)
+        assertEquals(DialogueTurn("interviewer", "What happened?"), turns[0])
+        assertEquals(DialogueTurn("expert", "A lot happened."), turns[1])
+    }
+
+    @Test
+    fun `recovers turn when closing tag is missing before next opening tag`() {
+        val script = "<interviewer>First question<expert>The answer.</expert>"
+        val turns = DialogueScriptParser.parse(script)
+
+        assertEquals(2, turns.size)
+        assertEquals(DialogueTurn("interviewer", "First question"), turns[0])
+        assertEquals(DialogueTurn("expert", "The answer."), turns[1])
+    }
+
+    @Test
+    fun `keeps consecutive turns of the same speaker`() {
+        val script = "<interviewer>One.</interviewer><interviewer>Two.</interviewer>"
+        val turns = DialogueScriptParser.parse(script)
+
+        assertEquals(2, turns.size)
+        assertEquals(DialogueTurn("interviewer", "One."), turns[0])
+        assertEquals(DialogueTurn("interviewer", "Two."), turns[1])
+    }
+
+    @Test
+    fun `recovers final turn when closing tag is missing entirely`() {
+        val script = "<interviewer>Question?</interviewer><expert>Unterminated answer."
+        val turns = DialogueScriptParser.parse(script)
+
+        assertEquals(2, turns.size)
+        assertEquals(DialogueTurn("expert", "Unterminated answer."), turns[1])
+    }
 }
