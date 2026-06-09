@@ -143,7 +143,7 @@ class LlmPipelineTest {
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns listOf(unlinkedPost)
         every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
-        every { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed")) } returns listOf(scored)
+        every { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) } returns listOf(scored)
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns listOf(scored)
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
         every { topicDedupFilter.filter(listOf(scored), emptyList(), "u1", filterModelDef) } returns
@@ -156,7 +156,7 @@ class LlmPipelineTest {
         assertEquals("Today in tech...", result!!.script)
 
         verify { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) }
-        verify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed")) }
+        verify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) }
     }
 
     @Test
@@ -303,7 +303,7 @@ class LlmPipelineTest {
         val result = pipelineWithLowThreshold.run(podcast)
 
         assertNull(result)
-        verify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any()) }
+        verify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
     }
 
     // --- Stage method tests ---

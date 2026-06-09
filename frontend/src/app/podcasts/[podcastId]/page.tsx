@@ -90,6 +90,7 @@ export default function EpisodesPage() {
   const [upcomingPostCount, setUpcomingPostCount] = useState<number>(0);
   const [countdown, setCountdown] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [scoringProgress, setScoringProgress] = useState<Record<number, { scored: number; total: number }>>({});
   const [currentTab, setTab] = useTabParam("episodes", TABS);
 
   // URL-synced pagination + multi-select status filter
@@ -186,12 +187,21 @@ export default function EpisodesPage() {
       .catch(() => setEpisodes([]));
   }, [selectedUser, params.podcastId, episodesQueryString, fetchPublications]);
 
-  useEventStream(params.podcastId, useCallback((event: string, data: { data: Record<string, unknown> }) => {
-    if (event === "episode.generating" || event === "episode.stage" || event === "pipeline.progress") {
-      fetchEpisodes();
-    } else {
-      fetchEpisodes();
+  useEventStream(params.podcastId, useCallback((event: string, data: { entityId: number; data: Record<string, unknown> }) => {
+    // Live scoring progress ticks update local state only — no list re-fetch per tick.
+    const isScoringTick =
+      (event === "episode.stage" || event === "pipeline.progress") &&
+      data.data?.stage === "scoring" &&
+      data.data?.scoredCount !== undefined;
+    if (isScoringTick) {
+      const total = Number(data.data.articleCount ?? 0);
+      const scored = Number(data.data.scoredCount ?? 0);
+      if (total > 0) {
+        setScoringProgress((prev) => ({ ...prev, [data.entityId]: { scored, total } }));
+      }
+      return;
     }
+    fetchEpisodes();
   }, [fetchEpisodes]));
 
   useEffect(() => {
@@ -395,17 +405,31 @@ export default function EpisodesPage() {
                     </TableCell>
                     <TableCell>
                       {episode.status === "GENERATING" || episode.status === "GENERATING_AUDIO" ? (
-                        <span className="flex items-center gap-2 text-sm font-medium text-primary">
-                          <Loader2 className="size-3.5 animate-spin" />
-                          {episode.status === "GENERATING_AUDIO" ? "Generating audio..." : (
-                            <>
-                              {episode.pipelineStage === "aggregating" && "Aggregating..."}
-                              {episode.pipelineStage === "scoring" && "Scoring..."}
-                              {episode.pipelineStage === "deduplicating" && "Deduplicating..."}
-                              {episode.pipelineStage === "composing" && "Composing..."}
-                              {episode.pipelineStage === "tts" && "Generating audio..."}
-                              {!episode.pipelineStage && "Starting..."}
-                            </>
+                        <span className="flex flex-col gap-1">
+                          <span className="flex items-center gap-2 text-sm font-medium text-primary">
+                            <Loader2 className="size-3.5 animate-spin" />
+                            {episode.status === "GENERATING_AUDIO" ? "Generating audio..." : (
+                              <>
+                                {episode.pipelineStage === "aggregating" && "Aggregating..."}
+                                {episode.pipelineStage === "scoring" && (
+                                  scoringProgress[episode.id]
+                                    ? `Scoring ${scoringProgress[episode.id].scored} / ${scoringProgress[episode.id].total}`
+                                    : "Scoring..."
+                                )}
+                                {episode.pipelineStage === "deduplicating" && "Deduplicating..."}
+                                {episode.pipelineStage === "composing" && "Composing..."}
+                                {episode.pipelineStage === "tts" && "Generating audio..."}
+                                {!episode.pipelineStage && "Starting..."}
+                              </>
+                            )}
+                          </span>
+                          {episode.pipelineStage === "scoring" && scoringProgress[episode.id] && (
+                            <span className="block h-1 w-24 overflow-hidden rounded bg-primary/20">
+                              <span
+                                className="block h-full rounded bg-primary transition-all"
+                                style={{ width: `${Math.round((scoringProgress[episode.id].scored / scoringProgress[episode.id].total) * 100)}%` }}
+                              />
+                            </span>
                           )}
                         </span>
                       ) : (

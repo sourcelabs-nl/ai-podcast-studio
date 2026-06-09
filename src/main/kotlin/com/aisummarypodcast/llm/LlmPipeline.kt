@@ -141,7 +141,9 @@ class LlmPipeline(
             onProgress("scoring", mapOf("articleCount" to unscored.size))
             log.info("[LLM] Scoring and summarizing {} articles for podcast '{}' ({})", unscored.size, podcast.name, podcast.id)
             val (scoredArticles, scoringDuration) = measureTimedValue {
-                articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels)
+                articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels) { done, total ->
+                    onProgress("scoring", mapOf("articleCount" to total, "scoredCount" to done))
+                }
             }
             val relevantCount = scoredArticles.count { (it.relevanceScore ?: 0) >= threshold }
             log.info("[LLM] Score+summarize complete — {} articles in {} ({} relevant)", unscored.size, scoringDuration, relevantCount)
@@ -360,7 +362,9 @@ class LlmPipeline(
         if (unscored.isNotEmpty()) {
             onProgress("scoring", mapOf("articleCount" to unscored.size))
             log.info("[LLM Preview] Scoring {} articles for podcast '{}' ({})", unscored.size, podcast.name, podcast.id)
-            articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels)
+            articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels) { done, total ->
+                onProgress("scoring", mapOf("articleCount" to total, "scoredCount" to done))
+            }
         }
 
         // Step 3: Find eligible articles and run dedup filter

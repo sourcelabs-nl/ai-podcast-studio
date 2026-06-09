@@ -76,10 +76,18 @@ class PodcastService(
     }
 
     private fun doRetry(episode: Episode, podcast: Podcast, resumePoint: ResumePoint) {
+        // The stage may be reported repeatedly within a stage (e.g. per-article scoring progress);
+        // only persist the pipeline stage on an actual transition, but always emit the event so the
+        // frontend can render live progress. A benign race on the first tick is harmless.
+        val episodeId = episode.id!!
+        var lastStage: String? = null
         val onProgress = { stage: String, detail: Map<String, Any> ->
-            episodeService.updatePipelineStage(episode.id!!, stage)
+            if (stage != lastStage) {
+                episodeService.updatePipelineStage(episodeId, stage)
+                lastStage = stage
+            }
             eventPublisher.publishEvent(
-                PodcastEvent(this, podcast.id, "episode", episode.id, "episode.stage",
+                PodcastEvent(this, podcast.id, "episode", episodeId, "episode.stage",
                     detail + ("stage" to stage))
             )
         }
@@ -221,8 +229,14 @@ class PodcastService(
         val generatingEpisode = episodeService.createGeneratingEpisode(podcast)
 
         return try {
+            // Only persist the pipeline stage on an actual transition; per-article scoring progress
+            // reports "scoring" repeatedly. Always emit the event so the frontend shows live progress.
+            var lastStage: String? = null
             val onProgress = { stage: String, detail: Map<String, Any> ->
-                episodeService.updatePipelineStage(generatingEpisode.id!!, stage)
+                if (stage != lastStage) {
+                    episodeService.updatePipelineStage(generatingEpisode.id!!, stage)
+                    lastStage = stage
+                }
                 eventPublisher.publishEvent(
                     PodcastEvent(this, podcast.id, "episode", generatingEpisode.id!!, "episode.stage",
                         detail + ("stage" to stage))

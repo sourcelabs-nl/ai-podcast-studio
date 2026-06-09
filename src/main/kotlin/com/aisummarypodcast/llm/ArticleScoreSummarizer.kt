@@ -18,6 +18,7 @@ import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
+import java.util.concurrent.atomic.AtomicInteger
 
 data class ScoreSummarizeResult(
     val relevanceScore: Int = 0,
@@ -41,11 +42,28 @@ class ArticleScoreSummarizer(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun scoreSummarize(articles: List<Article>, podcast: Podcast, filterModelDef: ResolvedModel, sourceLabels: Map<String, String> = emptyMap()): List<Article> {
+    /**
+     * Scores and summarizes the given articles concurrently.
+     *
+     * @param onProgress invoked as articles finish (success or give-up) with the running
+     *   completed count and the total. Throttled to at most ~50 callbacks per run so callers can
+     *   stream live progress without flooding the event bus on large batches.
+     */
+    fun scoreSummarize(
+        articles: List<Article>,
+        podcast: Podcast,
+        filterModelDef: ResolvedModel,
+        sourceLabels: Map<String, String> = emptyMap(),
+        onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> }
+    ): List<Article> {
         val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef)
         val model = filterModelDef.model
         val semaphore = Semaphore(scoringProperties.concurrency)
         val maxRetries = scoringProperties.maxRetries
+
+        val total = articles.size
+        val completed = AtomicInteger(0)
+        val progressStep = maxOf(1, total / 50)
 
         return runBlocking(Dispatchers.IO) {
             supervisorScope {
@@ -105,6 +123,11 @@ class ArticleScoreSummarizer(
                             } catch (e: Exception) {
                                 log.error("[LLM] Error scoring/summarizing article '{}' (source: {}): {}", article.title, sourceLabels[article.sourceId] ?: article.sourceId, e.message, e)
                                 null
+                            } finally {
+                                val done = completed.incrementAndGet()
+                                if (done % progressStep == 0 || done == total) {
+                                    onProgress(done, total)
+                                }
                             }
                         }
                     }
