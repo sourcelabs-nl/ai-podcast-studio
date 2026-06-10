@@ -10,7 +10,11 @@ data/
 !.claude/agents/**
 !.claude/commands/
 !.claude/commands/**
+!.claude/rules/
+!.claude/rules/**
 !.claude/settings.json
+# never track .DS_Store, even under allowlisted .claude subdirs
+.claude/**/.DS_Store
 .app.pid
 .frontend.pid
 app.log
@@ -58,3 +62,6 @@ build/
 .next/
 node_modules
 blogpost-lsp.md
+
+### Scratch ###
+tmp/

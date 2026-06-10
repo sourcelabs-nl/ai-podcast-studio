@@ -6,7 +6,7 @@ user_invocable: false
 
 # Architecture Rules
 
-6 rules enforcing service layer boundaries, data flow, exception design, and domain logic placement. Applied to all `.kt` files.
+7 rules enforcing service layer boundaries, data flow, exception design, and domain logic placement. Applied to all `.kt` files.
 
 ---
 

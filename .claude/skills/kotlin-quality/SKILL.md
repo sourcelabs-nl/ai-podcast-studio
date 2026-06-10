@@ -112,6 +112,7 @@ All async and background work must use Kotlin coroutines. Do not use Java concur
 **Not a violation:**
 - `Semaphore` from `kotlinx.coroutines.sync` (coroutine-aware concurrency primitive)
 - `ConcurrentHashMap` or other concurrent data structures used for thread-safe state
+- `TaskScheduler` and the `java.util.concurrent.ScheduledFuture` it returns. `TaskScheduler` is Spring's sanctioned abstraction for dynamic (re)scheduling and cancellation; `ScheduledFuture` is its return type, retained purely as a cancellation handle. This rule targets thread-pool creation and unmanaged async work, not retention of a Spring-managed scheduling handle.
 
 ---
 

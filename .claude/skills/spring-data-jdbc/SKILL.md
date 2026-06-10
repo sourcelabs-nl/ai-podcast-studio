@@ -92,6 +92,16 @@ data class PodcastEntity(@Id val id: Int = 0)
 data class PodcastEntity(@Id val id: Long? = null)
 ```
 
+**Singleton config-table exception (not a violation):** A settings/config table that holds exactly one row seeded by Flyway may use a non-null `@Id` with a fixed default, e.g. `@Id val id: Long = SINGLETON_ID`. Because Flyway seeds the row, Spring Data JDBC always treats `save()` as an update (the id is never null), which is the intended behavior. This is a deliberate deviation from `@Id val id: Long? = null` for the singleton pattern and should not be flagged, provided the migration seeds the row.
+
+```kotlin
+// Acceptable: singleton settings row, seeded by Flyway
+@Table("backup_settings")
+data class BackupSettings(@Id val id: Long = SINGLETON_ID, val enabled: Boolean) {
+    companion object { const val SINGLETON_ID = 1L }
+}
+```
+
 ---
 
 ## Rule 5: Cross-Aggregate References
