@@ -3,8 +3,7 @@ package com.aisummarypodcast.scheduler
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.source.SourcePoller
-import com.aisummarypodcast.store.ArticleRepository
-import com.aisummarypodcast.store.PostRepository
+import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import jakarta.annotation.PreDestroy
@@ -21,6 +20,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
 import java.net.URI
 import java.time.Instant
@@ -32,8 +32,7 @@ import kotlin.random.Random
 class SourcePollingScheduler(
     private val sourcePoller: SourcePoller,
     private val sourceRepository: SourceRepository,
-    private val articleRepository: ArticleRepository,
-    private val postRepository: PostRepository,
+    private val sourceService: SourceService,
     private val appProperties: AppProperties,
     private val podcastService: PodcastService,
     private val pollDelayResolver: PollDelayResolver
@@ -42,6 +41,16 @@ class SourcePollingScheduler(
     private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var firstCycle = true
+
+    /**
+     * Wall-clock time the most recent poll round finished, or null before any round has completed in
+     * this process. Kept in memory on purpose: after a restart it is null, which signals "freshness
+     * unknown" so callers can force a catch-up poll. Used to detect whether polling has been running
+     * recently (versus the machine having been asleep/offline).
+     */
+    @Volatile
+    final var lastPollRoundCompletedAt: Instant? = null
+        private set
 
     @EventListener(ApplicationReadyEvent::class)
     fun start() {
@@ -95,7 +104,39 @@ class SourcePollingScheduler(
                 }
             }
         }
+
+        lastPollRoundCompletedAt = Instant.now()
     }
+
+    /**
+     * Polls all enabled sources of a single podcast to completion, reusing the same host-grouped
+     * polling and per-host delays as the scheduled loop. Used as a catch-up poll right before
+     * generation when polling has gone stale (e.g. the machine was asleep through the cron time).
+     */
+    suspend fun pollPodcastSourcesNow(podcastId: String) {
+        val sources = sourceRepository.findByPodcastId(podcastId).filter { it.enabled }
+        if (sources.isEmpty()) {
+            log.info("[Polling] Catch-up poll requested for podcast {} but it has no enabled sources", podcastId)
+            return
+        }
+        log.info("[Polling] Catch-up poll of {} sources for podcast {}", sources.size, podcastId)
+        val sourcesByPodcast = mapOf(podcastId to sources)
+        val hostGroups = sources.groupBy { extractHost(it.url) }
+        supervisorScope {
+            hostGroups.map { (host, grouped) ->
+                async { pollHostGroup(host, grouped, sourcesByPodcast) }
+            }.forEach { deferred ->
+                try {
+                    deferred.await()
+                } catch (e: Exception) {
+                    log.error("[Polling] Catch-up host group failed for podcast {}", podcastId, e)
+                }
+            }
+        }
+    }
+
+    /** Blocking entry point for [pollPodcastSourcesNow], for callers that are not coroutines. */
+    fun catchUpPoll(podcastId: String) = runBlocking { pollPodcastSourcesNow(podcastId) }
 
     private suspend fun pollHostGroup(host: String?, sources: List<Source>, sourcesByPodcast: Map<String, List<Source>>) {
         for ((index, source) in sources.withIndex()) {
@@ -154,8 +195,6 @@ class SourcePollingScheduler(
         }
 
     private fun cleanupOldArticles() {
-        val cutoff = Instant.now().minus(appProperties.source.maxArticleAgeDays.toLong(), ChronoUnit.DAYS)
-        articleRepository.deleteOldUnprocessedArticles(cutoff.toString())
-        postRepository.deleteOldUnlinkedPosts(cutoff.toString())
+        sourceService.cleanupOldArticlesAndPosts(appProperties.source.maxArticleAgeDays)
     }
 }

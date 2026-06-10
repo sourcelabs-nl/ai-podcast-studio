@@ -10,9 +10,8 @@ import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.SourceProperties
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.source.SourcePoller
-import com.aisummarypodcast.store.ArticleRepository
+import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
-import com.aisummarypodcast.store.PostRepository
 import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
@@ -34,12 +33,7 @@ class SourcePollingSchedulerTest {
     private val sourceRepository = mockk<SourceRepository> {
         every { findAll() } returns emptyList()
     }
-    private val articleRepository = mockk<ArticleRepository> {
-        every { deleteOldUnprocessedArticles(any()) } returns Unit
-    }
-    private val postRepository = mockk<PostRepository> {
-        every { deleteOldUnlinkedPosts(any()) } returns Unit
-    }
+    private val sourceService = mockk<SourceService>(relaxed = true)
     private val podcastService = mockk<PodcastService>()
 
     private val podcast = Podcast(id = "p1", userId = "owner-1", name = "Test", topic = "tech")
@@ -68,31 +62,16 @@ class SourcePollingSchedulerTest {
     ): SourcePollingScheduler {
         val props = appProperties(maxArticleAgeDays, pollDelaySeconds, hostOverrides)
         return SourcePollingScheduler(
-            sourcePoller, sourceRepository, articleRepository, postRepository,
+            sourcePoller, sourceRepository, sourceService,
             props, podcastService, PollDelayResolver(props)
         )
     }
 
     @Test
-    fun `cleans up old unprocessed articles before polling`() = runTest {
-        scheduler().pollSources()
+    fun `delegates old article and post cleanup to SourceService before polling`() = runTest {
+        scheduler(maxArticleAgeDays = 7).pollSources()
 
-        verify { articleRepository.deleteOldUnprocessedArticles(match { cutoff ->
-            val parsed = Instant.parse(cutoff)
-            val expectedCutoff = Instant.now().minus(7, ChronoUnit.DAYS)
-            parsed.isAfter(expectedCutoff.minusSeconds(5)) && parsed.isBefore(expectedCutoff.plusSeconds(5))
-        }) }
-    }
-
-    @Test
-    fun `cleans up old unlinked posts before polling`() = runTest {
-        scheduler().pollSources()
-
-        verify { postRepository.deleteOldUnlinkedPosts(match { cutoff ->
-            val parsed = Instant.parse(cutoff)
-            val expectedCutoff = Instant.now().minus(7, ChronoUnit.DAYS)
-            parsed.isAfter(expectedCutoff.minusSeconds(5)) && parsed.isBefore(expectedCutoff.plusSeconds(5))
-        }) }
+        verify { sourceService.cleanupOldArticlesAndPosts(7) }
     }
 
     @Test
@@ -266,5 +245,36 @@ class SourcePollingSchedulerTest {
         val props = appProperties(pollDelaySeconds = mapOf("website" to 2))
         val resolver = PollDelayResolver(props)
         assertEquals(2, resolver.resolveDelaySeconds(source))
+    }
+
+    // --- Poll round tracking + on-demand catch-up poll ---
+
+    @Test
+    fun `records last poll round completion time after a round`() = runTest {
+        val s = scheduler()
+        assertEquals(null, s.lastPollRoundCompletedAt)
+
+        s.pollSources()
+
+        val completed = s.lastPollRoundCompletedAt
+        assertNotNull(completed)
+        assertTrue(completed!!.isAfter(Instant.now().minusSeconds(5)))
+    }
+
+    @Test
+    fun `pollPodcastSourcesNow polls only the podcast's enabled sources`() = runTest {
+        val rss = Source(
+            id = "s2", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/feed", enabled = true
+        )
+        val disabled = Source(
+            id = "s3", podcastId = "p1", type = SourceType.RSS, url = "https://disabled.com/feed", enabled = false
+        )
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(rss, disabled)
+        every { podcastService.findById("p1") } returns podcast
+
+        scheduler().pollPodcastSourcesNow("p1")
+
+        verify { sourcePoller.poll(rss, null, 7, listOf("s2")) }
+        verify(exactly = 0) { sourcePoller.poll(disabled, any(), any(), any()) }
     }
 }

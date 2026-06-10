@@ -548,7 +548,7 @@ class EpisodeServiceTest {
 
     @Test
     fun `hasActiveEpisode returns true when pending episodes exist`() {
-        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf("GENERATING", "PENDING_REVIEW", "APPROVED", "GENERATING_AUDIO")) } returns listOf(
+        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)) } returns listOf(
             Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.PENDING_REVIEW)
         )
 
@@ -557,14 +557,14 @@ class EpisodeServiceTest {
 
     @Test
     fun `hasActiveEpisode returns false when no pending episodes`() {
-        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf("GENERATING", "PENDING_REVIEW", "APPROVED", "GENERATING_AUDIO")) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)) } returns emptyList()
 
         assertEquals(false, episodeService.hasActiveEpisode("p1"))
     }
 
     @Test
     fun `hasActiveEpisode returns true when GENERATING_AUDIO episode exists`() {
-        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf("GENERATING", "PENDING_REVIEW", "APPROVED", "GENERATING_AUDIO")) } returns listOf(
+        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)) } returns listOf(
             Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.GENERATING_AUDIO)
         )
 

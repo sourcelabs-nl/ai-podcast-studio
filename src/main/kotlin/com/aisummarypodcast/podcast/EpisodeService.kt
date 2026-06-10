@@ -596,7 +596,8 @@ class EpisodeService(
 
     fun hasActiveEpisode(podcastId: String): Boolean {
         return episodeRepository.findByPodcastIdAndStatusIn(
-            podcastId, listOf(EpisodeStatus.GENERATING.name, EpisodeStatus.PENDING_REVIEW.name, EpisodeStatus.APPROVED.name, EpisodeStatus.GENERATING_AUDIO.name)
+            podcastId,
+            listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)
         ).isNotEmpty()
     }
 

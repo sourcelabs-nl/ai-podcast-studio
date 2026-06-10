@@ -1,11 +1,12 @@
 package com.aisummarypodcast.scheduler
 
+import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.config.SourceProperties
 import com.aisummarypodcast.podcast.GenerateBriefingResult
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
-import com.aisummarypodcast.store.PodcastRepository
 import io.mockk.*
 import org.junit.jupiter.api.Test
 import java.time.Clock
@@ -14,15 +15,17 @@ import java.time.ZoneOffset
 
 class BriefingGenerationSchedulerTest {
 
-    private val podcastRepository = mockk<PodcastRepository>()
     private val podcastService = mockk<PodcastService>()
+    // Relaxed: lastPollRoundCompletedAt defaults to null (stale), catchUpPoll is a no-op.
+    private val sourcePollingScheduler = mockk<SourcePollingScheduler>(relaxed = true)
+    private val appProperties = mockk<AppProperties> { every { source } returns SourceProperties() }
 
     // Fixed clock at 00:05 UTC — 5 minutes after the midnight cron trigger (same day)
     private val defaultNow = Instant.parse("2026-02-23T00:05:00Z")
     private val defaultClock = Clock.fixed(defaultNow, ZoneOffset.UTC)
 
     private val scheduler = BriefingGenerationScheduler(
-        podcastRepository, podcastService, defaultClock
+        podcastService, sourcePollingScheduler, appProperties, defaultClock
     )
 
     private fun duePodcast(requireReview: Boolean = false) = Podcast(
@@ -34,13 +37,13 @@ class BriefingGenerationSchedulerTest {
 
     private fun schedulerWithClock(instant: Instant): BriefingGenerationScheduler {
         val clock = Clock.fixed(instant, ZoneOffset.UTC)
-        return BriefingGenerationScheduler(podcastRepository, podcastService, clock)
+        return BriefingGenerationScheduler(podcastService, sourcePollingScheduler, appProperties, clock)
     }
 
     @Test
     fun `skips generation when podcastService returns null`() {
         val podcast = duePodcast(requireReview = true)
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = null)
 
         scheduler.checkAndGenerate()
@@ -53,7 +56,7 @@ class BriefingGenerationSchedulerTest {
         val podcast = duePodcast(requireReview = false)
         val episode = Episode(id = 10, podcastId = "p1", generatedAt = Instant.now().toString(), scriptText = "Generated script")
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
 
         scheduler.checkAndGenerate()
@@ -66,7 +69,7 @@ class BriefingGenerationSchedulerTest {
         val podcast = duePodcast(requireReview = true)
         val episode = Episode(id = 7, podcastId = "p1", generatedAt = Instant.now().toString(), scriptText = "Script", status = EpisodeStatus.PENDING_REVIEW)
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
 
         scheduler.checkAndGenerate()
@@ -77,7 +80,7 @@ class BriefingGenerationSchedulerTest {
     @Test
     fun `handles null result from generateBriefing`() {
         val podcast = duePodcast(requireReview = false)
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = null)
 
         scheduler.checkAndGenerate()
@@ -96,7 +99,7 @@ class BriefingGenerationSchedulerTest {
         )
         val episode = Episode(id = 1, podcastId = "p1", generatedAt = now.toString(), scriptText = "Script")
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
 
         schedulerWithClock(now).checkAndGenerate()
@@ -115,7 +118,7 @@ class BriefingGenerationSchedulerTest {
         )
         val episode = Episode(id = 1, podcastId = "p1", generatedAt = now.toString(), scriptText = "Script")
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
 
         schedulerWithClock(now).checkAndGenerate()
@@ -133,7 +136,7 @@ class BriefingGenerationSchedulerTest {
             lastGeneratedAt = "2026-02-19T15:00:00Z"
         )
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
 
         schedulerWithClock(now).checkAndGenerate()
 
@@ -151,7 +154,7 @@ class BriefingGenerationSchedulerTest {
             lastGeneratedAt = "2026-02-22T15:00:00Z"
         )
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
 
         schedulerWithClock(now).checkAndGenerate()
 
@@ -172,7 +175,7 @@ class BriefingGenerationSchedulerTest {
         )
         val episode = Episode(id = 1, podcastId = "p1", generatedAt = now.toString(), scriptText = "Script")
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
 
         schedulerWithClock(now).checkAndGenerate()
@@ -192,7 +195,7 @@ class BriefingGenerationSchedulerTest {
             lastGeneratedAt = "2026-02-22T05:00:00Z"
         )
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
 
         schedulerWithClock(now).checkAndGenerate()
 
@@ -213,12 +216,43 @@ class BriefingGenerationSchedulerTest {
             lastGeneratedAt = "2026-02-21T22:00:00Z"
         )
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
 
         schedulerWithClock(now).checkAndGenerate()
 
         // Feb 22 23:00 CET is yesterday in Amsterdam, today's 23:00 CET is in the future
         verify(exactly = 0) { podcastService.generateBriefing(any()) }
+    }
+
+    @Test
+    fun `stale polling triggers a catch-up poll before generating`() {
+        val podcast = duePodcast(requireReview = false)
+        val episode = Episode(id = 10, podcastId = "p1", generatedAt = defaultNow.toString(), scriptText = "Script")
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
+        every { sourcePollingScheduler.lastPollRoundCompletedAt } returns null // no round completed → stale
+
+        scheduler.checkAndGenerate()
+
+        verifyOrder {
+            sourcePollingScheduler.catchUpPoll("p1")
+            podcastService.generateBriefing(podcast)
+        }
+    }
+
+    @Test
+    fun `fresh polling skips the catch-up poll`() {
+        val podcast = duePodcast(requireReview = false)
+        val episode = Episode(id = 10, podcastId = "p1", generatedAt = defaultNow.toString(), scriptText = "Script")
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
+        // Last poll round completed 1 minute before now → within the 10-minute threshold
+        every { sourcePollingScheduler.lastPollRoundCompletedAt } returns defaultNow.minusSeconds(60)
+
+        scheduler.checkAndGenerate()
+
+        verify(exactly = 0) { sourcePollingScheduler.catchUpPoll(any()) }
+        verify { podcastService.generateBriefing(podcast) }
     }
 
     @Test
@@ -232,7 +266,7 @@ class BriefingGenerationSchedulerTest {
         )
         val episode = Episode(id = 1, podcastId = "p1", generatedAt = now.toString(), scriptText = "Script")
 
-        every { podcastRepository.findAll() } returns listOf(podcast)
+        every { podcastService.findAll() } returns listOf(podcast)
         every { podcastService.generateBriefing(podcast) } returns GenerateBriefingResult(episode = episode)
 
         schedulerWithClock(now).checkAndGenerate()

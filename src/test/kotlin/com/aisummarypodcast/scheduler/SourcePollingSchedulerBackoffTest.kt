@@ -9,8 +9,7 @@ import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.SourceProperties
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.source.SourcePoller
-import com.aisummarypodcast.store.ArticleRepository
-import com.aisummarypodcast.store.PostRepository
+import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceRepository
@@ -28,12 +27,7 @@ class SourcePollingSchedulerBackoffTest {
 
     private val sourcePoller = mockk<SourcePoller>(relaxed = true)
     private val sourceRepository = mockk<SourceRepository>()
-    private val articleRepository = mockk<ArticleRepository> {
-        every { deleteOldUnprocessedArticles(any()) } returns Unit
-    }
-    private val postRepository = mockk<PostRepository> {
-        every { deleteOldUnlinkedPosts(any()) } returns Unit
-    }
+    private val sourceService = mockk<SourceService>(relaxed = true)
     private val podcastService = mockk<PodcastService>()
 
     private fun appProperties(maxBackoffHours: Int = 24) = AppProperties(
@@ -48,7 +42,7 @@ class SourcePollingSchedulerBackoffTest {
     private fun scheduler(maxBackoffHours: Int = 24): SourcePollingScheduler {
         val props = appProperties(maxBackoffHours)
         return SourcePollingScheduler(
-            sourcePoller, sourceRepository, articleRepository, postRepository,
+            sourcePoller, sourceRepository, sourceService,
             props, podcastService, PollDelayResolver(props)
         )
     }

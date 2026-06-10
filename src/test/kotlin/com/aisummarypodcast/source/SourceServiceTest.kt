@@ -9,11 +9,14 @@ import com.aisummarypodcast.store.SourceType
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Optional
 
 class SourceServiceTest {
@@ -28,6 +31,22 @@ class SourceServiceTest {
     private val websiteFetcher = mockk<WebsiteFetcher>()
 
     private val service = SourceService(sourceRepository, articleRepository, postRepository, rssFeedFetcher, websiteFetcher)
+
+    @Test
+    fun `cleanupOldArticlesAndPosts deletes both with a cutoff computed from maxArticleAgeDays`() {
+        every { articleRepository.deleteOldUnprocessedArticles(any()) } returns Unit
+        every { postRepository.deleteOldUnlinkedPosts(any()) } returns Unit
+
+        service.cleanupOldArticlesAndPosts(7)
+
+        val cutoffMatches: (String) -> Boolean = { cutoff ->
+            val parsed = Instant.parse(cutoff)
+            val expected = Instant.now().minus(7, ChronoUnit.DAYS)
+            parsed.isAfter(expected.minusSeconds(5)) && parsed.isBefore(expected.plusSeconds(5))
+        }
+        verify { articleRepository.deleteOldUnprocessedArticles(match(cutoffMatches)) }
+        verify { postRepository.deleteOldUnlinkedPosts(match(cutoffMatches)) }
+    }
 
     @Test
     fun `re-enabling a disabled source clears failure tracking`() {

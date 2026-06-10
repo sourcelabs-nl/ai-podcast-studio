@@ -179,6 +179,8 @@ class PodcastService(
         return podcastRepository.save(newPodcast)
     }
 
+    fun findAll(): List<Podcast> = podcastRepository.findAll().toList()
+
     fun findByUserId(userId: String): List<Podcast> = podcastRepository.findByUserId(userId)
 
     fun findById(podcastId: String): Podcast? = podcastRepository.findByIdOrNull(podcastId)

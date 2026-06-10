@@ -1,8 +1,8 @@
 package com.aisummarypodcast.scheduler
 
+import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.Podcast
-import com.aisummarypodcast.store.PodcastRepository
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +17,7 @@ import org.springframework.context.event.EventListener
 import org.springframework.scheduling.support.CronExpression
 import org.springframework.stereotype.Component
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -26,8 +27,9 @@ import kotlin.time.TimeSource
 
 @Component
 class BriefingGenerationScheduler(
-    private val podcastRepository: PodcastRepository,
     private val podcastService: PodcastService,
+    private val sourcePollingScheduler: SourcePollingScheduler,
+    private val appProperties: AppProperties,
     private val clock: Clock = Clock.systemUTC()
 ) {
 
@@ -54,7 +56,7 @@ class BriefingGenerationScheduler(
     }
 
     fun checkAndGenerate() {
-        val podcasts = podcastRepository.findAll()
+        val podcasts = podcastService.findAll()
 
         for (podcast in podcasts) {
             try {
@@ -87,11 +89,35 @@ class BriefingGenerationScheduler(
 
                 if (nextExecution != null && !nextExecution.isAfter(now)) {
                     log.info("[Pipeline] Podcast '{}' ({}) is due for briefing generation", podcast.name, podcast.id)
+                    ensureFreshPolling(podcast)
                     generateBriefing(podcast)
                 }
             } catch (e: Exception) {
                 log.error("[Pipeline] Error checking/generating briefing for podcast '{}' ({}): {}", podcast.name, podcast.id, e.message, e)
             }
+        }
+    }
+
+    /**
+     * Runs a catch-up poll of the podcast's sources when polling has gone stale, so generation does
+     * not compose against stale data after the machine was asleep/offline through the cron time.
+     * Stale means: no poll round has completed in this process yet, or the last one is older than
+     * [SourceProperties.staleRoundThresholdMinutes].
+     */
+    private fun ensureFreshPolling(podcast: Podcast) {
+        val threshold = Duration.ofMinutes(appProperties.source.staleRoundThresholdMinutes.toLong())
+        val lastRound = sourcePollingScheduler.lastPollRoundCompletedAt
+        val stale = lastRound == null || Duration.between(lastRound, clock.instant()) > threshold
+        if (!stale) return
+
+        val reason = if (lastRound == null) "no poll round has completed yet" else "last poll round was at $lastRound"
+        log.info("[Pipeline] Polling is stale ({}) — running a catch-up poll before generating for podcast '{}' ({})",
+            reason, podcast.name, podcast.id)
+        try {
+            sourcePollingScheduler.catchUpPoll(podcast.id)
+        } catch (e: Exception) {
+            log.error("[Pipeline] Catch-up poll failed for podcast '{}' ({}); generating with existing data: {}",
+                podcast.name, podcast.id, e.message, e)
         }
     }
 

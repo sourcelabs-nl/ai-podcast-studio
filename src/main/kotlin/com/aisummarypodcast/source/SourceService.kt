@@ -10,6 +10,7 @@ import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 @Service
@@ -22,6 +23,17 @@ class SourceService(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * Deletes unprocessed articles and unlinked posts older than [maxArticleAgeDays]. Both deletes run
+     * in one transaction so the cleanup is atomic.
+     */
+    @Transactional
+    fun cleanupOldArticlesAndPosts(maxArticleAgeDays: Int) {
+        val cutoff = Instant.now().minus(maxArticleAgeDays.toLong(), ChronoUnit.DAYS).toString()
+        articleRepository.deleteOldUnprocessedArticles(cutoff)
+        postRepository.deleteOldUnlinkedPosts(cutoff)
+    }
 
     fun create(podcastId: String, type: SourceType, url: String, pollIntervalMinutes: Int = 30, enabled: Boolean = true, aggregate: Boolean? = null, maxFailures: Int? = null, maxBackoffHours: Int? = null, pollDelaySeconds: Int? = null, categoryFilter: String? = null, label: String? = null): Source {
         validateUrl(type, url, categoryFilter)

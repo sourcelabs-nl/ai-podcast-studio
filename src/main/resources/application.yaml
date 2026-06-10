@@ -105,6 +105,8 @@ app:
     retention-count: 7
   source:
     max-article-age-days: 90
+    # If the last poll round is older than this (or none yet), generation runs a catch-up poll first.
+    stale-round-threshold-minutes: 10
   feed:
     base-url: http://localhost:8085
     title: AI Summary Podcast

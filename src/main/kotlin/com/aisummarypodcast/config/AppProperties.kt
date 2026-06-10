@@ -118,6 +118,10 @@ data class SourceProperties(
     val maxArticleAgeDays: Int = 7,
     val maxFailures: Int = 15,
     val maxBackoffHours: Int = 24,
+    // If the last completed poll round is older than this (or none has completed yet), the briefing
+    // generator runs a catch-up poll before composing — guards against generating on stale data
+    // after the machine was asleep/offline through the scheduled time.
+    val staleRoundThresholdMinutes: Int = 10,
     val pollDelaySeconds: Map<String, Int> = emptyMap(),
     val hostOverrides: Map<String, HostOverride> = emptyMap(),
     val deepFetch: DeepFetchProperties = DeepFetchProperties()

@@ -20,8 +20,7 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
 
     fun findByPodcastIdAndStatus(podcastId: String, status: EpisodeStatus): List<Episode>
 
-    @Query("SELECT * FROM episodes WHERE podcast_id = :podcastId AND status IN (:statuses)")
-    fun findByPodcastIdAndStatusIn(podcastId: String, statuses: List<String>): List<Episode>
+    fun findByPodcastIdAndStatusIn(podcastId: String, statuses: Collection<EpisodeStatus>): List<Episode>
 
     // Status values must match EpisodeStatus enum names
     @Query("""
