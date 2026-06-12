@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useUser } from "@/lib/user-context";
 import type { Podcast, PodcastDefaults, ModelReference, AvailableModel } from "@/lib/types";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { Upload, Trash2, ImageIcon, Save, Settings2, Wifi, WifiOff, TestTube } from "lucide-react";
+import { Upload, Trash2, ImageIcon, Save, Settings2, Wifi, WifiOff, TestTube, AlertTriangle } from "lucide-react";
 import { useTabParam } from "@/hooks/use-tab-param";
 import {
   Select,
@@ -34,7 +34,7 @@ const STYLES = [
 
 const TTS_PROVIDERS = ["openai", "elevenlabs", "inworld"];
 
-const TABS = ["general", "llm", "tts", "compose", "research", "publishing"] as const;
+const TABS = ["general", "llm", "tts", "compose", "research", "publishing", "danger"] as const;
 
 interface PublicationTarget {
   target: string;
@@ -71,6 +71,7 @@ const textareaClass =
 
 export default function PodcastSettingsPage() {
   const params = useParams<{ podcastId: string }>();
+  const router = useRouter();
   const { selectedUser, loading: userLoading } = useUser();
   const [podcast, setPodcast] = useState<Podcast | null>(null);
   const [form, setForm] = useState<Podcast | null>(null);
@@ -89,6 +90,10 @@ export default function PodcastSettingsPage() {
 
   // Research state
   const [testingTavily, setTestingTavily] = useState(false);
+
+  // Delete podcast state
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!selectedUser) return;
@@ -328,6 +333,23 @@ export default function PodcastSettingsPage() {
     }
   }
 
+  async function handleDeletePodcast() {
+    if (!selectedUser || !podcast) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/users/${selectedUser.id}/podcasts/${params.podcastId}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+      toast.success(`Deleted podcast "${podcast.name}".`);
+      router.push("/podcasts");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete podcast");
+      setDeleting(false);
+    }
+  }
+
   function update<K extends keyof Podcast>(key: K, value: Podcast[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
@@ -365,6 +387,7 @@ export default function PodcastSettingsPage() {
           <TabsTrigger value="compose">Compose</TabsTrigger>
           <TabsTrigger value="research">Research</TabsTrigger>
           <TabsTrigger value="publishing">Publishing</TabsTrigger>
+          <TabsTrigger value="danger">Danger</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general">
@@ -958,14 +981,49 @@ export default function PodcastSettingsPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="danger">
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="size-5" />
+                Delete Podcast
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Permanently delete <strong>{podcast.name}</strong>, including all of its episodes, sources, and audio files. This action cannot be undone.
+              </p>
+              <FieldGroup label={`Type "${podcast.name}" to confirm`}>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={podcast.name}
+                  className={inputClass}
+                />
+              </FieldGroup>
+              <Button
+                variant="destructive"
+                disabled={deleteConfirmText !== podcast.name || deleting}
+                onClick={handleDeletePodcast}
+              >
+                <Trash2 className="mr-2 size-4" />
+                {deleting ? "Deleting..." : "Delete podcast"}
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
       </Tabs>
 
-      <div className="mt-6">
-        <Button onClick={handleSave} disabled={saving}>
-          <Save className="mr-2 size-4" />
-          {saving ? "Saving..." : "Save"}
-        </Button>
-      </div>
+      {currentTab !== "danger" && (
+        <div className="mt-6">
+          <Button onClick={handleSave} disabled={saving}>
+            <Save className="mr-2 size-4" />
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
