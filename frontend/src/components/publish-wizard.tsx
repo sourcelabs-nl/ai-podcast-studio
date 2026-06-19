@@ -12,7 +12,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { KeyRound, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, Trash2 } from "lucide-react";
 
 export const TARGETS = [
   { value: "soundcloud", label: "SoundCloud" },
@@ -27,6 +27,19 @@ interface OldestTrack {
   createdAt: string | null;
   duration: number | null;
 }
+
+// After deleting the oldest track, SoundCloud needs time to free the quota before a re-upload
+// succeeds. Retry the publish on a spaced schedule (ms before each attempt) rather than immediately.
+const RETRY_DELAYS_MS = [8000, 15000, 30000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+type PublishOutcome =
+  | { kind: "ok"; data: EpisodePublication }
+  | { kind: "quota"; message: string; oldestTrack: OldestTrack | null }
+  | { kind: "auth"; message: string }
+  | { kind: "conflict"; message: string }
+  | { kind: "error"; message: string };
 
 interface PublishWizardProps {
   open: boolean;
@@ -55,6 +68,8 @@ export function PublishWizard({
   const [isOAuthExpired, setIsOAuthExpired] = useState(false);
   const [oldestTrack, setOldestTrack] = useState<OldestTrack | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [publications, setPublications] = useState<EpisodePublication[]>([]);
 
   useEffect(() => {
@@ -74,6 +89,8 @@ export function PublishWizard({
     setIsOAuthExpired(false);
     setOldestTrack(null);
     setDeleting(false);
+    setRetrying(false);
+    setRetryAttempt(0);
   }
 
   function handleClose(isOpen: boolean) {
@@ -84,61 +101,66 @@ export function PublishWizard({
     onOpenChange(isOpen);
   }
 
-  async function handlePublish() {
-    setPublishing(true);
-    setError(null);
-    setOldestTrack(null);
+  // Single publish POST, classified into an outcome. No state mutation — callers decide what to do
+  // so this is reusable for both the initial publish and the post-deletion auto-retry loop.
+  async function doPublishRequest(): Promise<PublishOutcome> {
+    const label = TARGETS.find((t) => t.value === target)?.label ?? target;
     try {
       const res = await fetch(
         `/api/users/${userId}/podcasts/${podcastId}/episodes/${episode.id}/publish/${target}`,
         { method: "POST" }
       );
-      if (res.ok) {
-        const data: EpisodePublication = await res.json();
-        setResult(data);
-        setStep("result");
-      } else if (res.status === 401) {
-        const body = await res.json().catch(() => ({ error: "Authorization expired" }));
-        setError(body.error || "Authorization expired");
-        setIsOAuthExpired(true);
-        setStep("result");
-      } else if (res.status === 413) {
-        const body = await res.json().catch(() => ({ error: "Upload quota exceeded" }));
-        setError(body.error || "Upload quota exceeded");
-        if (body.oldestTrack) {
-          setOldestTrack(body.oldestTrack);
-        }
-        setStep("result");
-      } else if (res.status === 409) {
-        const label = TARGETS.find((t) => t.value === target)?.label ?? target;
-        setError(`This episode has already been published to ${label}.`);
-        setStep("result");
-      } else {
-        const body = await res.json().catch(() => ({ error: "Publishing failed" }));
-        setError(body.error || "Publishing failed");
-        setStep("result");
-      }
+      if (res.ok) return { kind: "ok", data: await res.json() };
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 401) return { kind: "auth", message: body.error || "Authorization expired" };
+      if (res.status === 413) return { kind: "quota", message: body.error || "Upload quota exceeded", oldestTrack: body.oldestTrack ?? null };
+      if (res.status === 409) return { kind: "conflict", message: `This episode has already been published to ${label}.` };
+      return { kind: "error", message: body.error || "Publishing failed" };
     } catch {
-      setError("Network error — could not reach the server.");
-      setStep("result");
-    } finally {
-      setPublishing(false);
+      return { kind: "error", message: "Network error — could not reach the server." };
     }
   }
 
-  async function handleDeleteOldest() {
+  function applyOutcome(outcome: PublishOutcome) {
+    if (outcome.kind === "ok") {
+      setResult(outcome.data);
+      setError(null);
+    } else if (outcome.kind === "auth") {
+      setError(outcome.message);
+      setIsOAuthExpired(true);
+    } else if (outcome.kind === "quota") {
+      setError(outcome.message);
+      setOldestTrack(outcome.oldestTrack);
+    } else {
+      setError(outcome.message);
+    }
+    setStep("result");
+  }
+
+  async function handlePublish() {
+    setPublishing(true);
+    setError(null);
+    setOldestTrack(null);
+    const outcome = await doPublishRequest();
+    applyOutcome(outcome);
+    setPublishing(false);
+  }
+
+  // Confirm-once-then-auto: delete the oldest track, then wait for SoundCloud to free the quota and
+  // retry publishing automatically on a spaced schedule (re-uploading immediately fails because the
+  // deletion has not propagated yet).
+  async function handleDeleteOldestAndRetry() {
     if (!oldestTrack) return;
     setDeleting(true);
+    setError(null);
+    let deleted = false;
     try {
       const res = await fetch(
         `/api/users/${userId}/oauth/soundcloud/tracks/${oldestTrack.id}`,
         { method: "DELETE" }
       );
-      if (res.ok) {
-        setError(null);
-        setOldestTrack(null);
-        setStep("confirm");
-      } else {
+      deleted = res.ok;
+      if (!res.ok) {
         const body = await res.json().catch(() => ({ error: "Failed to delete" }));
         setError(body.error || "Failed to delete track from SoundCloud");
       }
@@ -146,6 +168,29 @@ export function PublishWizard({
       setError("Network error — could not reach the server.");
     } finally {
       setDeleting(false);
+    }
+    if (!deleted) return;
+
+    setOldestTrack(null);
+    setRetrying(true);
+    let outcome: PublishOutcome | null = null;
+    for (let i = 0; i < RETRY_DELAYS_MS.length; i++) {
+      setRetryAttempt(i + 1);
+      await sleep(RETRY_DELAYS_MS[i]);
+      outcome = await doPublishRequest();
+      if (outcome.kind !== "quota") break; // success or a different failure — stop retrying
+    }
+    setRetrying(false);
+    setRetryAttempt(0);
+
+    if (outcome?.kind === "quota") {
+      // Still over quota after all retries: deletion is slow to propagate, or one track was not
+      // enough. Surface the quota state again so the user can wait or remove another track.
+      setError("SoundCloud is still freeing up space. Wait a moment and try publishing again, or remove another track.");
+      setOldestTrack(outcome.oldestTrack);
+      setStep("result");
+    } else if (outcome) {
+      applyOutcome(outcome);
     }
   }
 
@@ -245,11 +290,18 @@ export function PublishWizard({
           <>
             <DialogHeader>
               <DialogTitle>
-                {error ? "Publication Failed" : "Published Successfully"}
+                {retrying ? "Publishing…" : error ? "Publication Failed" : "Published Successfully"}
               </DialogTitle>
             </DialogHeader>
             <div className="py-2">
-              {error ? (
+              {retrying ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>
+                    Freeing space on SoundCloud and republishing… (attempt {retryAttempt} of {RETRY_DELAYS_MS.length})
+                  </span>
+                </div>
+              ) : error ? (
                 <div className="space-y-3">
                   <p className="text-sm text-destructive">{error}</p>
                   {isOAuthExpired && (
@@ -274,7 +326,7 @@ export function PublishWizard({
                   {oldestTrack && (
                     <div className="rounded-md border border-border bg-muted/50 p-3 text-sm">
                       <p className="mb-2">
-                        Remove oldest track from SoundCloud to free up space?
+                        Remove the oldest track from SoundCloud to free up space and republish automatically?
                       </p>
                       <p className="mb-2 text-muted-foreground">
                         &ldquo;{oldestTrack.title}&rdquo;
@@ -282,11 +334,11 @@ export function PublishWizard({
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={handleDeleteOldest}
+                        onClick={handleDeleteOldestAndRetry}
                         disabled={deleting}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        {deleting ? "Removing..." : "Remove Track"}
+                        {deleting ? "Removing..." : "Remove & republish"}
                       </Button>
                     </div>
                   )}
@@ -327,7 +379,7 @@ export function PublishWizard({
               ) : null}
             </div>
             <DialogFooter>
-              <Button onClick={() => handleClose(false)}>Done</Button>
+              <Button onClick={() => handleClose(false)} disabled={retrying}>Done</Button>
             </DialogFooter>
           </>
         )}
