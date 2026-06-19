@@ -14,7 +14,7 @@ import com.aisummarypodcast.store.Subtopics
  * Used to fill in stage costs for legacy episodes that have tokens but were
  * persisted with `*_cost_cents = 0` (e.g. V57 backfilled score tokens without cost).
  */
-typealias StageCostFn = (model: String?, inputTokens: Int, outputTokens: Int) -> Int?
+typealias StageCostFn = (model: String?, inputTokens: Int, outputTokens: Int) -> Double?
 
 fun findModelCost(modelName: String?, models: Map<String, Map<String, ModelCost>>): ModelCost? {
     if (modelName.isNullOrBlank()) return null
@@ -23,7 +23,7 @@ fun findModelCost(modelName: String?, models: Map<String, Map<String, ModelCost>
 
 fun stageCostFnFromModels(models: Map<String, Map<String, ModelCost>>): StageCostFn =
     { name, input, output ->
-        findModelCost(name, models)?.let { CostEstimator.estimateLlmCostCents(input, output, it) }
+        findModelCost(name, models)?.let { CostEstimator.estimateLlmCostCentsExact(input, output, it) }
     }
 
 private val noopStageCostFn: StageCostFn = { _, _, _ -> null }
@@ -107,13 +107,15 @@ internal fun Episode.toResponse(scoreCalls: Int = 0, costFor: StageCostFn = noop
 )
 
 private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCostsResponse {
-    fun llmCalls(input: Int, output: Int, cost: Int): Int =
+    fun llmCalls(input: Int, output: Int, cost: Double): Int =
         if (input > 0 || output > 0 || cost > 0) 1 else 0
-    // Fall back to a runtime cost lookup when the persisted cost is 0 but we have tokens
-    // (true for V57-backfilled scoring on legacy episodes, where SQL had no model rates).
-    fun effective(persistedCost: Int, model: String?, input: Int, output: Int): Int =
-        if (persistedCost > 0 || (input == 0 && output == 0)) persistedCost
-        else costFor(model, input, output) ?: 0
+    // Always recompute the stage cost from tokens + model rate at full precision so sub-cent
+    // costs (cheap models like deepseek-v4-flash) stay visible — the persisted integer-cent
+    // value rounds them to 0. Fall back to the persisted value when no model rate is known
+    // (e.g. legacy episodes whose model is no longer in config) or there are no tokens.
+    fun effective(persistedCost: Int, model: String?, input: Int, output: Int): Double =
+        if (input == 0 && output == 0) persistedCost.toDouble()
+        else costFor(model, input, output) ?: persistedCost.toDouble()
 
     val scoreCost = effective(scoreCostCents, filterModel, scoreInputTokens, scoreOutputTokens)
     // Dedup runs on its own model; legacy episodes (null dedupModel) fall back to the filter model.
@@ -121,8 +123,9 @@ private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCo
     val dedupCost = effective(dedupCostCents, dedupModelLabel, dedupInputTokens, dedupOutputTokens)
     val composeCost = effective(composeCostCents, composeModel, composeInputTokens, composeOutputTokens)
     val recapCost = effective(recapCostCents, filterModel, recapInputTokens, recapOutputTokens)
-    val totalCostCents = scoreCost + dedupCost + composeCost + recapCost +
-        (ttsCostCents ?: 0) + (researchCostCents ?: 0)
+    val ttsCost = (ttsCostCents ?: 0).toDouble()
+    val researchCost = (researchCostCents ?: 0).toDouble()
+    val totalCostCents = scoreCost + dedupCost + composeCost + recapCost + ttsCost + researchCost
     return EpisodeCostsResponse(
         score = LlmStageCostResponse(
             model = filterModel,
@@ -155,11 +158,11 @@ private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCo
         tts = TtsCostResponse(
             model = ttsModel,
             characters = ttsCharacters ?: 0,
-            costCents = ttsCostCents ?: 0
+            costCents = ttsCost
         ),
         research = ResearchCostResponse(
             calls = researchCalls,
-            costCents = researchCostCents ?: 0
+            costCents = researchCost
         ),
         totalCostCents = totalCostCents
     )

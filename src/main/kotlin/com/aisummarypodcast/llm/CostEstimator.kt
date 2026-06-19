@@ -6,11 +6,21 @@ import kotlin.math.roundToInt
 
 object CostEstimator {
 
-    fun estimateLlmCostCents(inputTokens: Int, outputTokens: Int, cost: ModelCost?): Int? {
+    fun estimateLlmCostCents(inputTokens: Int, outputTokens: Int, cost: ModelCost?): Int? =
+        estimateLlmCostCentsExact(inputTokens, outputTokens, cost)?.roundToInt()
+
+    /**
+     * Fractional-cent variant used for the per-stage cost breakdown display. Cheap models
+     * (e.g. deepseek-v4-flash at ~$0.10/Mtok) produce stage costs well under a cent, which
+     * [estimateLlmCostCents] rounds to 0 and the UI then hides. Keep full precision here so
+     * sub-cent stage costs stay visible; persistence and budget enforcement still use the
+     * rounded integer-cent value.
+     */
+    fun estimateLlmCostCentsExact(inputTokens: Int, outputTokens: Int, cost: ModelCost?): Double? {
         val inputCost = cost?.inputCostPerMtok ?: return null
         val outputCost = cost.outputCostPerMtok ?: return null
         val costUsd = (inputTokens * inputCost + outputTokens * outputCost) / 1_000_000.0
-        return (costUsd * 100).roundToInt()
+        return costUsd * 100
     }
 
     fun estimateTtsCostCents(characters: Int, models: Map<String, Map<String, ModelCost>>, provider: String, model: String? = null): Int? {

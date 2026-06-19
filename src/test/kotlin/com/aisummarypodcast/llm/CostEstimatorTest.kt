@@ -35,6 +35,19 @@ class CostEstimatorTest {
     }
 
     @Test
+    fun `exact LLM cost keeps sub-cent precision for cheap models`() {
+        // deepseek-v4-flash pricing; 4785 in + 1899 out rounds to 0 cents but is ~0.084 cents exact.
+        val cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.0983, outputCostPerMtok = 0.1966)
+        assertEquals(0, CostEstimator.estimateLlmCostCents(4785, 1899, cost))
+        assertEquals(0.0843, CostEstimator.estimateLlmCostCentsExact(4785, 1899, cost)!!, 0.0001)
+    }
+
+    @Test
+    fun `exact LLM cost returns null when pricing not configured`() {
+        assertNull(CostEstimator.estimateLlmCostCentsExact(1000, 200, null))
+    }
+
+    @Test
     fun `estimates TTS cost`() {
         val models = mapOf(
             "openai" to mapOf("tts-1-hd" to ModelCost(type = ModelType.TTS, costPerMillionChars = 15.00))

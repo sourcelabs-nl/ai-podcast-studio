@@ -127,18 +127,19 @@ data class LlmStageCostResponse(
     val calls: Int,
     val inputTokens: Int,
     val outputTokens: Int,
-    val costCents: Int
+    // Fractional cents so sub-cent stage costs from cheap models stay visible.
+    val costCents: Double
 )
 
 data class TtsCostResponse(
     val model: String?,
     val characters: Int,
-    val costCents: Int
+    val costCents: Double
 )
 
 data class ResearchCostResponse(
     val calls: Int,
-    val costCents: Int
+    val costCents: Double
 )
 
 data class EpisodeCostsResponse(
@@ -148,7 +149,7 @@ data class EpisodeCostsResponse(
     val recap: LlmStageCostResponse,
     val tts: TtsCostResponse,
     val research: ResearchCostResponse,
-    val totalCostCents: Int
+    val totalCostCents: Double
 )
 
 data class UpdateScriptRequest(

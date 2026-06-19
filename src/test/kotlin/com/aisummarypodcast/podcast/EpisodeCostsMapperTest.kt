@@ -35,7 +35,7 @@ class EpisodeCostsMapperTest {
             scoreCost = 1, dedupCost = 2, composeCost = 10, recapCost = 1,
             ttsCost = 25, researchCost = 3
         ).toResponse(scoreCalls = 5)
-        assertEquals(42, resp.costs.totalCostCents)
+        assertEquals(42.0, resp.costs.totalCostCents)
     }
 
     @Test
@@ -47,7 +47,7 @@ class EpisodeCostsMapperTest {
         assertEquals(5, resp.costs.score.calls)
         assertEquals(1000, resp.costs.score.inputTokens)
         assertEquals(200, resp.costs.score.outputTokens)
-        assertEquals(3, resp.costs.score.costCents)
+        assertEquals(3.0, resp.costs.score.costCents)
     }
 
     @Test
@@ -69,22 +69,22 @@ class EpisodeCostsMapperTest {
     fun `tts row reflects characters and cost`() {
         val resp = episode(ttsChars = 12000, ttsCost = 25).toResponse()
         assertEquals(12000, resp.costs.tts.characters)
-        assertEquals(25, resp.costs.tts.costCents)
+        assertEquals(25.0, resp.costs.tts.costCents)
     }
 
     @Test
     fun `research row reflects call count and cost`() {
         val resp = episode(researchCalls = 3, researchCost = 3).toResponse()
         assertEquals(3, resp.costs.research.calls)
-        assertEquals(3, resp.costs.research.costCents)
+        assertEquals(3.0, resp.costs.research.costCents)
     }
 
     @Test
     fun `nullable tts and research collapse to zero in response`() {
         val resp = episode().toResponse()
         assertEquals(0, resp.costs.tts.characters)
-        assertEquals(0, resp.costs.tts.costCents)
+        assertEquals(0.0, resp.costs.tts.costCents)
         assertEquals(0, resp.costs.research.calls)
-        assertEquals(0, resp.costs.research.costCents)
+        assertEquals(0.0, resp.costs.research.costCents)
     }
 }
