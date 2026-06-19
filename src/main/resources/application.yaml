@@ -63,6 +63,12 @@ app:
         type: llm
         input-cost-per-mtok: 0.0983
         output-cost-per-mtok: 0.1966
+      # Pricing reflects the cheapest non-ZDR provider (DeepInfra) that Balanced routing selects;
+      # the OpenRouter floor ($0.435/$0.87) is a ZDR provider we filter out.
+      "[deepseek/deepseek-v4-pro]":
+        type: llm
+        input-cost-per-mtok: 1.30
+        output-cost-per-mtok: 2.60
     openai:
       "[tts-1-hd]":
         type: tts
