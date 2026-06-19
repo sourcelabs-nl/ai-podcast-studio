@@ -96,7 +96,10 @@ class EpisodeSourcesGenerator(private val appProperties: AppProperties) {
         val episodesDir = Path.of(appProperties.episodes.directory, podcast.id, "episodes")
         Files.createDirectories(episodesDir)
         val sourcesPath = episodesDir.resolve("$slug-sources.html")
-        Files.writeString(sourcesPath, html)
+        // toByteArray replaces any malformed input (e.g. a lone surrogate from corrupted source
+        // data) rather than throwing, unlike Files.writeString's strict encoder. A bad character in
+        // one article title must not fail the whole publish.
+        Files.write(sourcesPath, html.toByteArray(Charsets.UTF_8))
 
         log.info("Generated sources.html for episode {} at {}", episode.id, sourcesPath)
         return sourcesPath
@@ -125,8 +128,14 @@ class EpisodeSourcesGenerator(private val appProperties: AppProperties) {
         return parts
     }
 
-    private fun truncateTitle(title: String): String =
-        if (title.length > 120) title.take(120) + "..." else title
+    private fun truncateTitle(title: String): String {
+        if (title.length <= 120) return title
+        // take(120) counts UTF-16 code units; if the 120th unit is the high half of a surrogate
+        // pair (e.g. an emoji), keeping it alone produces a lone surrogate that strict UTF-8
+        // encoding rejects. Drop it so we never split a pair.
+        val end = if (Character.isHighSurrogate(title[119])) 119 else 120
+        return title.take(end) + "..."
+    }
 
     private fun escapeHtml(text: String): String =
         text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")

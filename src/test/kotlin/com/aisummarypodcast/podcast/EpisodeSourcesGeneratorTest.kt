@@ -209,6 +209,23 @@ class EpisodeSourcesGeneratorTest {
     }
 
     @Test
+    fun `truncates title without splitting a surrogate pair at the boundary`() {
+        // Emoji (a surrogate pair) positioned so its high half lands on the 120th UTF-16 unit.
+        // Naive take(120) would leave a lone surrogate and crash strict UTF-8 file writing.
+        val longTitle = "A".repeat(119) + "😀" + "B".repeat(80)
+        val articles = listOf(
+            TopicGroupedArticle(longTitle, "https://example.com/emoji", null, null)
+        )
+
+        val path = generator.generate(episode, podcast, articles)
+
+        // Reading back proves the file was written as valid UTF-8 (no lone surrogate).
+        val content = Files.readString(path!!)
+        assertTrue(content.contains("A".repeat(119) + "..."), "Expected truncation just before the emoji")
+        assertFalse(content.contains("�"), "Expected no replacement char (pair dropped cleanly, not mangled)")
+    }
+
+    @Test
     fun `does not truncate short article titles`() {
         val shortTitle = "Short Title"
         val articles = listOf(
