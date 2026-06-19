@@ -128,6 +128,27 @@ class PublishingService(
         }
     }
 
+    /**
+     * Frees SoundCloud upload quota by deleting the user-approved tracks, then publishes the episode.
+     * The deletion set is the plan the user consented to (see [SoundCloudQuotaExceededException.plan]).
+     * Publishing re-checks the quota, so if the freed space is still insufficient it surfaces a fresh
+     * quota plan rather than silently failing.
+     */
+    fun freeQuotaAndPublish(
+        episode: Episode,
+        podcast: Podcast,
+        userId: String,
+        target: String,
+        trackIdsToDelete: List<Long>
+    ): EpisodePublication {
+        require(target == SoundCloudPublisher.TARGET_NAME) {
+            "Quota freeing is only supported for the SoundCloud target"
+        }
+        log.info("Freeing SoundCloud quota for podcast {} by deleting {} track(s)", podcast.id, trackIdsToDelete.size)
+        soundCloudPublisher.deleteTracks(userId, trackIdsToDelete)
+        return publish(episode, podcast, userId, target)
+    }
+
     private fun updateExisting(
         publisher: EpisodePublisher,
         episode: Episode,

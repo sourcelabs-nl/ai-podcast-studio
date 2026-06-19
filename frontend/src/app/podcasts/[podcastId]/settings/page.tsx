@@ -40,6 +40,7 @@ interface PublicationTarget {
   target: string;
   config: Record<string, string>;
   enabled: boolean;
+  autoPublish: boolean;
 }
 
 interface ProviderConfig {
@@ -84,7 +85,7 @@ export default function PodcastSettingsPage() {
 
   // Publishing targets state
   const [pubTargets, setPubTargets] = useState<PublicationTarget[]>([]);
-  const [pubForm, setPubForm] = useState<Record<string, { config: Record<string, string>; enabled: boolean }>>({});
+  const [pubForm, setPubForm] = useState<Record<string, { config: Record<string, string>; enabled: boolean; autoPublish: boolean }>>({});
   const [configuredProviders, setConfiguredProviders] = useState<Set<string>>(new Set());
   const [pubTab, setPubTab] = useState<"ftp" | "soundcloud">("ftp");
 
@@ -139,13 +140,13 @@ export default function PodcastSettingsPage() {
         .catch(() => []),
     ]).then(([targets, apiKeys]: [PublicationTarget[], ProviderConfig[]]) => {
       setPubTargets(targets);
-      const formState: Record<string, { config: Record<string, string>; enabled: boolean }> = {};
+      const formState: Record<string, { config: Record<string, string>; enabled: boolean; autoPublish: boolean }> = {};
       // Initialize defaults for ftp and soundcloud
-      formState.ftp = { config: { remotePath: "", publicUrl: "" }, enabled: false };
-      formState.soundcloud = { config: { playlistId: "" }, enabled: false };
+      formState.ftp = { config: { remotePath: "", publicUrl: "" }, enabled: false, autoPublish: false };
+      formState.soundcloud = { config: { playlistId: "" }, enabled: false, autoPublish: false };
       // Overlay with existing targets from API
       for (const t of targets) {
-        formState[t.target] = { config: { ...formState[t.target]?.config, ...t.config }, enabled: t.enabled };
+        formState[t.target] = { config: { ...formState[t.target]?.config, ...t.config }, enabled: t.enabled, autoPublish: t.autoPublish };
       }
       setPubForm(formState);
       const providers = new Set(
@@ -174,7 +175,15 @@ export default function PodcastSettingsPage() {
   function togglePubTarget(target: string, enabled: boolean) {
     setPubForm((prev) => ({
       ...prev,
-      [target]: { ...prev[target], enabled },
+      // Auto-publish only makes sense when the target is enabled; turning the target off clears it.
+      [target]: { ...prev[target], enabled, autoPublish: enabled ? prev[target]?.autoPublish ?? false : false },
+    }));
+  }
+
+  function toggleAutoPublish(target: string, autoPublish: boolean) {
+    setPubForm((prev) => ({
+      ...prev,
+      [target]: { ...prev[target], autoPublish },
     }));
   }
 
@@ -292,7 +301,7 @@ export default function PodcastSettingsPage() {
             {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ config: entry.config, enabled: entry.enabled }),
+              body: JSON.stringify({ config: entry.config, enabled: entry.enabled, autoPublish: entry.autoPublish }),
             }
           );
           if (!pubRes.ok) {
@@ -938,7 +947,7 @@ export default function PodcastSettingsPage() {
 
               {pubTab === "ftp" && (() => {
                 const hasCreds = configuredProviders.has("ftp");
-                const entry = pubForm.ftp ?? { config: { remotePath: "", publicUrl: "" }, enabled: false };
+                const entry = pubForm.ftp ?? { config: { remotePath: "", publicUrl: "" }, enabled: false, autoPublish: false };
                 return (
                   <div className={cn("mt-4", !hasCreds && "opacity-50 pointer-events-none")}>
                     <div className="mb-4 flex items-center justify-between">
@@ -952,6 +961,13 @@ export default function PodcastSettingsPage() {
                       </div>
                     </div>
                     {!hasCreds && <p className="mb-4 text-sm text-muted-foreground">Configure credentials in Settings first.</p>}
+                    <div className="mb-4 flex items-center justify-between rounded-md border p-3">
+                      <div>
+                        <span className="text-sm font-medium">Auto-publish on generate</span>
+                        <p className="text-xs text-muted-foreground">Publish to FTP automatically when an episode is generated.</p>
+                      </div>
+                      <Switch checked={entry.autoPublish} disabled={!entry.enabled} onCheckedChange={(checked) => toggleAutoPublish("ftp", checked)} />
+                    </div>
                     <div className="space-y-4">
                       <FieldGroup label="Remote Path">
                         <input type="text" value={entry.config.remotePath ?? ""} onChange={(e) => updatePubForm("ftp", "remotePath", e.target.value)} placeholder={`/${params.podcastId}/`} className={inputClass} />
@@ -967,7 +983,7 @@ export default function PodcastSettingsPage() {
 
               {pubTab === "soundcloud" && (() => {
                 const hasCreds = configuredProviders.has("soundcloud");
-                const entry = pubForm.soundcloud ?? { config: { playlistId: "" }, enabled: false };
+                const entry = pubForm.soundcloud ?? { config: { playlistId: "" }, enabled: false, autoPublish: false };
                 return (
                   <div className={cn("mt-4", !hasCreds && "opacity-50 pointer-events-none")}>
                     <div className="mb-4 flex items-center justify-between">
@@ -981,6 +997,13 @@ export default function PodcastSettingsPage() {
                       </div>
                     </div>
                     {!hasCreds && <p className="mb-4 text-sm text-muted-foreground">Configure credentials in Settings first.</p>}
+                    <div className="mb-4 flex items-center justify-between rounded-md border p-3">
+                      <div>
+                        <span className="text-sm font-medium">Auto-publish on generate</span>
+                        <p className="text-xs text-muted-foreground">Publish to SoundCloud automatically when an episode is generated. Skipped if the upload quota is full.</p>
+                      </div>
+                      <Switch checked={entry.autoPublish} disabled={!entry.enabled} onCheckedChange={(checked) => toggleAutoPublish("soundcloud", checked)} />
+                    </div>
                     <div className="space-y-4">
                       <FieldGroup label="Playlist ID">
                         <input type="text" value={entry.config.playlistId ?? ""} readOnly className={`${inputClass} bg-muted`} />

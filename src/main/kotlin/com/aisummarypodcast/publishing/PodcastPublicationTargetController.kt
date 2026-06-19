@@ -40,7 +40,7 @@ class PodcastPublicationTargetController(
         if (podcast.userId != userId) return ResponseEntity.notFound().build()
 
         val configJson = objectMapper.writeValueAsString(request.config ?: emptyMap<String, Any>())
-        val saved = targetService.upsert(podcastId, target, configJson, request.enabled)
+        val saved = targetService.upsert(podcastId, target, configJson, request.enabled, request.autoPublish)
         return ResponseEntity.ok(saved.toResponse(objectMapper))
     }
 

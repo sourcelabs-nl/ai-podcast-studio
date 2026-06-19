@@ -6,7 +6,7 @@ user_invocable: false
 
 # Spring Boot Rules
 
-7 rules for Spring Boot framework concerns. Applied to all `.kt` files.
+8 rules for Spring Boot framework concerns. Applied to all `.kt` files.
 
 ---
 
@@ -174,4 +174,37 @@ class MyService(
     @Value($$"${app.feature.enabled:false}")
     private val featureEnabled: Boolean,
 )
+```
+
+---
+
+## Rule SB8: Translate Exceptions to HTTP in `@ControllerAdvice`, Not Inline
+
+Mapping an exception (or a domain failure) to an HTTP status and error body is a cross-cutting web concern. It belongs in a `@RestControllerAdvice` / `@ControllerAdvice` exception handler, not in per-endpoint `try/catch` blocks inside controllers and not in response-body builder/mapper functions invoked from controllers. Centralizing it keeps controllers focused on validate-delegate-map, removes duplicated catch chains across endpoints, and gives one place per exception type that decides its status and payload. Pairs with Rule SB5 (exceptions stay domain-oriented; the advice owns the HTTP mapping) and architecture Rule A8.
+
+Scope the advice to the relevant controllers with `@RestControllerAdvice(assignableTypes = [...])` when the same exception type must map differently in different areas, rather than sniffing exception messages to disambiguate.
+
+**Violations to flag:**
+- A controller catching a custom/domain exception and building a `ResponseEntity` with a hand-rolled error body, when a `@ControllerAdvice` handler would centralize it
+- The same exception type caught with near-identical mapping in two or more controller methods (duplicated catch chains)
+- A mapper/extension function whose only job is to turn an exception into a response body, called from a controller catch block (move the logic into the advice handler)
+- Message-sniffing (`if (e.message.contains(...))`) to pick a status code instead of distinct exception types or a scoped advice
+
+**Correct pattern:**
+```kotlin
+@RestControllerAdvice(assignableTypes = [PublishingController::class])
+class PublishingExceptionHandler {
+    @ExceptionHandler(SoundCloudQuotaExceededException::class)
+    fun handleQuotaExceeded(e: SoundCloudQuotaExceededException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(
+            mapOf("error" to e.message, "code" to "quota_exceeded", /* plan fields */)
+        )
+}
+
+// Controller just delegates — no quota try/catch:
+@PostMapping("/publish/{target}")
+fun publish(...): ResponseEntity<Any> {
+    val publication = publishingService.publish(episode, podcast, userId, target)
+    return ResponseEntity.ok(publication.toResponse())
+}
 ```

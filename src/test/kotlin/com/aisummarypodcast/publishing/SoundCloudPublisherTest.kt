@@ -38,8 +38,8 @@ class SoundCloudPublisherTest {
     private val tokenManager = mockk<SoundCloudTokenManager>()
     private val targetService = mockk<PodcastPublicationTargetService>(relaxed = true) {
         every { get("pod1", "soundcloud") } returns null
-        every { upsert(any(), any(), any(), any()) } answers {
-            PodcastPublicationTarget(id = 1, podcastId = arg(0), target = arg(1), config = arg(2), enabled = arg(3))
+        every { upsert(any(), any(), any(), any(), any()) } answers {
+            PodcastPublicationTarget(id = 1, podcastId = arg(0), target = arg(1), config = arg(2), enabled = arg(3), autoPublish = arg(4))
         }
     }
     private val objectMapper = JsonMapper()
@@ -179,7 +179,7 @@ class SoundCloudPublisherTest {
         publisher.rebuildPlaylist(podcast, "user1", listOf(100, 200))
 
         verify { soundCloudClient.createPlaylist("access-token", "Tech News", listOf(100, 200)) }
-        verify { targetService.upsert("pod1", "soundcloud", match { it.contains("789") }, any()) }
+        verify { targetService.upsert("pod1", "soundcloud", match { it.contains("789") }, any(), any()) }
     }
 
     @Test
@@ -193,7 +193,7 @@ class SoundCloudPublisherTest {
 
         publisher.rebuildPlaylist(podcast, "user1", listOf(100))
 
-        verify { targetService.upsert("pod1", "soundcloud", match { it.contains("789") }, true) }
+        verify { targetService.upsert("pod1", "soundcloud", match { it.contains("789") }, true, false) }
     }
 
     @Test
@@ -248,11 +248,64 @@ class SoundCloudPublisherTest {
             id = 1L, username = "testuser", plan = "Free",
             quota = SoundCloudQuota(unlimitedUploadQuota = false, uploadSecondsUsed = 7000, uploadSecondsLeft = -500)
         )
+        every { soundCloudClient.getMyTracks("access-token") } returns SoundCloudTrackListResponse()
 
         val ex = assertThrows<SoundCloudQuotaExceededException> {
             publisher.publish(episode, podcast, "user1")
         }
-        assertEquals(true, ex.message?.contains("quota exceeded"))
+        assertEquals(true, ex.message?.contains("quota is full"))
+    }
+
+    @Test
+    fun `publish quota plan picks oldest tracks until episode duration fits`() {
+        // 5 minutes left, this episode needs 12 minutes -> must free ~7 min (+ buffer).
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.getMe("access-token") } returns SoundCloudMeResponse(
+            id = 1L, username = "testuser", plan = "Free",
+            quota = SoundCloudQuota(unlimitedUploadQuota = false, uploadSecondsUsed = 7000, uploadSecondsLeft = 300)
+        )
+        every { soundCloudClient.getMyTracks("access-token") } returns SoundCloudTrackListResponse(
+            collection = listOf(
+                // Durations in milliseconds; oldest first by createdAt.
+                SoundCloudTrackSummary(id = 100, title = "Tech News - 2026-01-01", createdAt = "2026-01-01T00:00:00Z", duration = 360_000),
+                SoundCloudTrackSummary(id = 200, title = "Tech News - 2026-01-02", createdAt = "2026-01-02T00:00:00Z", duration = 360_000),
+                SoundCloudTrackSummary(id = 300, title = "Tech News - 2026-01-03", createdAt = "2026-01-03T00:00:00Z", duration = 360_000),
+                SoundCloudTrackSummary(id = 999, title = "Other Show - 2026-01-01", createdAt = "2025-01-01T00:00:00Z", duration = 360_000)
+            )
+        )
+        val episode12min = episode.copy(durationSeconds = 720)
+
+        val ex = assertThrows<SoundCloudQuotaExceededException> {
+            publisher.publish(episode12min, podcast, "user1")
+        }
+
+        // Need 720 - 300 + 120 = 540s; each track is 360s, so two oldest podcast tracks (100, 200).
+        assertEquals(listOf(100L, 200L), ex.plan.tracksToDelete.map { it.id })
+        assertEquals(540L, ex.plan.secondsToFree)
+    }
+
+    @Test
+    fun `publish proceeds when quota fits the episode duration`() {
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.getMe("access-token") } returns SoundCloudMeResponse(
+            id = 1L, username = "testuser", plan = "Free",
+            quota = SoundCloudQuota(unlimitedUploadQuota = false, uploadSecondsUsed = 7000, uploadSecondsLeft = 800)
+        )
+        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+
+        val result = publisher.publish(episode.copy(durationSeconds = 720), podcast, "user1")
+        assertEquals("456", result.externalId)
+    }
+
+    @Test
+    fun `deleteTracks deletes each track id`() {
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.deleteTrack("access-token", any()) } returns Unit
+
+        publisher.deleteTracks("user1", listOf(100, 200))
+
+        verify { soundCloudClient.deleteTrack("access-token", 100) }
+        verify { soundCloudClient.deleteTrack("access-token", 200) }
     }
 
     @Test

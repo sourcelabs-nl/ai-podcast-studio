@@ -196,6 +196,27 @@ class PublishingServiceTest {
         }
     }
 
+    @Test
+    fun `freeQuotaAndPublish deletes approved tracks then publishes`() {
+        every { soundCloudPublisher.deleteTracks("user1", listOf(100L, 200L)) } returns Unit
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        every { publisher.publish(episode, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+
+        val result = service.freeQuotaAndPublish(episode, podcast, "user1", "soundcloud", listOf(100L, 200L))
+
+        assertEquals(PublicationStatus.PUBLISHED, result.status)
+        verify { soundCloudPublisher.deleteTracks("user1", listOf(100L, 200L)) }
+    }
+
+    @Test
+    fun `freeQuotaAndPublish rejects non-soundcloud target`() {
+        assertThrows<IllegalArgumentException> {
+            service.freeQuotaAndPublish(episode, podcast, "user1", "ftp", listOf(100L))
+        }
+    }
+
     // --- unpublish tests ---
 
     @Test

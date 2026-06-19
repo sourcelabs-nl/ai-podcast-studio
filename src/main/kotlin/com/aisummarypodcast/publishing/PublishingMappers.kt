@@ -20,5 +20,6 @@ internal fun EpisodePublication.toResponse() = PublicationResponse(
 internal fun PodcastPublicationTarget.toResponse(objectMapper: ObjectMapper) = PublicationTargetResponse(
     target = target,
     config = objectMapper.readValue(config, Map::class.java) as Map<String, Any>,
-    enabled = enabled
+    enabled = enabled,
+    autoPublish = autoPublish
 )

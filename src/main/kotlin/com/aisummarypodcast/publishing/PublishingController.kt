@@ -5,7 +5,6 @@ import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.user.UserService
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
-import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.bind.annotation.*
 
 @RestController
@@ -34,54 +33,31 @@ class PublishingController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        return try {
-            val publication = publishingService.publish(episode, podcast, userId, target)
-            ResponseEntity.ok(publication.toResponse())
-        } catch (e: SoundCloudQuotaExceededException) {
-            log.warn("SoundCloud quota exceeded for episode {} to {}: {}", episodeId, target, e.message)
-            ResponseEntity.status(413).body(mapOf(
-                "error" to e.message,
-                "code" to "quota_exceeded",
-                "oldestTrack" to e.oldestTrack?.let {
-                    mapOf(
-                        "id" to it.id,
-                        "title" to it.title,
-                        "createdAt" to it.createdAt,
-                        "duration" to it.duration
-                    )
-                }
-            ))
-        } catch (e: UnsupportedOperationException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        } catch (e: IllegalStateException) {
-            val message = e.message ?: "Publishing failed"
-            if (message.contains("not configured or enabled", ignoreCase = true)) {
-                ResponseEntity.badRequest().body(mapOf("error" to message, "code" to "target_not_configured"))
-            } else if (message.contains("re-authorize", ignoreCase = true) || message.contains("refresh failed", ignoreCase = true)) {
-                log.error("OAuth authorization failed for episode {} to {}: {}", episodeId, target, e.message, e)
-                ResponseEntity.status(401).body(mapOf(
-                    "error" to "SoundCloud authorization expired. Please re-authorize your account.",
-                    "code" to "oauth_expired"
-                ))
-            } else if (message.contains("already published")) {
-                ResponseEntity.status(409).body(mapOf("error" to message))
-            } else if (message.contains("approved for publication", ignoreCase = true)) {
-                ResponseEntity.status(409).body(mapOf("error" to message, "code" to "approval_required"))
-            } else {
-                ResponseEntity.badRequest().body(mapOf("error" to message))
-            }
-        } catch (e: HttpClientErrorException.Unauthorized) {
-            log.error("OAuth authorization failed for episode {} to {}: {}", episodeId, target, e.message, e)
-            ResponseEntity.status(401).body(mapOf(
-                "error" to "SoundCloud authorization expired. Please re-authorize your account.",
-                "code" to "oauth_expired"
-            ))
-        } catch (e: Exception) {
-            log.error("Publishing failed for episode {} to {}: {}", episodeId, target, e.message, e)
-            ResponseEntity.internalServerError().body(mapOf("error" to "Publishing failed: ${e.message}"))
-        }
+        // Publishing failures are translated to HTTP by PublishingExceptionHandler (Rule SB8).
+        val publication = publishingService.publish(episode, podcast, userId, target)
+        return ResponseEntity.ok(publication.toResponse())
+    }
+
+    @PostMapping("/publish/{target}/free-and-publish")
+    fun freeQuotaAndPublish(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @PathVariable episodeId: Long,
+        @PathVariable target: String,
+        @RequestBody request: FreeQuotaRequest
+    ): ResponseEntity<Any> {
+        userService.findById(userId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
+        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+
+        val episode = episodeService.findById(episodeId)
+            ?: return ResponseEntity.notFound().build()
+        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+
+        // A still-insufficient quota re-throws SoundCloudQuotaExceededException with a fresh plan;
+        // PublishingExceptionHandler maps that (and every other publishing failure) to HTTP.
+        val publication = publishingService.freeQuotaAndPublish(episode, podcast, userId, target, request.trackIds)
+        return ResponseEntity.ok(publication.toResponse())
     }
 
     @DeleteMapping("/publications/{target}")

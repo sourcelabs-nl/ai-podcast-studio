@@ -14,16 +14,23 @@ data class PublicationResponse(
 
 data class PublicationTargetRequest(
     val config: Map<String, Any>? = null,
-    val enabled: Boolean = false
+    val enabled: Boolean = false,
+    val autoPublish: Boolean = false
 )
 
 data class PublicationTargetResponse(
     val target: String,
     val config: Map<String, Any>,
-    val enabled: Boolean
+    val enabled: Boolean,
+    val autoPublish: Boolean
 )
 
 data class AuthorizeResponse(val authorizationUrl: String)
+
+/** Track IDs the user has consented to delete so an episode fits the SoundCloud upload quota. */
+data class FreeQuotaRequest(
+    val trackIds: List<Long> = emptyList()
+)
 
 /** Lightweight episode reference embedded in podcast-level publication rows. */
 data class PublicationEpisodeRef(

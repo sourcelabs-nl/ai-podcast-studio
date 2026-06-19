@@ -61,7 +61,7 @@ class PodcastPublicationTargetServiceTest {
             firstArg<PodcastPublicationTarget>().copy(id = 1)
         }
 
-        val result = service.upsert("pod1", "ftp", """{"remotePath":"/shows/"}""", true)
+        val result = service.upsert("pod1", "ftp", """{"remotePath":"/shows/"}""", true, false)
 
         assertEquals("ftp", result.target)
         assertTrue(result.enabled)
@@ -73,7 +73,7 @@ class PodcastPublicationTargetServiceTest {
             firstArg<PodcastPublicationTarget>().copy(id = 1)
         }
 
-        val result = service.upsert("pod1", "ftp", """{"remotePath":"/new/"}""", true)
+        val result = service.upsert("pod1", "ftp", """{"remotePath":"/new/"}""", true, false)
 
         assertEquals(1L, result.id)
         assertTrue(result.enabled)

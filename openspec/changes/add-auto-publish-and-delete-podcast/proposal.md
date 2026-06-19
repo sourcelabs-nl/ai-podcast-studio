@@ -21,7 +21,7 @@ Publishing an episode to FTP/SoundCloud is currently a manual, per-episode actio
 
 ## Impact
 
-- **Backend**: New Flyway migration `V60` adding `auto_publish` to `podcast_publication_targets`; `PodcastPublicationTarget` entity, its custom `upsert`, `PodcastPublicationTargetService.upsert`, `PublicationTargetRequest`/`PublicationTargetResponse` DTOs and `toResponse` mapper gain the new field; new `AutoPublishListener` in the `publishing` package listening on `episode.generated`. No change to the existing manual `PublishingService.publish` contract.
+- **Backend**: New Flyway migration `V62` adding `auto_publish` to `podcast_publication_targets`; `PodcastPublicationTarget` entity, its custom `upsert`, `PodcastPublicationTargetService.upsert`, `PublicationTargetRequest`/`PublicationTargetResponse` DTOs and `toResponse` mapper gain the new field; new `AutoPublishListener` in the `publishing` package listening on `episode.generated`. No change to the existing manual `PublishingService.publish` contract.
 - **Frontend**: `frontend/src/app/podcasts/[podcastId]/settings/page.tsx` (auto-publish toggle), `frontend/src/app/podcasts/[podcastId]/page.tsx` (delete danger zone + typed-name AlertDialog), and the `PublicationTarget` type.
 - **APIs**: `PUT /users/{userId}/podcasts/{podcastId}/publication-targets/{target}` request/response gain `autoPublish`. Existing `DELETE /users/{userId}/podcasts/{podcastId}` is reused unchanged.
 - **Dependencies**: None new.

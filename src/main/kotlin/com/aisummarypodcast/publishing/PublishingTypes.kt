@@ -37,3 +37,26 @@ internal data class PendingOAuth(
     val codeVerifier: String,
     val createdAt: Instant = Instant.now()
 )
+
+/**
+ * The set of existing SoundCloud tracks that must be deleted to free enough upload quota for a new
+ * episode, computed server-side from the live quota and the episode's duration. Presented to the
+ * user for one-time consent before any track is deleted.
+ */
+data class QuotaDeletionPlan(
+    val tracksToDelete: List<QuotaTrackToDelete>,
+    val secondsToFree: Long
+)
+
+data class QuotaTrackToDelete(
+    val id: Long,
+    val title: String?,
+    val createdAt: String?,
+    val durationSeconds: Long
+)
+
+/** Thrown when SoundCloud lacks the upload quota for an episode; carries the [plan] to free space. */
+class SoundCloudQuotaExceededException(
+    message: String,
+    val plan: QuotaDeletionPlan
+) : RuntimeException(message)

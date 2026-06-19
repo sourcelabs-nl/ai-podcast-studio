@@ -6,7 +6,7 @@ user_invocable: false
 
 # Architecture Rules
 
-7 rules enforcing service layer boundaries, data flow, exception design, and domain logic placement. Applied to all `.kt` files.
+8 rules enforcing service layer boundaries, data flow, exception design, and domain logic placement. Applied to all `.kt` files.
 
 ---
 
@@ -158,3 +158,21 @@ Controllers and services must be clean and concise. They must not contain data c
 - Companion objects with constants in service classes (e.g., `PROVIDER_DEFAULT_URLS`) -- these are configuration, not data classes
 - Inline anonymous objects or map literals used for one-off JSON responses
 - Data classes in dedicated `*Dtos.kt`, `*Mappers.kt`, or `*Types.kt` files
+
+---
+
+## Rule A8: Multi-Step Workflows Live on the Server, Not in the Client
+
+A workflow that involves more than one backend call with logic between the steps -- conditional branching, retrying, polling, or arithmetic that decides the next call -- must be implemented as a single server operation behind one endpoint. The web/frontend client must call that one endpoint and never orchestrate the workflow itself by chaining backend calls. The server has the authoritative data (live quotas, durations, DB state) and is the only place that can make these decisions correctly and atomically; a client that stitches calls together duplicates business logic, races against stale data, and cannot be reused by other entry points (schedulers, other clients).
+
+A single point of user **consent** (e.g. confirming a destructive action) may stay in the client, but the decision of *what* to do (which records, how many, with what retries) is computed server-side and the client only forwards the confirmation.
+
+**Violations to flag:**
+- A frontend component performing a sequence like "POST publish -> on quota error DELETE oldest track -> retry POST publish on a timer" instead of calling one server endpoint that does it all
+- Client code containing retry/backoff loops, polling, or "how much to free / how many to delete" arithmetic against a backend resource
+- The same multi-step backend sequence implemented in more than one client, or in a client when a scheduler needs it too (belongs in a shared service method -- see Rule A3)
+- A controller exposing only low-level primitives (`publish`, `deleteTrack`, `getQuota`) that force the client to assemble the actual operation
+
+**Correct pattern:**
+- Server: one endpoint / service method encapsulates the full workflow (compute plan, mutate, retry, return result). Reused by every entry point.
+- Client: calls the single endpoint; on a "needs confirmation" response, shows the server-computed plan and, on consent, calls the one follow-up endpoint that performs it.

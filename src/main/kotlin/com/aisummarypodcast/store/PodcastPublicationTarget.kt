@@ -9,5 +9,6 @@ data class PodcastPublicationTarget(
     val podcastId: String,
     val target: String,
     val config: String = "{}",
-    val enabled: Boolean = false
+    val enabled: Boolean = false,
+    val autoPublish: Boolean = false
 )

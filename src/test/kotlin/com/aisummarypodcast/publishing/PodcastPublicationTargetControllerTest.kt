@@ -81,7 +81,7 @@ class PodcastPublicationTargetControllerTest {
     fun `upsert creates new target`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
-        every { targetService.upsert(podcastId, "ftp", any(), true) } returns
+        every { targetService.upsert(podcastId, "ftp", any(), true, false) } returns
             PodcastPublicationTarget(id = 1, podcastId = podcastId, target = "ftp", config = """{"remotePath":"/shows/tech/"}""", enabled = true)
 
         mockMvc.perform(

@@ -114,6 +114,76 @@ class PublishingControllerTest {
     }
 
     @Test
+    fun `publish returns 413 with deletion plan when quota full`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(episodeId) } returns episode
+        every { publishingService.publish(episode, podcast, userId, "soundcloud") } throws
+            SoundCloudQuotaExceededException(
+                message = "SoundCloud upload quota is full.",
+                plan = QuotaDeletionPlan(
+                    tracksToDelete = listOf(QuotaTrackToDelete(id = 100, title = "Old", createdAt = "2026-01-01T00:00:00Z", durationSeconds = 360)),
+                    secondsToFree = 540
+                )
+            )
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/$episodeId/publish/soundcloud"))
+            .andExpect(status().isPayloadTooLarge)
+            .andExpect(jsonPath("$.code").value("quota_exceeded"))
+            .andExpect(jsonPath("$.secondsToFree").value(540))
+            .andExpect(jsonPath("$.tracksToDelete[0].id").value(100))
+    }
+
+    @Test
+    fun `free-and-publish deletes tracks and returns 200`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(episodeId) } returns episode
+        every { publishingService.freeQuotaAndPublish(episode, podcast, userId, "soundcloud", listOf(100L, 200L)) } returns
+            EpisodePublication(
+                id = 10L,
+                episodeId = episodeId,
+                target = "soundcloud",
+                status = PublicationStatus.PUBLISHED,
+                externalId = "sc-123",
+                externalUrl = "https://soundcloud.com/track/123",
+                publishedAt = "2026-02-13T10:00:00Z",
+                createdAt = "2026-02-13T10:00:00Z"
+            )
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts/$podcastId/episodes/$episodeId/publish/soundcloud/free-and-publish")
+                .contentType("application/json")
+                .content("""{"trackIds":[100,200]}""")
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.status").value("PUBLISHED"))
+    }
+
+    @Test
+    fun `free-and-publish returns 413 when still over quota`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(episodeId) } returns episode
+        every { publishingService.freeQuotaAndPublish(episode, podcast, userId, "soundcloud", listOf(100L)) } throws
+            SoundCloudQuotaExceededException(
+                message = "SoundCloud upload quota is full.",
+                plan = QuotaDeletionPlan(
+                    tracksToDelete = listOf(QuotaTrackToDelete(id = 200, title = "Another", createdAt = "2026-01-02T00:00:00Z", durationSeconds = 360)),
+                    secondsToFree = 200
+                )
+            )
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts/$podcastId/episodes/$episodeId/publish/soundcloud/free-and-publish")
+                .contentType("application/json")
+                .content("""{"trackIds":[100]}""")
+        )
+            .andExpect(status().isPayloadTooLarge)
+            .andExpect(jsonPath("$.tracksToDelete[0].id").value(200))
+    }
+
+    @Test
     fun `list publications returns empty array`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast

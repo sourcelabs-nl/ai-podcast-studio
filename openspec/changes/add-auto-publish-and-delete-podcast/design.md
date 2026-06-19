@@ -38,7 +38,7 @@ Reuse the existing shadcn `AlertDialog` pattern. The confirm button stays disabl
 
 ## Migration Plan
 
-- Flyway `V60` adds `auto_publish INTEGER NOT NULL DEFAULT 0`; existing rows default to off, so behavior is unchanged until a user opts in. Rollback is a column drop (or simply leaving the unused column, since older code ignores it).
+- Flyway `V62` adds `auto_publish INTEGER NOT NULL DEFAULT 0`; existing rows default to off, so behavior is unchanged until a user opts in. Rollback is a column drop (or simply leaving the unused column, since older code ignores it).
 
 ## Open Questions
 

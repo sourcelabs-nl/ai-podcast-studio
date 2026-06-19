@@ -15,13 +15,20 @@ class PodcastPublicationTargetService(
     fun get(podcastId: String, target: String): PodcastPublicationTarget? =
         repository.findByPodcastIdAndTarget(podcastId, target)
 
-    fun upsert(podcastId: String, target: String, config: String, enabled: Boolean): PodcastPublicationTarget {
+    fun upsert(
+        podcastId: String,
+        target: String,
+        config: String,
+        enabled: Boolean,
+        autoPublish: Boolean
+    ): PodcastPublicationTarget {
         return repository.upsert(
             PodcastPublicationTarget(
                 podcastId = podcastId,
                 target = target,
                 config = config,
-                enabled = enabled
+                enabled = enabled,
+                autoPublish = autoPublish
             )
         )
     }

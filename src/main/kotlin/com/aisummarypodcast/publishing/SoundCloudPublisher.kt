@@ -27,6 +27,10 @@ class SoundCloudPublisher(
 
     companion object {
         const val TARGET_NAME = "soundcloud"
+
+        // Extra headroom (seconds) added on top of the episode's own duration when planning how much
+        // quota to free, to absorb SoundCloud's quota rounding and any duration estimate error.
+        private const val QUOTA_BUFFER_SECONDS = 120L
     }
 
     override fun targetName(): String = TARGET_NAME
@@ -34,23 +38,12 @@ class SoundCloudPublisher(
     override fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult {
         val accessToken = tokenManager.getValidAccessToken(userId)
 
-        val me = soundCloudClient.getMe(accessToken)
-        val quota = me.quota
-        if (quota != null && !quota.unlimitedUploadQuota && quota.uploadSecondsLeft <= 0) {
-            val oldestTrack = try {
-                soundCloudClient.getMyTracks(accessToken).collection
-                    .filter { it.title?.startsWith(podcast.name) == true }
-                    .minByOrNull { it.createdAt ?: "" }
-            } catch (e: Exception) {
-                log.warn("Failed to fetch tracks for oldest track lookup: {}", e.message)
-                null
-            }
+        val plan = planQuotaDeletion(accessToken, podcast, episode)
+        if (plan != null) {
             throw SoundCloudQuotaExceededException(
-                message = "SoundCloud upload quota exceeded. " +
-                    "Used: ${formatDuration(quota.uploadSecondsUsed)}, " +
-                    "over by: ${formatDuration(-quota.uploadSecondsLeft)}. " +
-                    "Delete an existing track or upgrade your plan.",
-                oldestTrack = oldestTrack
+                message = "SoundCloud upload quota is full. About ${formatDuration(plan.secondsToFree)} " +
+                    "must be freed to publish this episode. Remove the listed track(s) to continue.",
+                plan = plan
             )
         }
 
@@ -87,6 +80,56 @@ class SoundCloudPublisher(
         log.info("Unpublished (deleted) SoundCloud track {}", trackId)
     }
 
+    /** Deletes the given tracks from SoundCloud (used to free upload quota before re-publishing). */
+    fun deleteTracks(userId: String, trackIds: List<Long>) {
+        val accessToken = tokenManager.getValidAccessToken(userId)
+        for (trackId in trackIds) {
+            soundCloudClient.deleteTrack(accessToken, trackId)
+            log.info("Deleted SoundCloud track {} to free upload quota", trackId)
+        }
+    }
+
+    /**
+     * Returns the set of oldest tracks to delete so this episode fits the upload quota, or `null`
+     * when there is already enough room (or the account has unlimited quota). The episode's
+     * `durationSeconds` defines how much headroom is needed; when it is unknown the legacy rule
+     * (any remaining quota is enough) applies.
+     */
+    private fun planQuotaDeletion(accessToken: String, podcast: Podcast, episode: Episode): QuotaDeletionPlan? {
+        val quota = soundCloudClient.getMe(accessToken).quota
+        if (quota == null || quota.unlimitedUploadQuota) return null
+
+        val requiredSeconds = episode.durationSeconds?.toLong()
+        val exceeded = if (requiredSeconds != null) {
+            quota.uploadSecondsLeft < requiredSeconds
+        } else {
+            quota.uploadSecondsLeft <= 0
+        }
+        if (!exceeded) return null
+
+        val secondsToFree = (requiredSeconds ?: 1L) - quota.uploadSecondsLeft + QUOTA_BUFFER_SECONDS
+
+        // Delete oldest-first, accumulating each track's duration until we have freed enough.
+        val oldestFirst = try {
+            soundCloudClient.getMyTracks(accessToken).collection
+                .filter { it.title?.startsWith(podcast.name) == true }
+                .sortedBy { it.createdAt ?: "" }
+        } catch (e: Exception) {
+            log.warn("Failed to fetch tracks for quota deletion plan: {}", e.message)
+            emptyList()
+        }
+
+        val toDelete = mutableListOf<QuotaTrackToDelete>()
+        var freed = 0L
+        for (track in oldestFirst) {
+            if (freed >= secondsToFree) break
+            val durationSeconds = (track.duration ?: 0L) / 1000
+            toDelete.add(QuotaTrackToDelete(track.id, track.title, track.createdAt, durationSeconds))
+            freed += durationSeconds
+        }
+        return QuotaDeletionPlan(tracksToDelete = toDelete, secondsToFree = secondsToFree)
+    }
+
     override fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult {
         val accessToken = tokenManager.getValidAccessToken(userId)
         val trackId = externalId.toLong()
@@ -110,7 +153,13 @@ class SoundCloudPublisher(
         val config = target?.config?.let { objectMapper.readTree(it) }
             ?.let { (it as tools.jackson.databind.node.ObjectNode).put("playlistId", playlistId.toString()) }
             ?: objectMapper.createObjectNode().put("playlistId", playlistId.toString())
-        targetService.upsert(podcastId, TARGET_NAME, objectMapper.writeValueAsString(config), target?.enabled ?: true)
+        targetService.upsert(
+            podcastId,
+            TARGET_NAME,
+            objectMapper.writeValueAsString(config),
+            target?.enabled ?: true,
+            target?.autoPublish ?: false
+        )
     }
 
     fun updateTrackPermalinks(podcast: Podcast, userId: String, episodes: List<Episode>, publications: List<com.aisummarypodcast.store.EpisodePublication>): Set<Long> {
@@ -194,8 +243,3 @@ class SoundCloudPublisher(
         return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
     }
 }
-
-class SoundCloudQuotaExceededException(
-    message: String,
-    val oldestTrack: SoundCloudTrackSummary? = null
-) : RuntimeException(message)
