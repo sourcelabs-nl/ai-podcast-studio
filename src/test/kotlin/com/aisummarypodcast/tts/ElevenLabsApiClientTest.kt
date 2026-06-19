@@ -26,8 +26,10 @@ class ElevenLabsApiClientTest {
 
     @BeforeEach
     fun setup() {
-        mockServer = MockRestServiceServer.bindTo(restClientBuilder).build()
+        // Construct the client first: its init block sets a timeout request factory on the
+        // builder. bindTo then overrides that with the mock factory so requests are intercepted.
         apiClient = ElevenLabsApiClient(providerConfigService, restClientBuilder)
+        mockServer = MockRestServiceServer.bindTo(restClientBuilder).build()
 
         every {
             providerConfigService.resolveConfig("u1", ApiKeyCategory.TTS, "elevenlabs")

@@ -81,6 +81,7 @@ class LlmPipelineTest {
     private fun setupBasicPipeline(articles: List<Article> = listOf(scoredArticle), podcast: Podcast = this.podcast) {
         every { sourceRepository.findByPodcastId(podcast.id) } returns listOf(source)
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
@@ -103,6 +104,7 @@ class LlmPipelineTest {
     fun `returns null when no eligible articles exist`() {
         every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
@@ -139,6 +141,7 @@ class LlmPipelineTest {
 
         every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns listOf(unlinkedPost)
         every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
@@ -324,6 +327,7 @@ class LlmPipelineTest {
     fun `aggregateScoreAndFilter returns null when no eligible articles`() {
         every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
@@ -338,6 +342,7 @@ class LlmPipelineTest {
     fun `dedup returns filtered articles with topics`() {
         val filteredArticle = FilteredArticle(scoredArticle, topic = "AI Safety")
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
         every { topicDedupFilter.filter(listOf(scoredArticle), emptyList(), "u1", filterModelDef) } returns
             DedupFilterResult(listOf(filteredArticle), TokenUsage(100, 50))
@@ -354,6 +359,7 @@ class LlmPipelineTest {
     @Test
     fun `dedup returns null when all articles filtered`() {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
         every { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(emptyList(), TokenUsage(100, 50))

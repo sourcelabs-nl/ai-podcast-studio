@@ -83,6 +83,7 @@ class ChatClientFactory(
             )
 
         val requestFactory = SimpleClientHttpRequestFactory().apply {
+            setConnectTimeout(Duration.ofSeconds(10))
             setReadTimeout(Duration.ofMinutes(5))
         }
         val restClientBuilder = RestClient.builder().requestFactory(requestFactory)

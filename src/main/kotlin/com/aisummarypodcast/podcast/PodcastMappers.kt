@@ -115,7 +115,9 @@ private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCo
         else costFor(model, input, output) ?: 0
 
     val scoreCost = effective(scoreCostCents, filterModel, scoreInputTokens, scoreOutputTokens)
-    val dedupCost = effective(dedupCostCents, filterModel, dedupInputTokens, dedupOutputTokens)
+    // Dedup runs on its own model; legacy episodes (null dedupModel) fall back to the filter model.
+    val dedupModelLabel = dedupModel ?: filterModel
+    val dedupCost = effective(dedupCostCents, dedupModelLabel, dedupInputTokens, dedupOutputTokens)
     val composeCost = effective(composeCostCents, composeModel, composeInputTokens, composeOutputTokens)
     val recapCost = effective(recapCostCents, filterModel, recapInputTokens, recapOutputTokens)
     val totalCostCents = scoreCost + dedupCost + composeCost + recapCost +
@@ -129,7 +131,7 @@ private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCo
             costCents = scoreCost
         ),
         dedup = LlmStageCostResponse(
-            model = filterModel,
+            model = dedupModelLabel,
             calls = llmCalls(dedupInputTokens, dedupOutputTokens, dedupCost),
             inputTokens = dedupInputTokens,
             outputTokens = dedupOutputTokens,

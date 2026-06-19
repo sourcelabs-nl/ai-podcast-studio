@@ -5,8 +5,10 @@ import com.aisummarypodcast.user.UserProviderConfigService
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.MediaType
+import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
+import java.time.Duration
 
 data class DialogueInput(val text: String, val voice_id: String)
 
@@ -19,6 +21,18 @@ class ElevenLabsApiClient(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    init {
+        // Audio synthesis can take minutes, so override the global 30s read timeout with 5m.
+        // Configured once on this client's own builder (not per call) so tests can still bind a
+        // MockRestServiceServer factory afterwards.
+        restClientBuilder.requestFactory(
+            SimpleClientHttpRequestFactory().apply {
+                setConnectTimeout(Duration.ofSeconds(10))
+                setReadTimeout(Duration.ofMinutes(5))
+            }
+        )
+    }
 
     fun textToSpeech(userId: String, voiceId: String, text: String, voiceSettings: Map<String, String>?): ByteArray {
         val client = createClient(userId)

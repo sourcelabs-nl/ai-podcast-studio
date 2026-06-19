@@ -428,6 +428,7 @@ class EpisodeServiceTest {
                 FilteredArticle(article2, topic = "New Releases")
             ),
             filterModel = "anthropic/claude-haiku-4.5",
+            dedupModel = "anthropic/claude-sonnet-4.6",
             usage = TokenUsage(200, 100),
             followUpAnnotations = emptyMap(),
             topicLabels = listOf("AI Safety", "New Releases"),
@@ -484,6 +485,7 @@ class EpisodeServiceTest {
         val dedupResult = DedupStageResult(
             filteredArticles = listOf(FilteredArticle(article1), FilteredArticle(article2)),
             filterModel = "anthropic/claude-haiku-4.5",
+            dedupModel = "anthropic/claude-sonnet-4.6",
             usage = TokenUsage(200, 100),
             followUpAnnotations = emptyMap(),
             topicLabels = emptyList(),

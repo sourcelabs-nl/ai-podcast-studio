@@ -7,6 +7,15 @@ spring:
         allow-backslash-escaping-any-character: true
   lifecycle:
     timeout-per-shutdown-phase: 10s
+  # Baseline timeouts for auto-configured RestClient.Builder / RestTemplateBuilder clients
+  # (Tavily, SoundCloud, X OAuth, research test). These are quick API calls — 30s read is a
+  # generous backstop against an indefinite hang. Clients that build their own request factory
+  # (LLM ChatClientFactory, Inworld TTS) are unaffected; ElevenLabs overrides read to 5m for
+  # long audio synthesis.
+  http:
+    client:
+      connect-timeout: 10s
+      read-timeout: 30s
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
@@ -77,6 +86,12 @@ app:
       filter:
         provider: openrouter
         model: openai/gpt-5.4-nano
+      # Dedup clusters dozens of candidates against historical articles and emits structured JSON
+      # — a reasoning-heavy task. A nano model collapses into repetition loops here, so dedup gets
+      # its own (stronger) model, separate from the cheap per-article scoring (filter) model.
+      dedup:
+        provider: openrouter
+        model: anthropic/claude-sonnet-4.6
       compose:
         provider: openrouter
         model: anthropic/claude-sonnet-4.6

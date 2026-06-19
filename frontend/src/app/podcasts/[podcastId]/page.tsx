@@ -72,6 +72,15 @@ type PendingAction = {
 
 const DEFAULT_PAGE_SIZE = 20;
 
+// Compact elapsed label (e.g. "45s", "1m 23s") used as a liveness signal for the dedup stage,
+// which is a single opaque LLM call with no per-item progress.
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
 export default function EpisodesPage() {
   const params = useParams<{ podcastId: string }>();
   const router = useRouter();
@@ -91,6 +100,10 @@ export default function EpisodesPage() {
   const [countdown, setCountdown] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [scoringProgress, setScoringProgress] = useState<Record<number, { scored: number; total: number }>>({});
+  // Tracks when each episode was first observed in the deduplicating stage, so we can show an
+  // elapsed timer (dedup is a single LLM call with no per-item progress to report).
+  const [dedupStartedAt, setDedupStartedAt] = useState<Record<number, number>>({});
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
   const [currentTab, setTab] = useTabParam("episodes", TABS);
 
   // URL-synced pagination + multi-select status filter
@@ -203,6 +216,31 @@ export default function EpisodesPage() {
     }
     fetchEpisodes();
   }, [fetchEpisodes]));
+
+  // Record/clear dedup start times as episodes enter and leave the deduplicating stage.
+  useEffect(() => {
+    setDedupStartedAt((prev) => {
+      const next: Record<number, number> = {};
+      for (const ep of episodes) {
+        const generating = ep.status === "GENERATING" || ep.status === "GENERATING_AUDIO";
+        if (generating && ep.pipelineStage === "deduplicating") {
+          next[ep.id] = prev[ep.id] ?? Date.now();
+        }
+      }
+      const sameKeys =
+        Object.keys(next).length === Object.keys(prev).length &&
+        Object.keys(next).every((id) => prev[Number(id)] === next[Number(id)]);
+      return sameKeys ? prev : next;
+    });
+  }, [episodes]);
+
+  // Tick once per second only while a dedup is in progress, so the elapsed label stays live.
+  const hasActiveDedup = Object.keys(dedupStartedAt).length > 0;
+  useEffect(() => {
+    if (!hasActiveDedup) return;
+    const timer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasActiveDedup]);
 
   useEffect(() => {
     if (!selectedUser) return;
@@ -416,7 +454,11 @@ export default function EpisodesPage() {
                                     ? `Scoring ${scoringProgress[episode.id].scored} / ${scoringProgress[episode.id].total}`
                                     : "Scoring..."
                                 )}
-                                {episode.pipelineStage === "deduplicating" && "Deduplicating..."}
+                                {episode.pipelineStage === "deduplicating" && (
+                                  dedupStartedAt[episode.id]
+                                    ? `Deduplicating... (${formatElapsed(nowTick - dedupStartedAt[episode.id])})`
+                                    : "Deduplicating..."
+                                )}
                                 {episode.pipelineStage === "composing" && "Composing..."}
                                 {episode.pipelineStage === "tts" && "Generating audio..."}
                                 {!episode.pipelineStage && "Starting..."}

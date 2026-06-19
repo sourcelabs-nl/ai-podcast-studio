@@ -12,6 +12,7 @@ class ConfigController(private val appProperties: AppProperties) {
     fun defaults(): PodcastDefaultsResponse {
         val llmModels = mapOf(
             "filter" to appProperties.llm.defaults.filter,
+            "dedup" to appProperties.llm.defaults.dedup,
             "compose" to appProperties.llm.defaults.compose
         )
 

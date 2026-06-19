@@ -534,8 +534,8 @@ export default function PodcastSettingsPage() {
               <CardTitle>LLM Settings</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <FieldGroup label="LLM Models" description="Override the LLM model per pipeline stage. Filter handles scoring/summarization. Compose handles script writing.">
-                {(["filter", "compose"] as const).map((stage) => {
+              <FieldGroup label="LLM Models" description="Override the LLM model per pipeline stage. Filter handles scoring/summarization. Dedup clusters and deduplicates articles against recent episodes. Compose handles script writing.">
+                {(["filter", "dedup", "compose"] as const).map((stage) => {
                   const override = form.llmModels?.[stage];
                   const defaultRef = defaults?.llmModels?.[stage];
                   const llmProviders = defaults?.availableModels

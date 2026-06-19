@@ -116,6 +116,7 @@ class EpisodeService(
                 generatedAt = generatedAt,
                 scriptText = result.script,
                 filterModel = result.filterModel,
+                dedupModel = result.dedupModel,
                 composeModel = result.composeModel,
                 llmInputTokens = result.llmInputTokens,
                 llmOutputTokens = result.llmOutputTokens,
@@ -256,6 +257,7 @@ class EpisodeService(
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
         val withStages = fresh.copy(
             filterModel = dedupResult.filterModel,
+            dedupModel = dedupResult.dedupModel,
             scoreInputTokens = dedupResult.scoreInputTokens,
             scoreOutputTokens = dedupResult.scoreOutputTokens,
             scoreCostCents = dedupResult.scoreCostCents,
