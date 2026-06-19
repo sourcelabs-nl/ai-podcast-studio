@@ -10,10 +10,7 @@ import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.user.UserProviderConfigService
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.ai.openai.OpenAiChatModel
-import org.springframework.ai.openai.api.OpenAiApi
-import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
-import org.springframework.web.client.RestClient
 import java.time.Duration
 
 @Component
@@ -82,19 +79,10 @@ class ChatClientFactory(
                     "Configure a user provider for '${resolvedModel.provider}' or set the appropriate environment variable."
             )
 
-        val requestFactory = SimpleClientHttpRequestFactory().apply {
-            setConnectTimeout(Duration.ofSeconds(10))
-            setReadTimeout(Duration.ofMinutes(5))
-        }
-        val restClientBuilder = RestClient.builder().requestFactory(requestFactory)
-
-        val openAiApi = OpenAiApi.builder()
-            .apiKey(config.apiKey ?: "")
-            .baseUrl(config.baseUrl)
-            .restClientBuilder(restClientBuilder)
-            .build()
+        // Generous request timeout: composition with tool calls can run for minutes.
+        val openAiClient = buildOpenAiClient(config, Duration.ofMinutes(5))
         val chatModel = OpenAiChatModel.builder()
-            .openAiApi(openAiApi)
+            .openAiClient(openAiClient)
             .build()
         return CachingChatModel(chatModel, llmCacheRepository)
     }

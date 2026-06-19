@@ -85,7 +85,6 @@ class ArticleScoreSummarizer(
                                                 OpenAiChatOptions.builder()
                                                     .model(model)
                                                     .temperature(0.3)
-                                                    .build()
                                             )
                                             .call()
                                             .responseEntity(converter)

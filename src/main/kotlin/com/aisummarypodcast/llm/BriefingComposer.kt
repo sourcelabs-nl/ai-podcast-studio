@@ -49,7 +49,7 @@ class BriefingComposer(
         val (result, elapsed) = measureTimedValue {
             val chatResponse = chatClient.prompt()
                 .user(prompt)
-                .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature).build())
+                .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
                 .call()
                 .chatResponse()
 

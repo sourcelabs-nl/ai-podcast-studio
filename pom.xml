@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.0.4</version>
+		<version>4.1.0</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.aisummarypodcast</groupId>
@@ -15,8 +15,8 @@
 	<description>AI-powered podcast pipeline that monitors content sources, summarizes with LLM, and delivers audio briefings via RSS</description>
 	<properties>
 		<java.version>25</java.version>
-		<kotlin.version>2.3.20</kotlin.version>
-		<spring-ai.version>2.0.0-M4</spring-ai.version>
+		<kotlin.version>2.4.0</kotlin.version>
+		<spring-ai.version>2.0.0</spring-ai.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -26,6 +26,15 @@
 				<version>${spring-ai.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
+			</dependency>
+			<!-- The OpenAI SDK (openai-java-core) pulls victools jsonschema-module-jackson 4.38.0,
+			     which conflicts with jsonschema-generator 5.0.0 required by Spring AI's structured
+			     output (JacksonSchemaModule fails to initialize). Pin the module to 5.0.0 so it
+			     matches the generator. -->
+			<dependency>
+				<groupId>com.github.victools</groupId>
+				<artifactId>jsonschema-module-jackson</artifactId>
+				<version>5.0.0</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
@@ -37,6 +46,10 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-actuator</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.jetbrains.kotlin</groupId>
@@ -53,6 +66,14 @@
 		<dependency>
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-model-openai</artifactId>
+		</dependency>
+		<!-- Official OpenAI SDK OkHttp client builder (OpenAIOkHttpClient). Spring AI 2.0 builds its
+		     models on com.openai:openai-java-core but does not pull the okhttp client module used to
+		     construct an OpenAIClient manually; add it, pinned to the core version spring-ai resolves. -->
+		<dependency>
+			<groupId>com.openai</groupId>
+			<artifactId>openai-java-client-okhttp</artifactId>
+			<version>4.39.1</version>
 		</dependency>
 		<dependency>
 			<groupId>org.xerial</groupId>

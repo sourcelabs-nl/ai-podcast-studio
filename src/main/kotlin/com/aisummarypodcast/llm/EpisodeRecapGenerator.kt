@@ -28,7 +28,7 @@ class EpisodeRecapGenerator(
         val (result, elapsed) = measureTimedValue {
             val chatResponse = chatClient.prompt()
                 .user(prompt)
-                .options(OpenAiChatOptions.builder().model(filterModelDef.model).build())
+                .options(OpenAiChatOptions.builder().model(filterModelDef.model))
                 .call()
                 .chatResponse()
 

@@ -71,6 +71,13 @@ class CachingChatModel(
 
     override fun getDefaultOptions(): ChatOptions = delegate.defaultOptions
 
+    // ChatClient's option merging (DefaultChatClientUtils) bases the request options on
+    // chatModel.getOptions() — NOT getDefaultOptions(). If this returns the generic ChatModel
+    // default (a DefaultChatOptions), the merged prompt options stay DefaultChatOptions and
+    // OpenAiChatModel fails to cast them to OpenAiChatOptions. Delegate so the provider type
+    // (OpenAiChatOptions) is preserved through the merge.
+    override fun getOptions(): ChatOptions = delegate.options
+
     private fun userPromptText(prompt: Prompt): String =
         prompt.instructions
             .filter { it.messageType == MessageType.USER || it.messageType == MessageType.SYSTEM }

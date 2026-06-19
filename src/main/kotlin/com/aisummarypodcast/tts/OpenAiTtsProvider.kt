@@ -1,5 +1,6 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.llm.buildOpenAiClient
 import com.aisummarypodcast.store.ApiKeyCategory
 import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.user.UserProviderConfigService
@@ -7,8 +8,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.ai.audio.tts.TextToSpeechPrompt
 import org.springframework.ai.openai.OpenAiAudioSpeechModel
 import org.springframework.ai.openai.OpenAiAudioSpeechOptions
-import org.springframework.ai.openai.api.OpenAiAudioApi
 import org.springframework.stereotype.Component
+import java.time.Duration
 
 @Component
 class OpenAiTtsProvider(
@@ -52,10 +53,9 @@ class OpenAiTtsProvider(
         val config = providerConfigService.resolveConfig(userId, ApiKeyCategory.TTS, "openai")
             ?: throw IllegalStateException("No provider config available for OpenAI TTS. Configure a user provider or set the OPENAI_API_KEY environment variable.")
 
-        val audioApi = OpenAiAudioApi.builder()
-            .apiKey(config.apiKey ?: "")
-            .baseUrl(config.baseUrl)
+        val client = buildOpenAiClient(config, Duration.ofMinutes(5))
+        return OpenAiAudioSpeechModel.builder()
+            .openAiClient(client)
             .build()
-        return OpenAiAudioSpeechModel(audioApi)
     }
 }
