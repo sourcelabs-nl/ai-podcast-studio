@@ -75,6 +75,45 @@ class PublishingServiceTest {
     }
 
     @Test
+    fun `publish throws when approval required and episode not approved`() {
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        val approvalPodcast = podcast.copy(requirePublishApproval = true)
+        val unapproved = episode.copy(publishApproved = false)
+
+        val ex = assertThrows<IllegalStateException> {
+            service.publish(unapproved, approvalPodcast, "user1", "soundcloud")
+        }
+        assertTrue(ex.message!!.contains("approved for publication"))
+    }
+
+    @Test
+    fun `publish succeeds when approval required and episode approved`() {
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        val approvalPodcast = podcast.copy(requirePublishApproval = true)
+        val approved = episode.copy(publishApproved = true)
+        every { publisher.publish(approved, approvalPodcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+
+        val result = service.publish(approved, approvalPodcast, "user1", "soundcloud")
+
+        assertEquals(PublicationStatus.PUBLISHED, result.status)
+    }
+
+    @Test
+    fun `publish ignores publishApproved when approval not required`() {
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        val unapproved = episode.copy(publishApproved = false)
+        every { publisher.publish(unapproved, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+
+        val result = service.publish(unapproved, podcast, "user1", "soundcloud")
+
+        assertEquals(PublicationStatus.PUBLISHED, result.status)
+    }
+
+    @Test
     fun `publish throws when episode has no audio`() {
         every { targetService.get("pod1", "soundcloud") } returns enabledTarget
         val noAudioEpisode = episode.copy(audioFilePath = null)

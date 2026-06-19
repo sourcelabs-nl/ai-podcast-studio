@@ -18,6 +18,7 @@ data class Episode(
     val generatedAt: String,
     val scriptText: String,
     val status: EpisodeStatus = EpisodeStatus.GENERATED,
+    val publishApproved: Boolean = true,
     val audioFilePath: String? = null,
     val durationSeconds: Int? = null,
     val filterModel: String? = null,

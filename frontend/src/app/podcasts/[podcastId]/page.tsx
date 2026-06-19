@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import cronstrue from "cronstrue";
 import { CronExpressionParser } from "cron-parser";
-import { Check, ChevronDown, ChevronRight, Clock, Headphones, Loader2, RefreshCw, RotateCcw, Settings, Upload, Volume2, X } from "lucide-react";
+import { BadgeCheck, Check, ChevronDown, ChevronRight, Clock, Headphones, Loader2, RefreshCw, RotateCcw, Settings, Upload, Volume2, X } from "lucide-react";
 import { useUser } from "@/lib/user-context";
 import { useEventStream } from "@/lib/event-context";
 import type { Podcast, Episode, EpisodePublication, PagedResponse } from "@/lib/types";
@@ -570,7 +570,21 @@ export default function EpisodesPage() {
                           >
                             <Headphones className="size-4" />
                           </Button>
-                          {!fullyPublishedEpisodeIds.has(episode.id) && (
+                          {podcast.requirePublishApproval && !episode.publishApproved ? (
+                          <Button
+                            size="icon-lg"
+                            title="Approve for publication"
+                            onClick={() => setPendingAction({
+                              title: "Approve for publication?",
+                              description: "This episode will be approved and can then be published to your configured targets.",
+                              actionLabel: "Approve",
+                              onConfirm: () => doAction(episode.id, "approve-publication"),
+                            })}
+                          >
+                            <BadgeCheck className="size-4" />
+                          </Button>
+                          ) : (
+                          !fullyPublishedEpisodeIds.has(episode.id) && (
                           <Button
                             size="icon-lg"
                             title="Publish episode"
@@ -578,6 +592,7 @@ export default function EpisodesPage() {
                           >
                             <Upload className="size-4" />
                           </Button>
+                          )
                           )}
                           {!publishedEpisodeIds.has(episode.id) && (
                           <Button

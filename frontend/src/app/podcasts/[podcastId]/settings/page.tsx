@@ -260,6 +260,7 @@ export default function PodcastSettingsPage() {
             customInstructions: form.customInstructions ?? "",
             relevanceThreshold: form.relevanceThreshold,
             requireReview: form.requireReview,
+            requirePublishApproval: form.requirePublishApproval,
             maxLlmCostCents: form.maxLlmCostCents ?? null,
             maxArticleAgeDays: form.maxArticleAgeDays ?? null,
             speakerNames: form.speakerNames,
@@ -522,6 +523,18 @@ export default function PodcastSettingsPage() {
                 />
                 <label htmlFor="requireReview" className="text-sm font-medium">
                   Require review before audio generation
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="requirePublishApproval"
+                  checked={form.requirePublishApproval ?? false}
+                  onChange={(e) => update("requirePublishApproval", e.target.checked)}
+                  className="size-4 rounded border border-input"
+                />
+                <label htmlFor="requirePublishApproval" className="text-sm font-medium">
+                  Require approval before publishing
                 </label>
               </div>
             </CardContent>

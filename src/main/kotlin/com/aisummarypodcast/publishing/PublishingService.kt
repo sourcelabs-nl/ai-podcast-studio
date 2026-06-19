@@ -41,6 +41,10 @@ class PublishingService(
             throw IllegalStateException("Episode must be in GENERATED status to publish (current: ${episode.status})")
         }
 
+        if (podcast.requirePublishApproval && !episode.publishApproved) {
+            throw IllegalStateException("Episode must be approved for publication before it can be published")
+        }
+
         if (episode.audioFilePath == null) {
             throw IllegalStateException("Episode has no audio file")
         }

@@ -215,6 +215,30 @@ class EpisodeControllerTest {
     }
 
     @Test
+    fun `approve publication of generated episode returns 200`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(2L) } returns generatedEpisode
+        every { episodeService.approveForPublication(generatedEpisode, podcast) } returns generatedEpisode.copy(publishApproved = true)
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/approve-publication"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.publishApproved").value(true))
+
+        verify { episodeService.approveForPublication(generatedEpisode, podcast) }
+    }
+
+    @Test
+    fun `approve publication of pending episode returns 409`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(1L) } returns pendingEpisode
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/1/approve-publication"))
+            .andExpect(status().isConflict)
+    }
+
+    @Test
     fun `discard pending episode delegates to service`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast

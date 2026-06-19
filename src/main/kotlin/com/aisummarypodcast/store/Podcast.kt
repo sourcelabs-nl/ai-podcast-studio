@@ -23,6 +23,7 @@ data class Podcast(
     val customInstructions: String? = null,
     val relevanceThreshold: Int = 5,
     val requireReview: Boolean = false,
+    val requirePublishApproval: Boolean = false,
     val maxLlmCostCents: Int? = null,
     val maxArticleAgeDays: Int? = null,
     val speakerNames: Map<String, String>? = null,

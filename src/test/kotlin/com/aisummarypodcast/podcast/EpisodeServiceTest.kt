@@ -30,6 +30,7 @@ import org.springframework.context.ApplicationEventPublisher
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.*
 
@@ -95,6 +96,36 @@ class EpisodeServiceTest {
         assertEquals(EpisodeStatus.PENDING_REVIEW, episode.status)
         verify { episodeArticleRepository.insertIgnore(5L, 10L, null, null) }
         verify { episodeArticleRepository.insertIgnore(5L, 20L, null, null) }
+    }
+
+    @Test
+    fun `creates un-approved episode when requirePublishApproval is true`() {
+        val approvalPodcast = podcast.copy(requirePublishApproval = true)
+        val result = PipelineResult(
+            script = "Script", filterModel = "filter", composeModel = "compose",
+            processedArticleIds = listOf(10L)
+        )
+        val saved = mutableListOf<Episode>()
+        every { episodeRepository.save(capture(saved)) } answers { firstArg<Episode>().copy(id = 5) }
+        every { podcastRepository.save(any()) } answers { firstArg() }
+        every { ttsPipeline.generateForExistingEpisode(any(), approvalPodcast) } answers { firstArg<Episode>().copy(status = EpisodeStatus.GENERATED) }
+        setupRecapMocks(approvalPodcast)
+
+        episodeService.createEpisodeFromPipelineResult(approvalPodcast, result)
+
+        assertTrue(saved.any { !it.publishApproved }, "expected the episode to be saved un-approved for publication")
+    }
+
+    @Test
+    fun `approveForPublication sets publishApproved true`() {
+        val episode = Episode(id = 9L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z", scriptText = "s", status = EpisodeStatus.GENERATED, publishApproved = false)
+        every { episodeRepository.findById(9L) } returns Optional.of(episode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        val result = episodeService.approveForPublication(episode, podcast)
+
+        assertTrue(result.publishApproved)
+        verify { episodeRepository.save(match { it.publishApproved }) }
     }
 
     @Test

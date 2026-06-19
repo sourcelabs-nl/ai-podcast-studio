@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check, Headphones, RefreshCw, RotateCcw, Upload, Volume2, X } from "lucide-react";
+import { BadgeCheck, Check, Headphones, RefreshCw, RotateCcw, Upload, Volume2, X } from "lucide-react";
 import { useUser } from "@/lib/user-context";
 import { useEventStream } from "@/lib/event-context";
 import type { Podcast, Episode, EpisodePublication } from "@/lib/types";
@@ -294,9 +294,24 @@ export default function EpisodeDetailPage() {
             >
               <Headphones className="size-4" />
             </Button>
+            {podcast.requirePublishApproval && !episode.publishApproved ? (
+            <Button
+              size="icon-lg"
+              title="Approve for publication"
+              onClick={() => setPendingAction({
+                title: "Approve for publication?",
+                description: "This episode will be approved and can then be published to your configured targets.",
+                actionLabel: "Approve",
+                onConfirm: () => doAction("approve-publication"),
+              })}
+            >
+              <BadgeCheck className="size-4" />
+            </Button>
+            ) : (
             <Button size="icon-lg" title="Publish episode" onClick={() => setPublishOpen(true)}>
               <Upload className="size-4" />
             </Button>
+            )}
             {!published && (
             <Button
               size="icon-lg"

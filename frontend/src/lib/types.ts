@@ -30,6 +30,7 @@ export interface Podcast {
   customInstructions?: string;
   relevanceThreshold: number;
   requireReview: boolean;
+  requirePublishApproval: boolean;
   maxLlmCostCents?: number;
   maxArticleAgeDays?: number;
   speakerNames?: Record<string, string>;
@@ -50,6 +51,7 @@ export interface Episode {
   generatedAt: string;
   scriptText: string;
   status: string;
+  publishApproved: boolean;
   audioFilePath?: string;
   durationSeconds?: number;
   composeModel?: string;

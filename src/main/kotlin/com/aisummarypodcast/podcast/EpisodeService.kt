@@ -133,7 +133,8 @@ class EpisodeService(
                 composeOutputTokens = result.composeOutputTokens,
                 composeCostCents = result.composeCostCents,
                 pipelineStage = if (podcast.requireReview) null else "tts",
-                status = if (podcast.requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING
+                status = if (podcast.requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING,
+                publishApproved = !podcast.requirePublishApproval
             )
         )
 
@@ -313,11 +314,15 @@ class EpisodeService(
     ): Episode {
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
 
+        // Publication approval is independent of the review gate: when required, the episode is
+        // created un-approved and must be approved before it can be published.
+        val publishApproved = !podcast.requirePublishApproval
+
         // Set status: PENDING_REVIEW or trigger TTS
         val withStatus = if (podcast.requireReview) {
-            episodeRepository.save(fresh.copy(status = EpisodeStatus.PENDING_REVIEW, pipelineStage = null))
+            episodeRepository.save(fresh.copy(status = EpisodeStatus.PENDING_REVIEW, pipelineStage = null, publishApproved = publishApproved))
         } else {
-            val generating = episodeRepository.save(fresh.copy(status = EpisodeStatus.GENERATING, pipelineStage = "tts"))
+            val generating = episodeRepository.save(fresh.copy(status = EpisodeStatus.GENERATING, pipelineStage = "tts", publishApproved = publishApproved))
             ttsPipeline.generateForExistingEpisode(generating, podcast).let {
                 episodeRepository.save(it.copy(pipelineStage = null))
             }
@@ -446,6 +451,21 @@ class EpisodeService(
                 mapOf("episodeNumber" to episode.id))
         )
         audioGenerationService.generateAudioAsync(episode.id, podcast.id)
+    }
+
+    /**
+     * Approves an episode for publication. Only meaningful when the podcast requires publication
+     * approval; sets [Episode.publishApproved] so the Publish action is allowed.
+     */
+    fun approveForPublication(episode: Episode, podcast: Podcast): Episode {
+        val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
+        val saved = episodeRepository.save(fresh.copy(publishApproved = true))
+        log.info("Episode {} approved for publication", episode.id)
+        eventPublisher.publishEvent(
+            PodcastEvent(this, podcast.id, "episode", episode.id, "episode.publication_approved",
+                mapOf("episodeNumber" to episode.id))
+        )
+        return saved
     }
 
     @Transactional

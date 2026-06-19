@@ -67,6 +67,8 @@ class PublishingController(
                 ))
             } else if (message.contains("already published")) {
                 ResponseEntity.status(409).body(mapOf("error" to message))
+            } else if (message.contains("approved for publication", ignoreCase = true)) {
+                ResponseEntity.status(409).body(mapOf("error" to message, "code" to "approval_required"))
             } else {
                 ResponseEntity.badRequest().body(mapOf("error" to message))
             }
