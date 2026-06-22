@@ -157,6 +157,7 @@ private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCo
         ),
         tts = TtsCostResponse(
             model = ttsModel,
+            calls = ttsCalls ?: 0,
             characters = ttsCharacters ?: 0,
             costCents = ttsCost
         ),

@@ -133,6 +133,7 @@ data class LlmStageCostResponse(
 
 data class TtsCostResponse(
     val model: String?,
+    val calls: Int,
     val characters: Int,
     val costCents: Double
 )

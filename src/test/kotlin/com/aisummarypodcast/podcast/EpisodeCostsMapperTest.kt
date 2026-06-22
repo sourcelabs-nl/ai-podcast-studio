@@ -12,7 +12,7 @@ class EpisodeCostsMapperTest {
         dedupIn: Int = 0, dedupOut: Int = 0, dedupCost: Int = 0,
         composeIn: Int = 0, composeOut: Int = 0, composeCost: Int = 0,
         recapIn: Int = 0, recapOut: Int = 0, recapCost: Int = 0,
-        ttsChars: Int? = null, ttsCost: Int? = null,
+        ttsChars: Int? = null, ttsCost: Int? = null, ttsCalls: Int? = null,
         researchCalls: Int = 0, researchCost: Int? = null,
         filterModel: String? = "anthropic/claude-haiku-4.5",
         composeModel: String? = "anthropic/claude-sonnet-4",
@@ -21,7 +21,7 @@ class EpisodeCostsMapperTest {
         id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "",
         status = EpisodeStatus.GENERATED,
         filterModel = filterModel, composeModel = composeModel, ttsModel = ttsModel,
-        ttsCharacters = ttsChars, ttsCostCents = ttsCost,
+        ttsCharacters = ttsChars, ttsCostCents = ttsCost, ttsCalls = ttsCalls,
         researchCalls = researchCalls, researchCostCents = researchCost,
         scoreInputTokens = scoreIn, scoreOutputTokens = scoreOut, scoreCostCents = scoreCost,
         dedupInputTokens = dedupIn, dedupOutputTokens = dedupOut, dedupCostCents = dedupCost,
@@ -66,8 +66,9 @@ class EpisodeCostsMapperTest {
     }
 
     @Test
-    fun `tts row reflects characters and cost`() {
-        val resp = episode(ttsChars = 12000, ttsCost = 25).toResponse()
+    fun `tts row reflects characters, cost and call count`() {
+        val resp = episode(ttsChars = 12000, ttsCost = 25, ttsCalls = 7).toResponse()
+        assertEquals(7, resp.costs.tts.calls)
         assertEquals(12000, resp.costs.tts.characters)
         assertEquals(25.0, resp.costs.tts.costCents)
     }
@@ -82,6 +83,7 @@ class EpisodeCostsMapperTest {
     @Test
     fun `nullable tts and research collapse to zero in response`() {
         val resp = episode().toResponse()
+        assertEquals(0, resp.costs.tts.calls)
         assertEquals(0, resp.costs.tts.characters)
         assertEquals(0.0, resp.costs.tts.costCents)
         assertEquals(0, resp.costs.research.calls)

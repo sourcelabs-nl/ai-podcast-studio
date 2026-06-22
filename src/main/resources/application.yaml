@@ -69,6 +69,11 @@ app:
         type: llm
         input-cost-per-mtok: 1.30
         output-cost-per-mtok: 2.60
+      # Pricing reflects DeepInfra, the cheapest provider OpenRouter routing selects for GLM-5.2.
+      "[z-ai/glm-5.2]":
+        type: llm
+        input-cost-per-mtok: 1.00
+        output-cost-per-mtok: 4.00
     openai:
       "[tts-1-hd]":
         type: tts
@@ -86,7 +91,7 @@ app:
         cost-per-million-chars: 5.00
       "[inworld-tts-2]":
         type: tts
-        cost-per-million-chars: 35.00
+        cost-per-million-chars: 25.00
   llm:
     defaults:
       filter:
@@ -100,7 +105,7 @@ app:
         model: anthropic/claude-sonnet-4.6
       compose:
         provider: openrouter
-        model: anthropic/claude-sonnet-4.6
+        model: z-ai/glm-5.2
     max-cost-cents: 200
     scoring:
       concurrency: 10

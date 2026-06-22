@@ -85,7 +85,7 @@ data class LlmModelOverrides(
 data class StageDefaults(
     val filter: ModelReference = ModelReference("openrouter", "openai/gpt-5.4-nano"),
     val dedup: ModelReference = ModelReference("openrouter", "anthropic/claude-sonnet-4.6"),
-    val compose: ModelReference = ModelReference("openrouter", "anthropic/claude-sonnet-4.6")
+    val compose: ModelReference = ModelReference("openrouter", "z-ai/glm-5.2")
 )
 
 data class BriefingProperties(

@@ -77,6 +77,7 @@ export interface LlmStageCost {
 
 export interface TtsCost {
   model: string | null;
+  calls: number;
   characters: number;
   costCents: number;
 }

@@ -101,7 +101,7 @@ export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
             <TableCell className="text-xs text-muted-foreground">
               {costs.tts.model ?? "—"}
             </TableCell>
-            <TableCell className="text-right">—</TableCell>
+            <TableCell className="text-right">{formatInt(costs.tts.calls)}</TableCell>
             <TableCell className="text-right" colSpan={2}>
               {formatInt(costs.tts.characters)} chars
             </TableCell>

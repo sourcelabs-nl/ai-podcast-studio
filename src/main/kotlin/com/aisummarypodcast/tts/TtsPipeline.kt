@@ -47,7 +47,8 @@ class TtsPipeline(
                 durationSeconds = audioOutput.durationSeconds,
                 ttsCharacters = ttsResult.totalCharacters,
                 ttsCostCents = ttsCostCents,
-                ttsModel = ttsResult.model
+                ttsModel = ttsResult.model,
+                ttsCalls = ttsResult.audioChunks.size
             )
         )
 
@@ -72,7 +73,8 @@ class TtsPipeline(
                 durationSeconds = audioOutput.durationSeconds,
                 ttsCharacters = ttsResult.totalCharacters,
                 ttsCostCents = ttsCostCents,
-                ttsModel = ttsResult.model
+                ttsModel = ttsResult.model,
+                ttsCalls = ttsResult.audioChunks.size
             )
         )
 

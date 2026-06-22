@@ -30,6 +30,7 @@ data class Episode(
     val ttsCharacters: Int? = null,
     val ttsCostCents: Int? = null,
     val ttsModel: String? = null,
+    val ttsCalls: Int? = null,
     val recap: String? = null,
     val showNotes: String? = null,
     val errorMessage: String? = null,
