@@ -176,4 +176,21 @@ class CostEstimatorTest {
         val articles = listOf(article("x".repeat(1000)))
         assertNull(CostEstimator.estimatePipelineCostCents(articles, noPricingModel, noPricingModel, 1500))
     }
+
+    // --- estimateScoringCostCents tests ---
+
+    @Test
+    fun `estimateScoringCostCents covers only scoring cost`() {
+        val articles = (1..10).map { article("x".repeat(2000)) }
+        // input 5000 tok, output 2000 tok at cheap pricing -> 0.195 cents -> 0
+        assertEquals(0, CostEstimator.estimateScoringCostCents(articles, cheapModel))
+        // capable pricing: (5000*3 + 2000*15) / 1_000_000 * 100 = 4.5 cents -> 5
+        assertEquals(5, CostEstimator.estimateScoringCostCents(articles, capableModel))
+    }
+
+    @Test
+    fun `estimateScoringCostCents returns null without pricing`() {
+        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null)
+        assertNull(CostEstimator.estimateScoringCostCents(listOf(article("x".repeat(1000))), noPricingModel))
+    }
 }

@@ -383,6 +383,86 @@ class LlmPipelineTest {
         assertEquals(listOf("AI Safety"), result.topicOrder)
     }
 
+    // --- scoreReadySources (eager ranking) tests ---
+
+    @Test
+    fun `scoreReadySources aggregates and scores non-aggregate sources`() {
+        val unlinkedPost = Post(
+            id = 1, sourceId = "s1", title = "AI News", body = "Post body",
+            url = "https://example.com/ai", contentHash = "hash1", createdAt = "2026-02-16T10:00:00Z"
+        )
+        val createdArticle = Article(
+            id = 1, sourceId = "s1", title = "AI News", body = "Post body",
+            url = "https://example.com/ai", contentHash = "arthash1"
+        )
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+        every { sourceAggregator.shouldAggregate(source) } returns false
+        every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns listOf(unlinkedPost)
+        every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
+        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) } returns
+            listOf(createdArticle.copy(relevanceScore = 7))
+
+        pipeline.scoreReadySources(podcast)
+
+        verify { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) }
+        verify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) }
+    }
+
+    @Test
+    fun `scoreReadySources skips aggregate sources`() {
+        val twitterSource = Source(id = "s2", podcastId = "p1", type = SourceType.TWITTER, url = "https://nitter.net/foo")
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(twitterSource)
+        every { sourceAggregator.shouldAggregate(twitterSource) } returns true
+
+        pipeline.scoreReadySources(podcast)
+
+        verify(exactly = 0) { postRepository.findUnlinkedBySourceIds(any(), any()) }
+        verify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `scoreReadySources is a no-op when no unscored ready articles`() {
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+        every { sourceAggregator.shouldAggregate(source) } returns false
+        every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
+        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
+
+        pipeline.scoreReadySources(podcast)
+
+        verify(exactly = 0) { modelResolver.resolve(podcast, PipelineStage.FILTER) }
+        verify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `scoreReadySources skips scoring when cost gate exceeded`() {
+        val lowThresholdProps = AppProperties(
+            llm = LlmProperties(maxCostCents = 1),
+            briefing = BriefingProperties(),
+            episodes = EpisodesProperties(),
+            feed = FeedProperties(),
+            encryption = EncryptionProperties(masterKey = "test-key"),
+            source = SourceProperties(maxArticleAgeDays = 7)
+        )
+        val pipelineWithLowThreshold = LlmPipeline(
+            articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
+            sourceRepository, postRepository, sourceAggregator, lowThresholdProps, ttsProviderFactory,
+            articleEligibilityService, topicDedupFilter
+        )
+        val articles = (1..100).map { articleWithBody(10000) }
+
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+        every { sourceAggregator.shouldAggregate(source) } returns false
+        every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
+        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns articles
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns pricedFilterModel
+
+        pipelineWithLowThreshold.scoreReadySources(podcast)
+
+        verify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
+    }
+
     @Test
     fun `recompose does not pass recaps to composer`() {
         val article = scoredArticle

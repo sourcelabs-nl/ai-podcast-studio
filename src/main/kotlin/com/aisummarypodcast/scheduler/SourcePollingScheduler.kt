@@ -105,6 +105,18 @@ class SourcePollingScheduler(
             }
         }
 
+        // Eagerly rank non-aggregate sources for podcasts polled this round, so their articles
+        // appear scored on the upcoming page without waiting for generation. Run sequentially and
+        // inline so two poll cycles cannot concurrently score the same unscored article.
+        val polledPodcastIds = dueSources.map { it.podcastId }.distinct()
+        for (podcastId in polledPodcastIds) {
+            try {
+                podcastService.findById(podcastId)?.let { podcastService.scoreReadySources(it) }
+            } catch (e: Exception) {
+                log.error("[Eager] Eager ranking failed for podcast {}", podcastId, e)
+            }
+        }
+
         lastPollRoundCompletedAt = Instant.now()
     }
 

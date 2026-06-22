@@ -161,6 +161,53 @@ class LlmPipeline(
         return eligible
     }
 
+    /**
+     * Eagerly aggregates and relevance-scores a podcast's non-aggregate sources (RSS, website,
+     * YouTube — anything where [SourceAggregator.shouldAggregate] is false), so their articles are
+     * ranked before any episode generation or preview. Aggregate sources (Twitter/nitter) are left
+     * untouched: their posts merge into still-growing threads and must stay deferred to generation.
+     *
+     * Reuses the same aggregation and scoring components as the generation pipeline, so the work is
+     * not repeated later (net-zero total cost). Respects the per-podcast LLM cost gate using a
+     * scoring-only estimate; skips the podcast if its unscored ready-source articles would exceed it.
+     */
+    fun scoreReadySources(podcast: Podcast) {
+        val sources = sourceRepository.findByPodcastId(podcast.id)
+        val readySources = sources.filter { !sourceAggregator.shouldAggregate(it) }
+        if (readySources.isEmpty()) return
+        val readyIds = readySources.map { it.id }
+
+        // Step 1: aggregate unlinked posts (1:1 for non-aggregate sources)
+        val effectiveMaxArticleAgeDays = podcast.maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
+        val cutoff = Instant.now().minus(effectiveMaxArticleAgeDays.toLong(), ChronoUnit.DAYS).toString()
+        val unlinkedPosts = postRepository.findUnlinkedBySourceIds(readyIds, cutoff)
+        if (unlinkedPosts.isNotEmpty()) {
+            val postsBySource = unlinkedPosts.groupBy { it.sourceId }
+            for ((sourceId, posts) in postsBySource) {
+                sourceAggregator.aggregateAndPersist(posts, readySources.first { it.id == sourceId })
+            }
+        }
+
+        // Step 2: find unscored articles for these sources
+        val unscored = articleRepository.findUnscoredBySourceIds(readyIds)
+        if (unscored.isEmpty()) return
+
+        // Step 3: cost gate (scoring-only estimate)
+        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        val estimatedCostCents = CostEstimator.estimateScoringCostCents(unscored, filterModelDef)
+        val costThreshold = podcast.maxLlmCostCents ?: appProperties.llm.maxCostCents
+        if (estimatedCostCents != null && estimatedCostCents > costThreshold) {
+            log.warn("[Eager] Cost gate skipped eager scoring for podcast '{}' ({}): estimated {}¢ exceeds threshold {}¢ — leaving {} articles for generation",
+                podcast.name, podcast.id, estimatedCostCents, costThreshold, unscored.size)
+            return
+        }
+
+        // Step 4: score (persists relevanceScore/summary/subtopic/tokens, same as generation)
+        log.info("[Eager] Eagerly scoring {} ready-source articles for podcast '{}' ({})", unscored.size, podcast.name, podcast.id)
+        val sourceLabels = readySources.associate { it.id to extractDomainAndPath(it.url) }
+        articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels)
+    }
+
     fun dedup(
         eligible: List<Article>,
         podcast: Podcast,

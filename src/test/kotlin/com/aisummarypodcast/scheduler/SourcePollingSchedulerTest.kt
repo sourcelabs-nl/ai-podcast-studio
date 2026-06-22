@@ -34,7 +34,9 @@ class SourcePollingSchedulerTest {
         every { findAll() } returns emptyList()
     }
     private val sourceService = mockk<SourceService>(relaxed = true)
-    private val podcastService = mockk<PodcastService>()
+    private val podcastService = mockk<PodcastService> {
+        every { scoreReadySources(any()) } returns Unit
+    }
 
     private val podcast = Podcast(id = "p1", userId = "owner-1", name = "Test", topic = "tech")
 
@@ -259,6 +261,50 @@ class SourcePollingSchedulerTest {
         val completed = s.lastPollRoundCompletedAt
         assertNotNull(completed)
         assertTrue(completed!!.isAfter(Instant.now().minusSeconds(5)))
+    }
+
+    // --- Post-round eager ranking trigger ---
+
+    @Test
+    fun `triggers eager ranking once per due podcast after a round`() = runTest {
+        val s1 = Source(
+            id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://a.com/feed",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
+        )
+        val s2 = Source(
+            id = "s2", podcastId = "p2", type = SourceType.RSS, url = "https://b.com/feed",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
+        )
+        val podcast2 = Podcast(id = "p2", userId = "owner-2", name = "Test 2", topic = "ai")
+        every { sourceRepository.findAll() } returns listOf(s1, s2)
+        every { podcastService.findById("p1") } returns podcast
+        every { podcastService.findById("p2") } returns podcast2
+
+        scheduler().pollSources()
+
+        verify(exactly = 1) { podcastService.scoreReadySources(podcast) }
+        verify(exactly = 1) { podcastService.scoreReadySources(podcast2) }
+    }
+
+    @Test
+    fun `eager ranking failure for one podcast does not abort others`() = runTest {
+        val s1 = Source(
+            id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://a.com/feed",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
+        )
+        val s2 = Source(
+            id = "s2", podcastId = "p2", type = SourceType.RSS, url = "https://b.com/feed",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
+        )
+        val podcast2 = Podcast(id = "p2", userId = "owner-2", name = "Test 2", topic = "ai")
+        every { sourceRepository.findAll() } returns listOf(s1, s2)
+        every { podcastService.findById("p1") } returns podcast
+        every { podcastService.findById("p2") } returns podcast2
+        every { podcastService.scoreReadySources(podcast) } throws RuntimeException("boom")
+
+        scheduler().pollSources()
+
+        verify(exactly = 1) { podcastService.scoreReadySources(podcast2) }
     }
 
     @Test

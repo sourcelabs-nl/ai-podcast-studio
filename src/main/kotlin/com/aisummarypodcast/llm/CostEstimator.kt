@@ -32,15 +32,23 @@ object CostEstimator {
         return (costUsd * 100).roundToInt()
     }
 
+    /**
+     * Estimated cost of LLM relevance-scoring the given articles (no composition). Used by the
+     * eager-ranking cost gate, which only scores and never composes.
+     */
+    fun estimateScoringCostCents(articles: List<Article>, filterModel: ResolvedModel): Int? {
+        val scoringInputTokens = articles.sumOf { it.body.length / 4 }
+        val scoringOutputTokens = 200 * articles.size
+        return estimateLlmCostCents(scoringInputTokens, scoringOutputTokens, filterModel.cost)
+    }
+
     fun estimatePipelineCostCents(
         articles: List<Article>,
         filterModel: ResolvedModel,
         composeModel: ResolvedModel,
         targetWords: Int
     ): Int? {
-        val scoringInputTokens = articles.sumOf { it.body.length / 4 }
-        val scoringOutputTokens = 200 * articles.size
-        val scoringCost = estimateLlmCostCents(scoringInputTokens, scoringOutputTokens, filterModel.cost)
+        val scoringCost = estimateScoringCostCents(articles, filterModel)
 
         val compositionInputTokens = articles.size * 200
         val compositionOutputTokens = (targetWords * 1.3).roundToInt()

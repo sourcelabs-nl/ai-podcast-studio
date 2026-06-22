@@ -186,6 +186,12 @@ class PodcastService(
 
     fun findById(podcastId: String): Podcast? = podcastRepository.findByIdOrNull(podcastId)
 
+    /**
+     * Eagerly aggregates and relevance-scores the podcast's non-aggregate sources so they are
+     * ranked before generation. Triggered by the polling scheduler after each poll round.
+     */
+    fun scoreReadySources(podcast: Podcast) = llmPipeline.scoreReadySources(podcast)
+
     fun update(podcastId: String, updates: Podcast): Podcast? {
         val existing = findById(podcastId) ?: return null
         val updated = existing.copy(
