@@ -97,12 +97,13 @@ app:
       filter:
         provider: openrouter
         model: openai/gpt-5.4-nano
-      # Dedup clusters dozens of candidates against historical articles and emits structured JSON
-      # — a reasoning-heavy task. A nano model collapses into repetition loops here, so dedup gets
-      # its own (stronger) model, separate from the cheap per-article scoring (filter) model.
+      # Dedup clusters today's candidates against recent (title-only, capped) historical articles
+      # and emits structured JSON. We deliberately avoid reasoning models here: their reasoning
+      # tokens count against the output cap and can return empty content (silently skipping dedup).
+      # A cheap, non-reasoning model handles the bounded prompt fine.
       dedup:
         provider: openrouter
-        model: anthropic/claude-sonnet-4.6
+        model: deepseek/deepseek-v4-flash
       compose:
         provider: openrouter
         model: z-ai/glm-5.2
@@ -110,6 +111,9 @@ app:
     scoring:
       concurrency: 10
       max-retries: 3
+    dedup:
+      # Cap on historical articles (most recent first) embedded in the dedup prompt for topic recall.
+      max-historical-articles: 120
   briefing:
     target-words: 1500
   episode:

@@ -219,15 +219,10 @@ class LlmPipeline(
         onProgress("deduplicating", mapOf("articleCount" to eligible.size))
 
         val historicalArticles = articleEligibilityService.findHistoricalArticles(podcast)
-        val dedupResult = try {
-            topicDedupFilter.filter(eligible, historicalArticles, podcast.userId, dedupModelDef)
-        } catch (e: Exception) {
-            // A dedup failure (e.g. an unparseable LLM response) must not fail the whole episode.
-            // Fall back to keeping all eligible articles — composition proceeds without dedup.
-            log.warn("[LLM] Dedup failed for podcast '{}' ({}) — proceeding with all {} eligible articles (no dedup): {}",
-                podcast.name, podcast.id, eligible.size, e.message)
-            DedupFilterResult(eligible.map { FilteredArticle(it, null, null) }, TokenUsage(0, 0))
-        }
+        // Dedup retries internally (see TopicDedupFilter). If it still fails, we deliberately let the
+        // exception propagate to fail the episode rather than silently composing un-deduped articles —
+        // skipping dedup can produce a low-quality episode that repeats recently-covered topics.
+        val dedupResult = topicDedupFilter.filter(eligible, historicalArticles, podcast.userId, dedupModelDef)
 
         if (dedupResult.filteredArticles.isEmpty()) {
             log.info("[LLM] All articles filtered as duplicates for podcast '{}' ({}) — skipping briefing generation", podcast.name, podcast.id)
@@ -438,13 +433,9 @@ class LlmPipeline(
 
         val dedupModelDef = modelResolver.resolve(podcast, PipelineStage.DEDUP)
         val historicalArticles = articleEligibilityService.findHistoricalArticles(podcast)
-        val dedupResult = try {
-            topicDedupFilter.filter(eligible, historicalArticles, podcast.userId, dedupModelDef)
-        } catch (e: Exception) {
-            log.warn("[LLM Preview] Dedup failed for podcast '{}' ({}) — proceeding with all {} eligible articles (no dedup): {}",
-                podcast.name, podcast.id, eligible.size, e.message)
-            DedupFilterResult(eligible.map { FilteredArticle(it, null, null) }, TokenUsage(0, 0))
-        }
+        // Let a dedup failure surface (the preview controller reports it as an error event) rather
+        // than silently previewing un-deduped articles — consistent with the generation path.
+        val dedupResult = topicDedupFilter.filter(eligible, historicalArticles, podcast.userId, dedupModelDef)
 
         if (dedupResult.filteredArticles.isEmpty()) {
             log.info("[LLM Preview] All articles filtered as duplicates for podcast '{}' ({})", podcast.name, podcast.id)

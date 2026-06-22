@@ -28,6 +28,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class LlmPipelineTest {
@@ -367,6 +368,19 @@ class LlmPipelineTest {
         val result = pipeline.dedup(listOf(scoredArticle), podcast)
 
         assertNull(result)
+    }
+
+    @Test
+    fun `dedup propagates exception when filter fails so the episode fails`() {
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
+        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
+        every { topicDedupFilter.filter(any(), any(), any(), any()) } throws
+            IllegalStateException("No content to map due to end-of-input")
+
+        assertThrows(IllegalStateException::class.java) {
+            pipeline.dedup(listOf(scoredArticle), podcast)
+        }
     }
 
     @Test

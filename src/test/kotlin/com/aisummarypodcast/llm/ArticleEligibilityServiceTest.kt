@@ -4,6 +4,7 @@ import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
 import com.aisummarypodcast.config.EncryptionProperties
 import com.aisummarypodcast.config.EpisodeProperties
+import com.aisummarypodcast.config.DedupProperties
 import com.aisummarypodcast.config.EpisodesProperties
 import com.aisummarypodcast.config.FeedProperties
 import com.aisummarypodcast.config.LlmProperties
@@ -151,6 +152,29 @@ class ArticleEligibilityServiceTest {
         val result = service.findHistoricalArticles(podcast)
 
         assertEquals(1, result.size)
+    }
+
+    @Test
+    fun `findHistoricalArticles caps historical articles to the configured maximum`() {
+        val cappedProperties = appProperties.copy(llm = LlmProperties(dedup = DedupProperties(maxHistoricalArticles = 2)))
+        val cappedService = ArticleEligibilityService(
+            articleRepository, episodeRepository, episodeArticleRepository, cappedProperties
+        )
+        val episode = Episode(id = 10, podcastId = "pod-1", generatedAt = "2026-03-18T10:00:00Z", scriptText = "test", status = EpisodeStatus.GENERATED)
+        every { episodeRepository.findRecentGeneratedByPodcastId("pod-1", 7) } returns listOf(episode)
+        every { episodeArticleRepository.findByEpisodeId(10) } returns listOf(
+            EpisodeArticle(episodeId = 10, articleId = 1),
+            EpisodeArticle(episodeId = 10, articleId = 2),
+            EpisodeArticle(episodeId = 10, articleId = 3)
+        )
+        every { articleRepository.findById(1L) } returns Optional.of(article(1))
+        every { articleRepository.findById(2L) } returns Optional.of(article(2))
+        every { articleRepository.findById(3L) } returns Optional.of(article(3))
+
+        val result = cappedService.findHistoricalArticles(podcast)
+
+        assertEquals(2, result.size)
+        assertEquals(listOf(1L, 2L), result.map { it.id })
     }
 
     @Test

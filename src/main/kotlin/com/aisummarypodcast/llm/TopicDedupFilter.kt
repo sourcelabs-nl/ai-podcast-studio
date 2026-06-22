@@ -12,6 +12,11 @@ import kotlin.time.measureTimedValue
 // real output, but low enough that a repetition loop is cut off in seconds rather than minutes.
 private const val DEDUP_MAX_OUTPUT_TOKENS = 8000
 
+// Historical titles are only used for topic recall, but some sources (Twitter/Nitter) put an
+// entire post in the title field (observed up to ~5000 chars). Truncate so one outlier can't
+// dominate the prompt; the leading words are enough to recognise the topic.
+private const val HISTORICAL_TITLE_MAX_CHARS = 150
+
 data class DedupCandidate(
     val id: Long,
     val title: String,
@@ -125,8 +130,12 @@ class TopicDedupFilter(
         }.joinToString("\n\n")
 
         val historicalBlock = if (historicalArticles.isNotEmpty()) {
+            // Titles only: the historical block exists for topic recall (has this been covered?),
+            // and titles convey the topic. Embedding full summaries here bloated the prompt without
+            // improving continuation detection. Titles are truncated so a single oversized
+            // source title cannot dominate the prompt.
             val grouped = historicalArticles.joinToString("\n") { article ->
-                "- [${extractDomain(article.url)}] ${article.title}: ${article.summary ?: "(no summary)"}"
+                "- [${extractDomain(article.url)}] ${article.title.truncateForHistory()}"
             }
             """
 
@@ -160,5 +169,8 @@ class TopicDedupFilter(
             $historicalBlock
         """.trimIndent()
     }
+
+    private fun String.truncateForHistory(): String =
+        if (length <= HISTORICAL_TITLE_MAX_CHARS) this else take(HISTORICAL_TITLE_MAX_CHARS).trimEnd() + "…"
 
 }

@@ -53,12 +53,22 @@ data class EncryptionProperties(
 data class LlmProperties(
     val defaults: StageDefaults = StageDefaults(),
     val maxCostCents: Int = 200,
-    val scoring: ScoringProperties = ScoringProperties()
+    val scoring: ScoringProperties = ScoringProperties(),
+    val dedup: DedupProperties = DedupProperties()
 )
 
 data class ScoringProperties(
     val concurrency: Int = 10,
     val maxRetries: Int = 3
+)
+
+/**
+ * Bounds the historical context sent to the topic dedup filter. Dedup only needs recent topic
+ * recall to flag continuations, so we cap how many historical articles (most recent first) are
+ * embedded in the prompt — keeping the request small enough for a cheap, non-reasoning model.
+ */
+data class DedupProperties(
+    val maxHistoricalArticles: Int = 120
 )
 
 enum class ModelType { LLM, TTS }

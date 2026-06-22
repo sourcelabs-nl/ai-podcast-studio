@@ -60,7 +60,9 @@ class ArticleEligibilityService(
             }
         }
 
-        return allArticles.distinctBy { it.id }
+        // Episodes arrive most-recent-first, so capping the deduped list keeps the freshest
+        // articles and bounds the dedup prompt regardless of how many articles each episode pulled in.
+        return allArticles.distinctBy { it.id }.take(appProperties.llm.dedup.maxHistoricalArticles)
     }
 
     private fun resolveAgeGateCutoff(podcast: Podcast): String? {

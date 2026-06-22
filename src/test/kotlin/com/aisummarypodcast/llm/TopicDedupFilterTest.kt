@@ -37,14 +37,28 @@ class TopicDedupFilterTest {
     }
 
     @Test
-    fun `buildPrompt includes historical articles when provided`() {
+    fun `buildPrompt includes historical article titles only without summaries`() {
         val candidates = listOf(article(1, "New Article"))
         val historical = listOf(article(10, "Old Article", "Old summary"))
 
         val prompt = filter.buildPrompt(candidates, historical)
 
         assertTrue(prompt.contains("Historical articles from recent episodes"))
-        assertTrue(prompt.contains("Old Article: Old summary"))
+        assertTrue(prompt.contains("- [example.com] Old Article"))
+        // Historical block is title-only to keep the dedup prompt small — summaries are omitted.
+        assertTrue(!prompt.contains("Old summary"))
+    }
+
+    @Test
+    fun `buildPrompt truncates oversized historical titles`() {
+        val longTitle = "X".repeat(500)
+        val historical = listOf(article(10, longTitle, "Old summary"))
+
+        val prompt = filter.buildPrompt(listOf(article(1, "New Article")), historical)
+
+        // The full 500-char title must not appear; it is truncated with an ellipsis.
+        assertTrue(!prompt.contains(longTitle))
+        assertTrue(prompt.contains("X".repeat(150) + "…"))
     }
 
     @Test
