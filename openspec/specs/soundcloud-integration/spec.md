@@ -234,23 +234,27 @@ The `EpisodePublicationRepository` SHALL provide a `findPublishedByPodcastIdAndT
 - **THEN** an empty list is returned
 
 ### Requirement: SoundCloud upload quota check
-The system SHALL check the user's SoundCloud upload quota before attempting a track upload by calling `GET https://api.soundcloud.com/me` with the user's access token and reading the `quota` object. If `quota.unlimitedUploadQuota` is `false` and `quota.uploadSecondsLeft <= 0`, the system SHALL throw a `SoundCloudQuotaExceededException` containing a descriptive error message and the oldest deletable track (if available). The oldest track is determined by calling `GET https://api.soundcloud.com/me/tracks`, filtering to tracks whose title starts with the podcast name, and selecting the one with the earliest `createdAt`.
+The system SHALL ensure enough SoundCloud upload quota exists for an episode automatically, server-side, before uploading — without user consent. Before uploading, the system SHALL call `GET https://api.soundcloud.com/me` once and read the `quota` object. If `quota.unlimitedUploadQuota` is `false` and the remaining quota is too small for the episode (`quota.uploadSecondsLeft < episode.durationSeconds`, or `uploadSecondsLeft <= 0` when the duration is unknown), the system SHALL free space by deleting the **oldest** tracks belonging to this podcast. The system SHALL compute `secondsToFree = requiredSeconds - uploadSecondsLeft + buffer` (buffer = 120s), fetch tracks via `GET https://api.soundcloud.com/me/tracks`, filter to tracks whose title starts with the podcast name, sort oldest-first by `createdAt`, and delete them one at a time, accumulating each track's duration, until at least `secondsToFree` has been freed. The system SHALL NOT re-read the quota after deleting; the deletion amount is sized from the accurate pre-deletion read. After deleting at least one track, the system SHALL wait ~4 seconds (using a coroutine `delay`) so SoundCloud registers the freed space, then upload. If the quota is already sufficient, the account is unlimited, or no deletable tracks exist, the system SHALL proceed directly to upload.
 
 #### Scenario: Quota available
-- **WHEN** the user has upload seconds remaining (`uploadSecondsLeft > 0`)
-- **THEN** the publish flow proceeds normally
+- **WHEN** the remaining quota fits the episode duration (or the account is unlimited)
+- **THEN** the publish flow uploads directly with no deletion or wait
 
-#### Scenario: Quota exceeded
-- **WHEN** the user has no upload seconds remaining (`uploadSecondsLeft <= 0`) and `unlimitedUploadQuota` is `false`
-- **THEN** the system returns HTTP 413 with `code: "quota_exceeded"`, the error message, and `oldestTrack` info (id, title, createdAt, duration)
+#### Scenario: Quota exceeded — automatic freeing
+- **WHEN** the remaining quota is too small for the episode and `unlimitedUploadQuota` is `false`
+- **THEN** the system deletes the oldest podcast tracks (oldest-first) until at least `secondsToFree` is freed, waits ~4s, and then uploads — returning HTTP 200 with the published publication on success
+
+#### Scenario: Oldest-first, just-enough deletion
+- **WHEN** the account has podcast tracks A (oldest), B, C and only A+B are needed to cover `secondsToFree`
+- **THEN** the system deletes A and B, keeps C and any tracks belonging to other podcasts, and does not delete more than required
+
+#### Scenario: No deletable tracks
+- **WHEN** the quota is exceeded but no tracks whose title starts with the podcast name exist
+- **THEN** the system logs a warning and attempts the upload anyway (no deletion, no wait)
 
 #### Scenario: Unlimited quota
 - **WHEN** the user has `unlimitedUploadQuota: true`
-- **THEN** the publish flow proceeds normally regardless of `uploadSecondsLeft`
-
-#### Scenario: Oldest track filtering
-- **WHEN** the SoundCloud account has tracks from multiple sources
-- **THEN** only tracks whose title starts with the podcast name are considered for the oldest track suggestion
+- **THEN** the publish flow uploads directly regardless of `uploadSecondsLeft`
 
 ### Requirement: SoundCloud track deletion
 The system SHALL provide a `DELETE /users/{userId}/oauth/soundcloud/tracks/{trackId}` endpoint that deletes a track from SoundCloud using the user's stored access token. If SoundCloud returns 404 (track already deleted), the system SHALL treat it as a successful deletion.
@@ -279,19 +283,15 @@ The system SHALL detect OAuth-related failures during publishing and return HTTP
 - **THEN** the system returns HTTP 401 with `code: "oauth_expired"`
 
 ### Requirement: Frontend re-authorize and quota recovery
-The publish wizard SHALL display contextual recovery actions based on the error type. On HTTP 401 with `code: "oauth_expired"`, a "Re-authorize SoundCloud" button SHALL be shown that fetches the authorization URL and opens it in a new tab. On HTTP 413 with `code: "quota_exceeded"`, the oldest track title SHALL be displayed with a "Remove Track" button that calls the delete endpoint and returns to the confirm step on success.
+The publish wizard SHALL display contextual recovery actions based on the error type. On HTTP 401 with `code: "oauth_expired"`, a "Re-authorize SoundCloud" button SHALL be shown that fetches the authorization URL and opens it in a new tab. Upload-quota shortfalls are handled automatically server-side, so the wizard SHALL NOT present any quota-consent step, track-removal prompt, or HTTP 413 handling.
 
 #### Scenario: OAuth expired error
 - **WHEN** publishing fails with HTTP 401
 - **THEN** the wizard shows the error message and a "Re-authorize SoundCloud" button with a KeyRound icon
 
-#### Scenario: Quota exceeded with oldest track
-- **WHEN** publishing fails with HTTP 413 and an `oldestTrack` is returned
-- **THEN** the wizard shows the error message, the oldest track's title, and a destructive "Remove Track" button
-
-#### Scenario: Track removed successfully
-- **WHEN** the user clicks "Remove Track" and the deletion succeeds
-- **THEN** the wizard returns to the confirm step so the user can retry publishing
+#### Scenario: Quota handled automatically
+- **WHEN** the user's upload quota is too small for the episode
+- **THEN** the server frees space and publishes automatically, and the wizard shows a normal success result with no track-removal prompt
 
 ### Requirement: SoundCloud application configuration
 The system SHALL resolve SoundCloud OAuth application credentials (`clientId`, `clientSecret`, `callbackUri`) by first checking `user_provider_configs` (category `PUBLISHING`, provider `soundcloud`) for the current user. If found, the encrypted JSON SHALL be decrypted and parsed. If not found, the system SHALL fall back to `app.soundcloud.client-id` and `app.soundcloud.client-secret` application properties (environment variables: `APP_SOUNDCLOUD_CLIENT_ID`, `APP_SOUNDCLOUD_CLIENT_SECRET`), with the callback URI derived from `app.feed.base-url` + `/oauth/soundcloud/callback`. If neither source provides credentials, the endpoints SHALL return HTTP 400 indicating SoundCloud credentials must be configured.

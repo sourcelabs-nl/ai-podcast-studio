@@ -209,7 +209,7 @@ The dashboard provides:
 - **Episode detail page**, dedicated page per episode with tabs for Script (chat-bubble rendering), Articles (grouped by source with relevance scores and collapsible sections), Publications, and **Costs** (per-stage breakdown: scoring, dedup, compose, recap, TTS, research, plus total). Shows episode metadata, recap, inline audio player, and contextual action buttons (Approve, Discard, Publish, Regenerate, Regenerate Audio, Retry, Regenerate Recap)
 - **Upcoming episode preview**, see collected articles for the next episode, preview the script via Server-Sent Events with real-time progress stages (aggregating, scoring, deduplicating, composing), and trigger episode generation on demand. Shows next scheduled generation time
 - **Source export**, download all configured sources as a markdown file from the Sources tab
-- **Publish wizard**, publish generated episodes to FTP or SoundCloud via a step-by-step wizard with automatic quota detection and recovery (re-authorize on OAuth expiry, remove oldest track on quota exceeded)
+- **Publish wizard**, publish generated episodes to FTP or SoundCloud via a step-by-step wizard. SoundCloud upload quota is freed automatically server-side (oldest podcast tracks are deleted just enough to fit, then the upload retries), and OAuth expiry surfaces a re-authorize action
 - **Publications tab**, view all publications across the podcast in one paginated table (newest first) with track/playlist links and republish/unpublish actions
 
 The frontend proxies API calls to `http://localhost:8085` via Next.js rewrites.
@@ -244,7 +244,7 @@ When `deepDiveEnabled` is set on a podcast, the script composer is given a `webS
 
 ## Publishing
 
-Episodes can be published to multiple targets after generation: **FTP** and **SoundCloud** are supported, configured per-podcast, with per-target publication status tracking. The dashboard's publish wizard handles OAuth, quota detection, and re-auth. See [docs/publishing.md](docs/publishing.md) for FTP setup, SoundCloud OAuth, X (Twitter) OAuth for sources, and using Nitter as a free alternative.
+Episodes can be published to multiple targets after generation: **FTP** and **SoundCloud** are supported, configured per-podcast, with per-target publication status tracking. The dashboard's publish wizard handles OAuth and re-auth; SoundCloud upload quota is freed automatically server-side when full. See [docs/publishing.md](docs/publishing.md) for FTP setup, SoundCloud OAuth, X (Twitter) OAuth for sources, and using Nitter as a free alternative.
 
 ## Database Backups
 
