@@ -19,7 +19,7 @@ class PublishingController(
     private val log = LoggerFactory.getLogger(javaClass)
 
     @PostMapping("/publish/{target}")
-    fun publish(
+    suspend fun publish(
         @PathVariable userId: String,
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long,
@@ -33,30 +33,9 @@ class PublishingController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        // Publishing failures are translated to HTTP by PublishingExceptionHandler (Rule SB8).
+        // SoundCloud quota is freed automatically inside the publisher; remaining publishing
+        // failures are translated to HTTP by PublishingExceptionHandler (Rule SB8).
         val publication = publishingService.publish(episode, podcast, userId, target)
-        return ResponseEntity.ok(publication.toResponse())
-    }
-
-    @PostMapping("/publish/{target}/free-and-publish")
-    fun freeQuotaAndPublish(
-        @PathVariable userId: String,
-        @PathVariable podcastId: String,
-        @PathVariable episodeId: Long,
-        @PathVariable target: String,
-        @RequestBody request: FreeQuotaRequest
-    ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
-
-        // A still-insufficient quota re-throws SoundCloudQuotaExceededException with a fresh plan;
-        // PublishingExceptionHandler maps that (and every other publishing failure) to HTTP.
-        val publication = publishingService.freeQuotaAndPublish(episode, podcast, userId, target, request.trackIds)
         return ResponseEntity.ok(publication.toResponse())
     }
 

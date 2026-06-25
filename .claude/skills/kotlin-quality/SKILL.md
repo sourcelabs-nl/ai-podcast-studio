@@ -108,11 +108,17 @@ All async and background work must use Kotlin coroutines. Do not use Java concur
 - Use of `CompletableFuture` for async orchestration (use coroutines instead)
 - Creating unmanaged threads that bypass Spring's task executor
 - Using `Dispatchers.Default` for I/O-bound work (must use `Dispatchers.IO` for HTTP requests, database calls, file I/O)
+- **`Thread.sleep(...)` inside a `suspend` function** — it blocks the underlying thread instead of suspending cooperatively. Use `delay(...)` (from `kotlinx.coroutines`) instead. If the surrounding function is not yet `suspend`, prefer making it (and its callers) `suspend` so a cooperative `delay` can be used, rather than reaching for `Thread.sleep`.
 
 **Not a violation:**
 - `Semaphore` from `kotlinx.coroutines.sync` (coroutine-aware concurrency primitive)
 - `ConcurrentHashMap` or other concurrent data structures used for thread-safe state
 - `TaskScheduler` and the `java.util.concurrent.ScheduledFuture` it returns. `TaskScheduler` is Spring's sanctioned abstraction for dynamic (re)scheduling and cancellation; `ScheduledFuture` is its return type, retained purely as a cancellation handle. This rule targets thread-pool creation and unmanaged async work, not retention of a Spring-managed scheduling handle.
+- `runBlocking { ... }` used as a deliberate bridge from a non-`suspend` context into `suspend` code (e.g. a non-`suspend` interface override that must call a `suspend` function). Bridging is fine; reaching for `Thread.sleep` to avoid `suspend` is not.
+
+**Testing suspend functions:**
+- Drive `suspend` functions under test with `runTest { ... }` (from `kotlinx.coroutines.test`), not `runBlocking { ... }`. `runTest` uses virtual time, so `delay(...)` calls inside the code under test are skipped instead of actually waiting — keeping tests fast and deterministic.
+- With MockK, stub and verify `suspend` functions using `coEvery { ... }` / `coVerify { ... }` (never plain `every`/`verify`, which do not compile for suspend functions).
 
 ---
 

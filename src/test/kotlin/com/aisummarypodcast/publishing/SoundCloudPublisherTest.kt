@@ -18,6 +18,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -76,7 +79,7 @@ class SoundCloudPublisherTest {
     }
 
     @Test
-    fun `publish uploads track with correct metadata`() {
+    fun `publish uploads track with correct metadata`() = runTest {
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
@@ -99,7 +102,7 @@ class SoundCloudPublisherTest {
             IllegalStateException("No SoundCloud connection found")
 
         assertThrows<IllegalStateException> {
-            publisher.publish(episode, podcast, "user1")
+            runBlocking { publisher.publish(episode, podcast, "user1") }
         }
     }
 
@@ -112,7 +115,7 @@ class SoundCloudPublisherTest {
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
-        publisher.publish(longEpisode, podcast, "user1")
+        runBlocking { publisher.publish(longEpisode, podcast, "user1") }
 
         assertTrue(requestSlot.captured.description.startsWith("A".repeat(500)), "Expected script truncated to 500 chars")
         assertTrue(requestSlot.captured.description.contains(expectedSourcesUrl), "Expected sources URL in description")
@@ -128,7 +131,7 @@ class SoundCloudPublisherTest {
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
-        publisher.publish(episodeWithNotes, podcast, "user1")
+        runBlocking { publisher.publish(episodeWithNotes, podcast, "user1") }
 
         assertEquals("Recap.\n\nSources:\n- Article\n  https://example.com/1\n\nFor the full list of sources and show notes: $expectedSourcesUrl", requestSlot.captured.description)
     }
@@ -141,7 +144,7 @@ class SoundCloudPublisherTest {
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
-        publisher.publish(episodeWithRecap, podcast, "user1")
+        runBlocking { publisher.publish(episodeWithRecap, podcast, "user1") }
 
         assertEquals("A short recap\n\nFor the full list of sources and show notes: $expectedSourcesUrl", requestSlot.captured.description)
     }
@@ -153,7 +156,7 @@ class SoundCloudPublisherTest {
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
-        publisher.publish(episode, podcastWithTags, "user1")
+        runBlocking { publisher.publish(episode, podcastWithTags, "user1") }
 
         assertEquals("AI \"machine learning\" Kotlin", requestSlot.captured.tagList)
     }
@@ -242,23 +245,25 @@ class SoundCloudPublisherTest {
     }
 
     @Test
-    fun `publish throws when quota exceeded`() {
+    fun `publish uploads anyway when quota exceeded but no deletable tracks exist`() {
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.getMe("access-token") } returns SoundCloudMeResponse(
             id = 1L, username = "testuser", plan = "Free",
             quota = SoundCloudQuota(unlimitedUploadQuota = false, uploadSecondsUsed = 7000, uploadSecondsLeft = -500)
         )
         every { soundCloudClient.getMyTracks("access-token") } returns SoundCloudTrackListResponse()
+        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
 
-        val ex = assertThrows<SoundCloudQuotaExceededException> {
-            publisher.publish(episode, podcast, "user1")
-        }
-        assertEquals(true, ex.message?.contains("quota is full"))
+        val result = runBlocking { publisher.publish(episode, podcast, "user1") }
+
+        assertEquals("456", result.externalId)
+        verify(exactly = 0) { soundCloudClient.deleteTrack(any(), any()) }
     }
 
     @Test
-    fun `publish quota plan picks oldest tracks until episode duration fits`() {
+    fun `publish deletes oldest tracks until episode duration fits then uploads`() = runTest {
         // 5 minutes left, this episode needs 12 minutes -> must free ~7 min (+ buffer).
+        // runTest skips the publisher's post-deletion delay() via virtual time, so this stays fast.
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.getMe("access-token") } returns SoundCloudMeResponse(
             id = 1L, username = "testuser", plan = "Free",
@@ -273,15 +278,18 @@ class SoundCloudPublisherTest {
                 SoundCloudTrackSummary(id = 999, title = "Other Show - 2026-01-01", createdAt = "2025-01-01T00:00:00Z", duration = 360_000)
             )
         )
-        val episode12min = episode.copy(durationSeconds = 720)
+        every { soundCloudClient.deleteTrack("access-token", any()) } returns Unit
+        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
 
-        val ex = assertThrows<SoundCloudQuotaExceededException> {
-            publisher.publish(episode12min, podcast, "user1")
-        }
+        val result = publisher.publish(episode.copy(durationSeconds = 720), podcast, "user1")
 
-        // Need 720 - 300 + 120 = 540s; each track is 360s, so two oldest podcast tracks (100, 200).
-        assertEquals(listOf(100L, 200L), ex.plan.tracksToDelete.map { it.id })
-        assertEquals(540L, ex.plan.secondsToFree)
+        assertEquals("456", result.externalId)
+        // Need 720 - 300 + 120 = 540s; each track is 360s, so the two oldest podcast tracks (100, 200)
+        // are deleted while the newer (300) and other-podcast (999) tracks are kept.
+        verify { soundCloudClient.deleteTrack("access-token", 100) }
+        verify { soundCloudClient.deleteTrack("access-token", 200) }
+        verify(exactly = 0) { soundCloudClient.deleteTrack("access-token", 300) }
+        verify(exactly = 0) { soundCloudClient.deleteTrack("access-token", 999) }
     }
 
     @Test
@@ -293,19 +301,8 @@ class SoundCloudPublisherTest {
         )
         every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
 
-        val result = publisher.publish(episode.copy(durationSeconds = 720), podcast, "user1")
+        val result = runBlocking { publisher.publish(episode.copy(durationSeconds = 720), podcast, "user1") }
         assertEquals("456", result.externalId)
-    }
-
-    @Test
-    fun `deleteTracks deletes each track id`() {
-        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
-        every { soundCloudClient.deleteTrack("access-token", any()) } returns Unit
-
-        publisher.deleteTracks("user1", listOf(100, 200))
-
-        verify { soundCloudClient.deleteTrack("access-token", 100) }
-        verify { soundCloudClient.deleteTrack("access-token", 200) }
     }
 
     @Test
@@ -317,7 +314,7 @@ class SoundCloudPublisherTest {
         )
         every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
 
-        val result = publisher.publish(episode, podcast, "user1")
+        val result = runBlocking { publisher.publish(episode, podcast, "user1") }
         assertEquals("456", result.externalId)
     }
 
@@ -332,7 +329,7 @@ class SoundCloudPublisherTest {
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
-        publisherWithEmail.publish(episode, podcast, "user1")
+        runBlocking { publisherWithEmail.publish(episode, podcast, "user1") }
 
         assertTrue(requestSlot.captured.description.contains("Tips, comments, or feedback? Mail us at host@example.com"))
     }

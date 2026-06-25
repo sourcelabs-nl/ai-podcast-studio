@@ -11,6 +11,7 @@ import com.aisummarypodcast.store.PodcastRepository
 import com.aisummarypodcast.store.UserRepository
 import com.aisummarypodcast.user.UserProviderConfigService
 import com.aisummarypodcast.store.ApiKeyCategory
+import kotlinx.coroutines.runBlocking
 import org.apache.commons.net.ftp.FTPClient
 import org.apache.commons.net.ftp.FTPSClient
 import org.slf4j.LoggerFactory
@@ -43,7 +44,7 @@ class FtpPublisher(
     override fun targetName(): String = TARGET_NAME
 
     override fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult =
-        publish(episode, podcast, userId)
+        runBlocking { publish(episode, podcast, userId) }
 
     override fun postPublish(podcast: Podcast, userId: String) {
         val credentials = resolveCredentials(userId)
@@ -107,7 +108,7 @@ class FtpPublisher(
         }
     }
 
-    override fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult {
+    override suspend fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult {
         val credentials = resolveCredentials(userId)
         val targetConfig = resolveTargetConfig(podcast.id)
         val rawRemotePath = (targetConfig["remotePath"] as? String)?.takeIf { it.isNotBlank() }

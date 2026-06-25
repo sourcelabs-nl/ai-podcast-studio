@@ -27,11 +27,6 @@ data class PublicationTargetResponse(
 
 data class AuthorizeResponse(val authorizationUrl: String)
 
-/** Track IDs the user has consented to delete so an episode fits the SoundCloud upload quota. */
-data class FreeQuotaRequest(
-    val trackIds: List<Long> = emptyList()
-)
-
 /** Lightweight episode reference embedded in podcast-level publication rows. */
 data class PublicationEpisodeRef(
     val id: Long,

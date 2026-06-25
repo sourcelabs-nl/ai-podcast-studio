@@ -11,6 +11,7 @@ import com.aisummarypodcast.user.ProviderConfig
 import com.aisummarypodcast.user.UserProviderConfigService
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -51,7 +52,7 @@ class FtpPublisherTest {
         val podcast = Podcast(id = "p1", userId = "user1", name = "Tech", topic = "tech")
 
         val ex = assertThrows<IllegalStateException> {
-            publisher.publish(episode, podcast, "user1")
+            runBlocking { publisher.publish(episode, podcast, "user1") }
         }
         assertTrue(ex.message!!.contains("No FTP credentials"))
     }
@@ -67,7 +68,7 @@ class FtpPublisherTest {
         val podcast = Podcast(id = "p1", userId = "user1", name = "Tech", topic = "tech")
 
         val ex = assertThrows<IllegalStateException> {
-            publisher.publish(episode, podcast, "user1")
+            runBlocking { publisher.publish(episode, podcast, "user1") }
         }
         assertTrue(ex.message!!.contains("not configured"))
     }
@@ -86,7 +87,7 @@ class FtpPublisherTest {
         val podcast = Podcast(id = "p1", userId = "user1", name = "Tech", topic = "tech")
 
         val ex = assertThrows<IllegalStateException> {
-            publisher.publish(episode, podcast, "user1")
+            runBlocking { publisher.publish(episode, podcast, "user1") }
         }
         assertTrue(ex.message!!.contains("disabled"))
     }

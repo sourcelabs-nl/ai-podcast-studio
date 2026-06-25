@@ -7,9 +7,11 @@ import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastPublicationTarget
 import com.aisummarypodcast.store.PublicationStatus
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
 import org.springframework.context.ApplicationEventPublisher
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -49,9 +51,9 @@ class PublishingServiceTest {
         every { targetService.get("pod1", "soundcloud") } returns enabledTarget
         every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
         every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
-        every { publisher.publish(episode, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+        coEvery { publisher.publish(episode, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
 
-        val result = service.publish(episode, podcast, "user1", "soundcloud")
+        val result = runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
 
         assertEquals(PublicationStatus.PUBLISHED, result.status)
         assertEquals("sc-123", result.externalId)
@@ -60,7 +62,7 @@ class PublishingServiceTest {
     @Test
     fun `publish throws for unknown target`() {
         assertThrows<IllegalArgumentException> {
-            service.publish(episode, podcast, "user1", "youtube")
+            runBlocking { service.publish(episode, podcast, "user1", "youtube") }
         }
     }
 
@@ -70,7 +72,7 @@ class PublishingServiceTest {
         val pendingEpisode = episode.copy(status = EpisodeStatus.PENDING_REVIEW)
 
         assertThrows<IllegalStateException> {
-            service.publish(pendingEpisode, podcast, "user1", "soundcloud")
+            runBlocking { service.publish(pendingEpisode, podcast, "user1", "soundcloud") }
         }
     }
 
@@ -81,7 +83,7 @@ class PublishingServiceTest {
         val unapproved = episode.copy(publishApproved = false)
 
         val ex = assertThrows<IllegalStateException> {
-            service.publish(unapproved, approvalPodcast, "user1", "soundcloud")
+            runBlocking { service.publish(unapproved, approvalPodcast, "user1", "soundcloud") }
         }
         assertTrue(ex.message!!.contains("approved for publication"))
     }
@@ -93,9 +95,9 @@ class PublishingServiceTest {
         every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
         val approvalPodcast = podcast.copy(requirePublishApproval = true)
         val approved = episode.copy(publishApproved = true)
-        every { publisher.publish(approved, approvalPodcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+        coEvery { publisher.publish(approved, approvalPodcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
 
-        val result = service.publish(approved, approvalPodcast, "user1", "soundcloud")
+        val result = runBlocking { service.publish(approved, approvalPodcast, "user1", "soundcloud") }
 
         assertEquals(PublicationStatus.PUBLISHED, result.status)
     }
@@ -106,9 +108,9 @@ class PublishingServiceTest {
         every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
         every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
         val unapproved = episode.copy(publishApproved = false)
-        every { publisher.publish(unapproved, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+        coEvery { publisher.publish(unapproved, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
 
-        val result = service.publish(unapproved, podcast, "user1", "soundcloud")
+        val result = runBlocking { service.publish(unapproved, podcast, "user1", "soundcloud") }
 
         assertEquals(PublicationStatus.PUBLISHED, result.status)
     }
@@ -119,7 +121,7 @@ class PublishingServiceTest {
         val noAudioEpisode = episode.copy(audioFilePath = null)
 
         assertThrows<IllegalStateException> {
-            service.publish(noAudioEpisode, podcast, "user1", "soundcloud")
+            runBlocking { service.publish(noAudioEpisode, podcast, "user1", "soundcloud") }
         }
     }
 
@@ -128,7 +130,7 @@ class PublishingServiceTest {
         every { targetService.get("pod1", "soundcloud") } returns null
 
         val ex = assertThrows<IllegalStateException> {
-            service.publish(episode, podcast, "user1", "soundcloud")
+            runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
         }
         assertTrue(ex.message!!.contains("not configured or enabled"))
     }
@@ -138,7 +140,7 @@ class PublishingServiceTest {
         every { targetService.get("pod1", "soundcloud") } returns enabledTarget.copy(enabled = false)
 
         val ex = assertThrows<IllegalStateException> {
-            service.publish(episode, podcast, "user1", "soundcloud")
+            runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
         }
         assertTrue(ex.message!!.contains("not configured or enabled"))
     }
@@ -159,7 +161,7 @@ class PublishingServiceTest {
         every { publisher.update(episode, podcast, "user1", "sc-123") } returns PublishResult("sc-123", "https://soundcloud.com/updated")
         every { publicationRepository.save(any()) } answers { firstArg() }
 
-        val result = service.publish(episode, podcast, "user1", "soundcloud")
+        val result = runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
 
         assertEquals(PublicationStatus.PUBLISHED, result.status)
         assertEquals("https://soundcloud.com/updated", result.externalUrl)
@@ -180,7 +182,7 @@ class PublishingServiceTest {
         every { publisher.update(episode, podcast, "user1", "sc-123") } throws UnsupportedOperationException("not supported")
 
         assertThrows<UnsupportedOperationException> {
-            service.publish(episode, podcast, "user1", "soundcloud")
+            runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
         }
     }
 
@@ -189,31 +191,10 @@ class PublishingServiceTest {
         every { targetService.get("pod1", "soundcloud") } returns enabledTarget
         every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
         every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
-        every { publisher.publish(episode, podcast, "user1") } throws RuntimeException("API error")
+        coEvery { publisher.publish(episode, podcast, "user1") } throws RuntimeException("API error")
 
         assertThrows<RuntimeException> {
-            service.publish(episode, podcast, "user1", "soundcloud")
-        }
-    }
-
-    @Test
-    fun `freeQuotaAndPublish deletes approved tracks then publishes`() {
-        every { soundCloudPublisher.deleteTracks("user1", listOf(100L, 200L)) } returns Unit
-        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
-        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
-        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
-        every { publisher.publish(episode, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
-
-        val result = service.freeQuotaAndPublish(episode, podcast, "user1", "soundcloud", listOf(100L, 200L))
-
-        assertEquals(PublicationStatus.PUBLISHED, result.status)
-        verify { soundCloudPublisher.deleteTracks("user1", listOf(100L, 200L)) }
-    }
-
-    @Test
-    fun `freeQuotaAndPublish rejects non-soundcloud target`() {
-        assertThrows<IllegalArgumentException> {
-            service.freeQuotaAndPublish(episode, podcast, "user1", "ftp", listOf(100L))
+            runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
         }
     }
 

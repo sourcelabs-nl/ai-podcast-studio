@@ -18,26 +18,6 @@ class PublishingExceptionHandler {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    @ExceptionHandler(SoundCloudQuotaExceededException::class)
-    fun handleQuotaExceeded(e: SoundCloudQuotaExceededException): ResponseEntity<Any> {
-        log.warn("SoundCloud upload quota full: {}", e.message)
-        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(
-            mapOf(
-                "error" to e.message,
-                "code" to "quota_exceeded",
-                "secondsToFree" to e.plan.secondsToFree,
-                "tracksToDelete" to e.plan.tracksToDelete.map {
-                    mapOf(
-                        "id" to it.id,
-                        "title" to it.title,
-                        "createdAt" to it.createdAt,
-                        "durationSeconds" to it.durationSeconds
-                    )
-                }
-            )
-        )
-    }
-
     @ExceptionHandler(UnsupportedOperationException::class)
     fun handleUnsupported(e: UnsupportedOperationException): ResponseEntity<Any> =
         ResponseEntity.badRequest().body(mapOf("error" to e.message))

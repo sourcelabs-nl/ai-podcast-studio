@@ -9,6 +9,8 @@ import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastPublicationTarget
 import com.aisummarypodcast.store.PublicationStatus
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -44,12 +46,12 @@ class AutoPublishListenerTest {
         )
         every { podcastService.findById("pod1") } returns podcast
         every { episodeService.findById(1L) } returns episode
-        every { publishingService.publish(episode, podcast, "user1", "ftp") } returns publication
+        coEvery { publishingService.publish(episode, podcast, "user1", "ftp") } returns publication
 
         listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
 
-        verify(timeout = 2000) { publishingService.publish(episode, podcast, "user1", "ftp") }
-        verify(exactly = 0) { publishingService.publish(any(), any(), any(), "soundcloud") }
+        coVerify(timeout = 2000) { publishingService.publish(episode, podcast, "user1", "ftp") }
+        coVerify(exactly = 0) { publishingService.publish(any(), any(), any(), "soundcloud") }
     }
 
     @Test
@@ -67,6 +69,6 @@ class AutoPublishListenerTest {
 
         listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
 
-        verify(exactly = 0) { publishingService.publish(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { publishingService.publish(any(), any(), any(), any()) }
     }
 }
