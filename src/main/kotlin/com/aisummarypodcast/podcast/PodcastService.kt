@@ -40,11 +40,15 @@ class PodcastService(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
-    private val retryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // Background scope for long-running pipeline work (manual generate/regenerate, retry) that must
+    // outlive the HTTP request. Running generation inside a suspend controller couples it to the
+    // request lifecycle, so a Spring MVC async-request timeout would cancel the in-flight pipeline.
+    private val pipelineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @PreDestroy
-    fun stopRetryScope() {
-        retryScope.cancel()
+    fun stopPipelineScope() {
+        pipelineScope.cancel()
     }
 
     fun detectResumePoint(episode: Episode): ResumePoint {
@@ -63,7 +67,7 @@ class PodcastService(
                 mapOf("resumePoint" to resumePoint.name, "episodeNumber" to episode.id))
         )
 
-        retryScope.launch {
+        pipelineScope.launch {
             try {
                 doRetry(episode, podcast, resumePoint)
             } catch (e: Exception) {
@@ -237,7 +241,26 @@ class PodcastService(
         }
 
         val generatingEpisode = episodeService.createGeneratingEpisode(podcast)
+        return runGenerationPipeline(podcast, generatingEpisode)
+    }
 
+    /**
+     * Starts briefing generation in the background and returns the GENERATING episode immediately,
+     * or null if one is already active. Decouples the multi-minute pipeline from the HTTP request so
+     * a Spring MVC async-request timeout cannot cancel the in-flight generation; progress and
+     * completion are delivered to the UI via SSE events.
+     */
+    fun generateBriefingAsync(podcast: Podcast): Episode? {
+        if (episodeService.hasActiveEpisode(podcast.id)) {
+            log.info("Podcast '{}' ({}) has an active episode — skipping manual generation", podcast.name, podcast.id)
+            return null
+        }
+        val generatingEpisode = episodeService.createGeneratingEpisode(podcast)
+        pipelineScope.launch { runGenerationPipeline(podcast, generatingEpisode) }
+        return generatingEpisode
+    }
+
+    private suspend fun runGenerationPipeline(podcast: Podcast, generatingEpisode: Episode): GenerateBriefingResult {
         return try {
             // Only persist the pipeline stage on an actual transition; per-article scoring progress
             // reports "scoring" repeatedly. Always emit the event so the frontend shows live progress.
@@ -304,7 +327,26 @@ class PodcastService(
         }
     }
 
-    suspend fun regenerateEpisode(sourceEpisode: Episode, podcast: Podcast): Episode {
+    /**
+     * Starts episode regeneration in the background and returns the GENERATING episode immediately.
+     * Like [generateBriefingAsync], this decouples the recompose + TTS work from the HTTP request so
+     * a request timeout cannot cancel it. `updateLastGenerated = false`: regeneration must not bump
+     * the podcast's lastGeneratedAt or the scheduler would skip the next scheduled run.
+     */
+    fun regenerateEpisodeAsync(sourceEpisode: Episode, podcast: Podcast): Episode {
+        val generatingEpisode = episodeService.createGeneratingEpisode(podcast, updateLastGenerated = false)
+        pipelineScope.launch {
+            try {
+                runRegeneration(sourceEpisode, podcast, generatingEpisode)
+            } catch (e: Exception) {
+                log.error("[Pipeline] Regeneration failed for episode {} (podcast '{}' ({})): {}", generatingEpisode.id, podcast.name, podcast.id, e.message, e)
+                episodeService.failEpisode(podcast, e.message ?: "Unknown error", generatingEpisode)
+            }
+        }
+        return generatingEpisode
+    }
+
+    private suspend fun runRegeneration(sourceEpisode: Episode, podcast: Podcast, generatingEpisode: Episode): Episode {
         val (articles, topicLabels, articleTopics) = episodeService.findLinkedArticlesAndTopics(sourceEpisode.id!!)
         if (articles.isEmpty()) {
             throw IllegalStateException("No articles found for episode ${sourceEpisode.id}")
@@ -312,7 +354,7 @@ class PodcastService(
 
         val result = llmPipeline.recompose(articles, podcast, topicLabels) { stage, detail ->
             eventPublisher.publishEvent(
-                PodcastEvent(this, podcast.id, "pipeline", 0, "pipeline.progress",
+                PodcastEvent(this, podcast.id, "episode", generatingEpisode.id!!, "episode.stage",
                     detail + ("stage" to stage))
             )
         }
@@ -320,6 +362,7 @@ class PodcastService(
         return episodeService.createEpisodeFromPipelineResult(
             podcast,
             resultWithTopics,
+            generatingEpisode = generatingEpisode,
             overrideGeneratedAt = sourceEpisode.generatedAt,
             updateLastGenerated = false
         )

@@ -66,7 +66,7 @@ class EpisodeService(
     }
 
     @Transactional
-    fun createGeneratingEpisode(podcast: Podcast): Episode {
+    fun createGeneratingEpisode(podcast: Podcast, updateLastGenerated: Boolean = true): Episode {
         val now = Instant.now().toString()
         val episode = episodeRepository.save(
             Episode(
@@ -76,7 +76,11 @@ class EpisodeService(
                 status = EpisodeStatus.GENERATING
             )
         )
-        podcastRepository.save(podcast.copy(lastGeneratedAt = now))
+        // Regeneration of an existing episode must not bump lastGeneratedAt, or the scheduler would
+        // treat the cron slot as already satisfied and skip the next scheduled generation.
+        if (updateLastGenerated) {
+            podcastRepository.save(podcast.copy(lastGeneratedAt = now))
+        }
         log.info("[Pipeline] Created GENERATING episode {} for podcast '{}' ({})", episode.id, podcast.name, podcast.id)
         eventPublisher.publishEvent(
             PodcastEvent(this, podcast.id, "episode", episode.id!!, "episode.generating", emptyMap())

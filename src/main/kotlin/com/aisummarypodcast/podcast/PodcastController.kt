@@ -219,29 +219,24 @@ class PodcastController(
     }
 
     @PostMapping("/{podcastId}/generate")
-    suspend fun generate(@PathVariable userId: String, @PathVariable podcastId: String): ResponseEntity<Any> {
+    fun generate(@PathVariable userId: String, @PathVariable podcastId: String): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (podcast.userId != userId) return ResponseEntity.notFound().build()
 
         log.info("Manual briefing generation triggered for podcast {}", podcastId)
 
-        val result = podcastService.generateBriefing(podcast)
-        if (result.failed) {
-            return ResponseEntity.status(500).body(mapOf("error" to (result.errorMessage ?: "Briefing generation failed"), "episodeId" to result.episode?.id))
-        }
-        val episode = result.episode
-            ?: return ResponseEntity.ok(mapOf("message" to "No relevant articles to process"))
+        // Generation runs in the background (it can take minutes); we return 202 with the GENERATING
+        // episode id and the UI follows progress via SSE. Running it inline in the request would tie
+        // it to the async-request timeout, which would cancel the in-flight pipeline.
+        val episode = podcastService.generateBriefingAsync(podcast)
+            ?: return ResponseEntity.status(409).body(mapOf("message" to "An episode is already generating for this podcast"))
 
-        return if (podcast.requireReview) {
-            ResponseEntity.ok(mapOf("message" to "Script ready for review", "episodeId" to episode.id))
-        } else {
-            ResponseEntity.ok(mapOf("message" to "Episode generated: ${episode.id} (${episode.durationSeconds}s)", "episodeId" to episode.id))
-        }
+        return ResponseEntity.accepted().body(mapOf("message" to "Generation started", "episodeId" to episode.id))
     }
 
     @PostMapping("/{podcastId}/episodes/{episodeId}/regenerate")
-    suspend fun regenerate(
+    fun regenerate(
         @PathVariable userId: String,
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
@@ -253,8 +248,9 @@ class PodcastController(
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
         log.info("Regenerate triggered for episode {} of podcast {}", episodeId, podcastId)
-        val newEpisode = podcastService.regenerateEpisode(episode, podcast)
-        return ResponseEntity.ok(mapOf("message" to "Episode regenerated", "episodeId" to newEpisode.id))
+        // Background work (recompose + TTS); return 202 with the new GENERATING episode id.
+        val newEpisode = podcastService.regenerateEpisodeAsync(episode, podcast)
+        return ResponseEntity.accepted().body(mapOf("message" to "Episode regeneration started", "episodeId" to newEpisode.id))
     }
 
     @GetMapping("/{podcastId}/upcoming-articles")
