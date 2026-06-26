@@ -4,7 +4,9 @@ import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.EpisodeSourcesGenerator
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.Podcast
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import tools.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -41,7 +43,7 @@ class SoundCloudPublisher(
 
     override fun targetName(): String = TARGET_NAME
 
-    override suspend fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult {
+    override suspend fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult = withContext(Dispatchers.IO) {
         val accessToken = tokenManager.getValidAccessToken(userId)
 
         // Make room first when the account's remaining quota is too small for this episode: delete
@@ -68,7 +70,7 @@ class SoundCloudPublisher(
             )
         )
 
-        return PublishResult(
+        PublishResult(
             externalId = response.id.toString(),
             externalUrl = response.permalinkUrl
         )
@@ -132,13 +134,13 @@ class SoundCloudPublisher(
         delay(QUOTA_SETTLE_MILLIS)
     }
 
-    override fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult {
+    override suspend fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult = withContext(Dispatchers.IO) {
         val accessToken = tokenManager.getValidAccessToken(userId)
         val trackId = externalId.toLong()
         val description = buildDescription(episode, podcast)
         val response = soundCloudClient.updateTrack(accessToken, trackId, description = description)
         log.info("Updated SoundCloud track {} description for episode {}", trackId, episode.id)
-        return PublishResult(
+        PublishResult(
             externalId = externalId,
             externalUrl = response.permalinkUrl
         )

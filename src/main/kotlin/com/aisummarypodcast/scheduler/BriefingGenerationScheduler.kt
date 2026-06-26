@@ -104,7 +104,7 @@ class BriefingGenerationScheduler(
      * Stale means: no poll round has completed in this process yet, or the last one is older than
      * [SourceProperties.staleRoundThresholdMinutes].
      */
-    private fun ensureFreshPolling(podcast: Podcast) {
+    private suspend fun ensureFreshPolling(podcast: Podcast) {
         val threshold = Duration.ofMinutes(appProperties.source.staleRoundThresholdMinutes.toLong())
         val lastRound = sourcePollingScheduler.lastPollRoundCompletedAt
         val stale = lastRound == null || Duration.between(lastRound, clock.instant()) > threshold
@@ -114,7 +114,7 @@ class BriefingGenerationScheduler(
         log.info("[Pipeline] Polling is stale ({}) — running a catch-up poll before generating for podcast '{}' ({})",
             reason, podcast.name, podcast.id)
         try {
-            sourcePollingScheduler.catchUpPoll(podcast.id)
+            sourcePollingScheduler.pollPodcastSourcesNow(podcast.id)
         } catch (e: Exception) {
             log.error("[Pipeline] Catch-up poll failed for podcast '{}' ({}); generating with existing data: {}",
                 podcast.name, podcast.id, e.message, e)

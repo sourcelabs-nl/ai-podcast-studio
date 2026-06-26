@@ -3,6 +3,8 @@ package com.aisummarypodcast.llm
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
@@ -19,12 +21,12 @@ class InterviewComposer(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun compose(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
         return compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
     }
 
-    fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
         log.info("[LLM] Composing interview from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
@@ -32,11 +34,13 @@ class InterviewComposer(
         val temperature = resolveTemperature(podcast, appProperties)
 
         val (result, elapsed) = measureTimedValue {
-            val chatResponse = chatClient.prompt()
-                .user(prompt)
-                .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
-                .call()
-                .chatResponse()
+            val chatResponse = withContext(Dispatchers.IO) {
+                chatClient.prompt()
+                    .user(prompt)
+                    .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
+                    .call()
+                    .chatResponse()
+            }
 
             val rawScript = chatResponse?.result?.output?.text
                 ?: throw IllegalStateException("Empty response from LLM for interview composition")

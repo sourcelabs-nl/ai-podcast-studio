@@ -7,6 +7,8 @@ import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
@@ -30,7 +32,7 @@ class TtsPipeline(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun generate(script: String, podcast: Podcast): Episode {
+    suspend fun generate(script: String, podcast: Podcast): Episode {
         log.info("[TTS] Starting audio generation for podcast '{}' ({}) (provider: {})", podcast.name, podcast.id, podcast.ttsProvider)
 
         val ttsResult = callProvider(script, podcast)
@@ -53,11 +55,11 @@ class TtsPipeline(
         )
 
         log.info("[TTS] Episode generated for podcast '{}' ({}): {} ({} seconds)", podcast.name, podcast.id, audioOutput.path.fileName, audioOutput.durationSeconds)
-        staticFeedExporter.export(podcast)
+        withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
         return episode
     }
 
-    fun generateForExistingEpisode(episode: Episode, podcast: Podcast): Episode {
+    suspend fun generateForExistingEpisode(episode: Episode, podcast: Podcast): Episode {
         log.info("[TTS] Starting audio generation for episode {} (podcast '{}' ({}), provider: {})", episode.id, podcast.name, podcast.id, podcast.ttsProvider)
 
         val ttsResult = callProvider(episode.scriptText, podcast)
@@ -79,11 +81,11 @@ class TtsPipeline(
         )
 
         log.info("[TTS] Episode {} audio generated for podcast '{}' ({}): {} ({} seconds)", episode.id, podcast.name, podcast.id, audioOutput.path.fileName, audioOutput.durationSeconds)
-        staticFeedExporter.export(podcast)
+        withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
         return updated
     }
 
-    private fun callProvider(script: String, podcast: Podcast): TtsResult {
+    private suspend fun callProvider(script: String, podcast: Podcast): TtsResult {
         val provider = ttsProviderFactory.resolve(podcast)
         val request = TtsRequest(
             script = TtsScriptSanitizer.sanitize(script),
@@ -95,7 +97,7 @@ class TtsPipeline(
         return provider.generate(request)
     }
 
-    private fun generateAudioFile(ttsResult: TtsResult, podcast: Podcast): AudioOutput {
+    private suspend fun generateAudioFile(ttsResult: TtsResult, podcast: Podcast): AudioOutput = withContext(Dispatchers.IO) {
         val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
             .withZone(ZoneOffset.UTC)
             .format(Instant.now())
@@ -111,6 +113,6 @@ class TtsPipeline(
         }
 
         val duration = audioDuration.calculate(outputPath)
-        return AudioOutput(outputPath, duration)
+        AudioOutput(outputPath, duration)
     }
 }

@@ -9,6 +9,8 @@ import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PublicationStatus
 import com.aisummarypodcast.podcast.PodcastEvent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.data.repository.findByIdOrNull
@@ -65,7 +67,7 @@ class PublishingService(
             if (prevDate != episodeDate) continue
             try {
                 if (prev.externalId != null) {
-                    publisher.unpublish(userId, prev.externalId)
+                    withContext(Dispatchers.IO) { publisher.unpublish(userId, prev.externalId) }
                 }
                 log.info("Replaced same-day publication (episode {}, externalId={}) on {}", prev.episodeId, prev.externalId, target)
             } catch (e: Exception) {
@@ -98,15 +100,15 @@ class PublishingService(
                 )
             )
             log.info("Episode {} published to {} (externalId={})", episode.id, target, result.externalId)
-            publisher.postPublish(podcast, userId)
+            withContext(Dispatchers.IO) { publisher.postPublish(podcast, userId) }
             if (target == SoundCloudPublisher.TARGET_NAME) {
                 try {
-                    rebuildSoundCloudPlaylist(podcast, userId)
+                    withContext(Dispatchers.IO) { rebuildSoundCloudPlaylist(podcast, userId) }
                 } catch (e: Exception) {
                     log.warn("Failed to rebuild SoundCloud playlist after publish: {}", e.message)
                 }
             }
-            staticFeedExporter.export(podcast)
+            withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
             eventPublisher.publishEvent(
                 PodcastEvent(this, podcast.id, "publication", episode.id!!, "episode.published",
                     mapOf("episodeNumber" to episode.id, "target" to target))
@@ -128,7 +130,7 @@ class PublishingService(
         }
     }
 
-    private fun updateExisting(
+    private suspend fun updateExisting(
         publisher: EpisodePublisher,
         episode: Episode,
         podcast: Podcast,
@@ -146,15 +148,15 @@ class PublishingService(
                 )
             )
             log.info("Episode {} updated on {} (externalId={})", episode.id, existing.target, existing.externalId)
-            publisher.postPublish(podcast, userId)
+            withContext(Dispatchers.IO) { publisher.postPublish(podcast, userId) }
             if (existing.target == SoundCloudPublisher.TARGET_NAME) {
                 try {
-                    rebuildSoundCloudPlaylist(podcast, userId)
+                    withContext(Dispatchers.IO) { rebuildSoundCloudPlaylist(podcast, userId) }
                 } catch (e: Exception) {
                     log.warn("Failed to rebuild SoundCloud playlist after update: {}", e.message)
                 }
             }
-            staticFeedExporter.export(podcast)
+            withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
             updated
         } catch (e: UnsupportedOperationException) {
             log.warn("Publisher {} does not support updates: {}", existing.target, e.message)

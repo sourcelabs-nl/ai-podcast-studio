@@ -19,6 +19,6 @@ data class TtsResult(
 
 interface TtsProvider {
     val maxChunkSize: Int
-    fun generate(request: TtsRequest): TtsResult
+    suspend fun generate(request: TtsRequest): TtsResult
     fun scriptGuidelines(style: PodcastStyle, pronunciations: Map<String, String> = emptyMap()): String
 }

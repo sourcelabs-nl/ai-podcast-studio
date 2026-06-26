@@ -1,6 +1,8 @@
 package com.aisummarypodcast.tts
 
 import com.aisummarypodcast.store.PodcastStyle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -20,7 +22,7 @@ class ElevenLabsDialogueTtsProvider(
         const val MAX_CHARS = 5000
     }
 
-    override fun generate(request: TtsRequest): TtsResult {
+    override suspend fun generate(request: TtsRequest): TtsResult {
         val turns = DialogueScriptParser.parse(request.script)
         if (turns.isEmpty()) {
             throw IllegalStateException("Dialogue script produced no speaker turns")
@@ -39,9 +41,11 @@ class ElevenLabsDialogueTtsProvider(
         log.info("Generating ElevenLabs dialogue: {} turns, {} unique voices, {} batch(es)", inputs.size, uniqueVoices.size, batches.size)
 
         val settings = request.ttsSettings.ifEmpty { null }
-        val audioChunks = batches.mapIndexed { index, batch ->
-            log.info("Generating dialogue batch {}/{} ({} turns, {} chars)", index + 1, batches.size, batch.size, batch.sumOf { it.text.length })
-            apiClient.textToDialogue(request.userId, batch, settings)
+        val audioChunks = withContext(Dispatchers.IO) {
+            batches.mapIndexed { index, batch ->
+                log.info("Generating dialogue batch {}/{} ({} turns, {} chars)", index + 1, batches.size, batch.size, batch.sumOf { it.text.length })
+                apiClient.textToDialogue(request.userId, batch, settings)
+            }
         }
         val totalCharacters = turns.sumOf { it.text.length }
 

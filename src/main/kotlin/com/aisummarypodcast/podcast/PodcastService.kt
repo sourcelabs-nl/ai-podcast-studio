@@ -190,7 +190,7 @@ class PodcastService(
      * Eagerly aggregates and relevance-scores the podcast's non-aggregate sources so they are
      * ranked before generation. Triggered by the polling scheduler after each poll round.
      */
-    fun scoreReadySources(podcast: Podcast) = llmPipeline.scoreReadySources(podcast)
+    suspend fun scoreReadySources(podcast: Podcast) = llmPipeline.scoreReadySources(podcast)
 
     fun update(podcastId: String, updates: Podcast): Podcast? {
         val existing = findById(podcastId) ?: return null
@@ -304,7 +304,7 @@ class PodcastService(
         }
     }
 
-    fun regenerateEpisode(sourceEpisode: Episode, podcast: Podcast): Episode {
+    suspend fun regenerateEpisode(sourceEpisode: Episode, podcast: Podcast): Episode {
         val (articles, topicLabels, articleTopics) = episodeService.findLinkedArticlesAndTopics(sourceEpisode.id!!)
         if (articles.isEmpty()) {
             throw IllegalStateException("No articles found for episode ${sourceEpisode.id}")

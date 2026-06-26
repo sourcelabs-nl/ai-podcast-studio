@@ -3,6 +3,8 @@ package com.aisummarypodcast.tts
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -15,7 +17,7 @@ class ElevenLabsDialogueTtsProviderTest {
     private val provider = ElevenLabsDialogueTtsProvider(apiClient)
 
     @Test
-    fun `generates dialogue audio from tagged script`() {
+    fun `generates dialogue audio from tagged script`() = runTest {
         val request = TtsRequest(
             script = "<host>Hello!</host><cohost>Hi there!</cohost>",
             ttsVoices = mapOf("host" to "v1", "cohost" to "v2"),
@@ -51,7 +53,7 @@ class ElevenLabsDialogueTtsProviderTest {
             userId = "u1"
         )
 
-        assertThrows<IllegalStateException> { provider.generate(request) }
+        assertThrows<IllegalStateException> { runBlocking { provider.generate(request) } }
     }
 
     @Test
@@ -64,11 +66,11 @@ class ElevenLabsDialogueTtsProviderTest {
             userId = "u1"
         )
 
-        assertThrows<IllegalStateException> { provider.generate(request) }
+        assertThrows<IllegalStateException> { runBlocking { provider.generate(request) } }
     }
 
     @Test
-    fun `passes settings to API`() {
+    fun `passes settings to API`() = runTest {
         val request = TtsRequest(
             script = "<host>Hello!</host>",
             ttsVoices = mapOf("host" to "v1"),
@@ -85,7 +87,7 @@ class ElevenLabsDialogueTtsProviderTest {
     }
 
     @Test
-    fun `short dialogue produces single batch with requiresConcatenation false`() {
+    fun `short dialogue produces single batch with requiresConcatenation false`() = runTest {
         val shortText = "a".repeat(2000)
         val request = TtsRequest(
             script = "<host>$shortText</host><cohost>$shortText</cohost>",
@@ -105,7 +107,7 @@ class ElevenLabsDialogueTtsProviderTest {
     }
 
     @Test
-    fun `long dialogue is split into multiple batches with requiresConcatenation true`() {
+    fun `long dialogue is split into multiple batches with requiresConcatenation true`() = runTest {
         val longText = "a".repeat(3000)
         val request = TtsRequest(
             script = "<host>$longText</host><cohost>$longText</cohost><host>$longText</host>",

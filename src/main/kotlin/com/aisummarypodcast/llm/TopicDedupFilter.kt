@@ -1,7 +1,9 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.store.Article
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
@@ -74,14 +76,16 @@ class TopicDedupFilter(
             for (attempt in 1..maxRetries) {
                 try {
                     val converter = BeanOutputConverter(DedupResult::class.java, jsonMapper)
-                    val chatResponse = chatClient.prompt()
-                        .user(prompt)
-                        // maxTokens caps a degenerating response (e.g. a repetition loop emitting
-                        // hundreds of near-duplicate clusters) so it fails in seconds instead of
-                        // streaming for minutes before truncating mid-JSON.
-                        .options(OpenAiChatOptions.builder().model(modelDef.model).temperature(0.3).maxTokens(DEDUP_MAX_OUTPUT_TOKENS))
-                        .call()
-                        .responseEntity(converter)
+                    val chatResponse = withContext(Dispatchers.IO) {
+                        chatClient.prompt()
+                            .user(prompt)
+                            // maxTokens caps a degenerating response (e.g. a repetition loop emitting
+                            // hundreds of near-duplicate clusters) so it fails in seconds instead of
+                            // streaming for minutes before truncating mid-JSON.
+                            .options(OpenAiChatOptions.builder().model(modelDef.model).temperature(0.3).maxTokens(DEDUP_MAX_OUTPUT_TOKENS))
+                            .call()
+                            .responseEntity(converter)
+                    }
 
                     val dedupResult = chatResponse.entity()
                         ?: throw IllegalStateException("Empty response from LLM for topic dedup filter")

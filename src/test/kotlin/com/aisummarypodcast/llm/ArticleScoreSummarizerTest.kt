@@ -17,6 +17,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -80,7 +81,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `article receives relevance score and summary`() {
+    fun `article receives relevance score and summary`() = runTest {
         val article = Article(
             id = 1, sourceId = "s1", title = "GPT-5 Released", body = "OpenAI released GPT-5 today.",
             url = "https://example.com/1", contentHash = "hash1"
@@ -100,7 +101,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `irrelevant article receives low score and null summary`() {
+    fun `irrelevant article receives low score and null summary`() = runTest {
         val article = Article(
             id = 2, sourceId = "s1", title = "Best Pizza Recipes", body = "Here are the best pizza recipes.",
             url = "https://example.com/2", contentHash = "hash2"
@@ -115,7 +116,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `LLM error returns empty list and does not save`() {
+    fun `LLM error returns empty list and does not save`() = runTest {
         val article = Article(
             id = 3, sourceId = "s1", title = "Some Article", body = "body",
             url = "https://example.com/3", contentHash = "hash3"
@@ -135,7 +136,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `token counts and cost are persisted on article`() {
+    fun `token counts and cost are persisted on article`() = runTest {
         val article = Article(
             id = 5, sourceId = "s1", title = "AI News", body = "AI content",
             url = "https://example.com/5", contentHash = "hash5"
@@ -151,7 +152,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `attribution preserved in summary prompt`() {
+    fun `attribution preserved in summary prompt`() = runTest {
         val article = Article(
             id = 6, sourceId = "s1", title = "MIT Study", body = "Researchers at MIT published a study showing AI advances.",
             url = "https://example.com/6", contentHash = "hash6"
@@ -273,7 +274,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `one article failure does not cancel others`() {
+    fun `one article failure does not cancel others`() = runTest {
         val article1 = Article(id = 1, sourceId = "s1", title = "Article 1", body = "body1", url = "https://example.com/1", contentHash = "h1")
         val article2 = Article(id = 2, sourceId = "s1", title = "Article 2", body = "body2", url = "https://example.com/2", contentHash = "h2")
         val article3 = Article(id = 3, sourceId = "s1", title = "Article 3", body = "body3", url = "https://example.com/3", contentHash = "h3")
@@ -310,7 +311,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `all articles fail returns empty list`() {
+    fun `all articles fail returns empty list`() = runTest {
         val article1 = Article(id = 1, sourceId = "s1", title = "Article 1", body = "body1", url = "https://example.com/1", contentHash = "h1")
         val article2 = Article(id = 2, sourceId = "s1", title = "Article 2", body = "body2", url = "https://example.com/2", contentHash = "h2")
         val article3 = Article(id = 3, sourceId = "s1", title = "Article 3", body = "body3", url = "https://example.com/3", contentHash = "h3")
@@ -330,7 +331,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `concurrency is limited to configured window size`() {
+    fun `concurrency is limited to configured window size`() = runTest {
         val articles = (1..4).map {
             Article(id = it.toLong(), sourceId = "s1", title = "Article $it", body = "body$it", url = "https://example.com/$it", contentHash = "h$it")
         }
@@ -373,7 +374,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `retry succeeds on second attempt`() {
+    fun `retry succeeds on second attempt`() = runTest {
         val article = Article(
             id = 1, sourceId = "s1", title = "Flaky Article", body = "body",
             url = "https://example.com/1", contentHash = "h1"
@@ -469,7 +470,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `article with subtopics persists normalized subtopic`() {
+    fun `article with subtopics persists normalized subtopic`() = runTest {
         val article = Article(
             id = 102, sourceId = "s1", title = "GPT-5", body = "OpenAI launched a new model.",
             url = "https://example.com/102", contentHash = "h102"
@@ -489,7 +490,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `article with subtopics disabled persists null subtopic`() {
+    fun `article with subtopics disabled persists null subtopic`() = runTest {
         val article = Article(
             id = 103, sourceId = "s1", title = "X", body = "body.",
             url = "https://example.com/103", contentHash = "h103"
@@ -503,7 +504,7 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
-    fun `all retries exhausted excludes article from result`() {
+    fun `all retries exhausted excludes article from result`() = runTest {
         val article = Article(
             id = 1, sourceId = "s1", title = "Persistent Failure", body = "body",
             url = "https://example.com/1", contentHash = "h1"

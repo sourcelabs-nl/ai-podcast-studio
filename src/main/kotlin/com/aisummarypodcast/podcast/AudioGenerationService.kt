@@ -43,7 +43,7 @@ class AudioGenerationService(
         }
     }
 
-    internal fun doGenerateAudio(episodeId: Long, podcastId: String) {
+    internal suspend fun doGenerateAudio(episodeId: Long, podcastId: String) {
         val episode = episodeRepository.findByIdOrNull(episodeId)
         if (episode == null) {
             log.error("Episode {} not found for async TTS generation", episodeId)

@@ -1,6 +1,8 @@
 package com.aisummarypodcast.tts
 
 import com.aisummarypodcast.store.PodcastStyle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -16,7 +18,7 @@ class ElevenLabsTtsProvider(
     override fun scriptGuidelines(style: PodcastStyle, pronunciations: Map<String, String>): String =
         "You MAY include emotion cues in square brackets to guide vocal delivery (e.g., [cheerfully], [seriously], [with excitement]). Keep cues natural and sparse."
 
-    override fun generate(request: TtsRequest): TtsResult {
+    override suspend fun generate(request: TtsRequest): TtsResult {
         val voiceId = request.ttsVoices["default"]
             ?: throw IllegalStateException("ElevenLabs TTS requires a 'default' voice in ttsVoices")
 
@@ -26,9 +28,11 @@ class ElevenLabsTtsProvider(
         val voiceSettings = request.ttsSettings.ifEmpty { null }
         val totalCharacters = chunks.sumOf { it.length }
 
-        val audioChunks = chunks.mapIndexed { index, chunk ->
-            log.info("Generating ElevenLabs TTS chunk {}/{} ({} chars)", index + 1, chunks.size, chunk.length)
-            apiClient.textToSpeech(request.userId, voiceId, chunk, voiceSettings)
+        val audioChunks = withContext(Dispatchers.IO) {
+            chunks.mapIndexed { index, chunk ->
+                log.info("Generating ElevenLabs TTS chunk {}/{} ({} chars)", index + 1, chunks.size, chunk.length)
+                apiClient.textToSpeech(request.userId, voiceId, chunk, voiceSettings)
+            }
         }
 
         // eleven_v3 is dialogue-only; single-speaker TTS uses eleven_flash_v2_5

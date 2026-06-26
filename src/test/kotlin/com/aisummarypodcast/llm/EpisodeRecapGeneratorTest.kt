@@ -6,6 +6,7 @@ import com.aisummarypodcast.llm.ResolvedModel
 import com.aisummarypodcast.store.Podcast
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -45,7 +46,7 @@ class EpisodeRecapGeneratorTest {
     }
 
     @Test
-    fun `generates recap from episode script`() {
+    fun `generates recap from episode script`() = runTest {
         val chatClient = mockChatClient("AI chip shortages continue. New EU regulations proposed.")
         every { chatClientFactory.createForModel("u1", filterModelDef) } returns chatClient
 
@@ -55,7 +56,7 @@ class EpisodeRecapGeneratorTest {
     }
 
     @Test
-    fun `tracks token usage`() {
+    fun `tracks token usage`() = runTest {
         val chatClient = mockChatClient("Recap text.", inputTokens = 800, outputTokens = 60)
         every { chatClientFactory.createForModel("u1", filterModelDef) } returns chatClient
 
@@ -66,7 +67,7 @@ class EpisodeRecapGeneratorTest {
     }
 
     @Test
-    fun `trims whitespace from recap`() {
+    fun `trims whitespace from recap`() = runTest {
         val chatClient = mockChatClient("  Recap with whitespace.  \n")
         every { chatClientFactory.createForModel("u1", filterModelDef) } returns chatClient
 
@@ -99,7 +100,7 @@ class EpisodeRecapGeneratorTest {
     }
 
     @Test
-    fun `generate parses covered topics from response`() {
+    fun `generate parses covered topics from response`() = runTest {
         val response = "AI safety and code quality were the focus.\n\n" +
             "|||COVERED_TOPICS|||\n[\"AI Safety\", \"Code Quality\"]\n|||END_COVERED_TOPICS|||"
         val chatClient = mockChatClient(response)
@@ -112,7 +113,7 @@ class EpisodeRecapGeneratorTest {
     }
 
     @Test
-    fun `recap computes cost from token usage when pricing configured`() {
+    fun `recap computes cost from token usage when pricing configured`() = runTest {
         val pricedModel = ResolvedModel(
             provider = "openrouter", model = "anthropic/claude-haiku-4.5",
             cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 1.00, outputCostPerMtok = 5.00)
@@ -127,7 +128,7 @@ class EpisodeRecapGeneratorTest {
     }
 
     @Test
-    fun `recap costCents is null when model pricing missing`() {
+    fun `recap costCents is null when model pricing missing`() = runTest {
         val chatClient = mockChatClient("Recap.")
         every { chatClientFactory.createForModel("u1", filterModelDef) } returns chatClient
 

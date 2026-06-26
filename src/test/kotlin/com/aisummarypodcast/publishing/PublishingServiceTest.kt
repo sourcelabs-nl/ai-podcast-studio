@@ -158,7 +158,7 @@ class PublishingServiceTest {
             createdAt = "2026-02-13T10:00:00Z"
         )
         every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns existing
-        every { publisher.update(episode, podcast, "user1", "sc-123") } returns PublishResult("sc-123", "https://soundcloud.com/updated")
+        coEvery { publisher.update(episode, podcast, "user1", "sc-123") } returns PublishResult("sc-123", "https://soundcloud.com/updated")
         every { publicationRepository.save(any()) } answers { firstArg() }
 
         val result = runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
@@ -179,7 +179,7 @@ class PublishingServiceTest {
             createdAt = "2026-02-13T10:00:00Z"
         )
         every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns existing
-        every { publisher.update(episode, podcast, "user1", "sc-123") } throws UnsupportedOperationException("not supported")
+        coEvery { publisher.update(episode, podcast, "user1", "sc-123") } throws UnsupportedOperationException("not supported")
 
         assertThrows<UnsupportedOperationException> {
             runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }

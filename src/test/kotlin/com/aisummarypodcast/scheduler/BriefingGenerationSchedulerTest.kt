@@ -17,7 +17,7 @@ import java.time.ZoneOffset
 class BriefingGenerationSchedulerTest {
 
     private val podcastService = mockk<PodcastService>()
-    // Relaxed: lastPollRoundCompletedAt defaults to null (stale), catchUpPoll is a no-op.
+    // Relaxed: lastPollRoundCompletedAt defaults to null (stale), pollPodcastSourcesNow is a no-op.
     private val sourcePollingScheduler = mockk<SourcePollingScheduler>(relaxed = true)
     private val appProperties = mockk<AppProperties> { every { source } returns SourceProperties() }
 
@@ -236,7 +236,7 @@ class BriefingGenerationSchedulerTest {
         runBlocking { scheduler.checkAndGenerate() }
 
         coVerifyOrder {
-            sourcePollingScheduler.catchUpPoll("p1")
+            sourcePollingScheduler.pollPodcastSourcesNow("p1")
             podcastService.generateBriefing(podcast)
         }
     }
@@ -252,7 +252,7 @@ class BriefingGenerationSchedulerTest {
 
         runBlocking { scheduler.checkAndGenerate() }
 
-        verify(exactly = 0) { sourcePollingScheduler.catchUpPoll(any()) }
+        coVerify(exactly = 0) { sourcePollingScheduler.pollPodcastSourcesNow(any()) }
         coVerify { podcastService.generateBriefing(podcast) }
     }
 

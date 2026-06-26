@@ -11,7 +11,8 @@ import com.aisummarypodcast.store.PodcastRepository
 import com.aisummarypodcast.store.UserRepository
 import com.aisummarypodcast.user.UserProviderConfigService
 import com.aisummarypodcast.store.ApiKeyCategory
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.apache.commons.net.ftp.FTPClient
 import org.apache.commons.net.ftp.FTPSClient
 import org.slf4j.LoggerFactory
@@ -43,8 +44,8 @@ class FtpPublisher(
 
     override fun targetName(): String = TARGET_NAME
 
-    override fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult =
-        runBlocking { publish(episode, podcast, userId) }
+    override suspend fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult =
+        publish(episode, podcast, userId)
 
     override fun postPublish(podcast: Podcast, userId: String) {
         val credentials = resolveCredentials(userId)
@@ -108,7 +109,7 @@ class FtpPublisher(
         }
     }
 
-    override suspend fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult {
+    override suspend fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult = withContext(Dispatchers.IO) {
         val credentials = resolveCredentials(userId)
         val targetConfig = resolveTargetConfig(podcast.id)
         val rawRemotePath = (targetConfig["remotePath"] as? String)?.takeIf { it.isNotBlank() }
@@ -159,7 +160,7 @@ class FtpPublisher(
                 "ftp://${credentials.host}${remoteEpisodesPath}$audioFileName"
             }
 
-            return PublishResult(externalId = "ftp:$slug", externalUrl = externalUrl)
+            PublishResult(externalId = "ftp:$slug", externalUrl = externalUrl)
         } finally {
             try {
                 if (ftpClient.isConnected) ftpClient.disconnect()

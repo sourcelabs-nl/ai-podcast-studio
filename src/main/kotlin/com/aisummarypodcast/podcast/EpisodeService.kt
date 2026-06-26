@@ -109,7 +109,7 @@ class EpisodeService(
      * retryable, and persisting the script before TTS is actually desirable so a TTS failure can be
      * resumed without losing the generated script.
      */
-    fun createEpisodeFromPipelineResult(
+    suspend fun createEpisodeFromPipelineResult(
         podcast: Podcast,
         result: PipelineResult,
         generatingEpisode: Episode? = null,
@@ -212,7 +212,7 @@ class EpisodeService(
         }
     }
 
-    private fun generateAndStoreRecap(episode: Episode, podcast: Podcast, topicLabels: List<String> = emptyList()): Episode {
+    private suspend fun generateAndStoreRecap(episode: Episode, podcast: Podcast, topicLabels: List<String> = emptyList()): Episode {
         return try {
             val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
             val recapResult = episodeRecapGenerator.generate(episode.scriptText, podcast, filterModelDef, topicLabels)
@@ -306,7 +306,7 @@ class EpisodeService(
      * I/O starves the pool and causes SQLITE_BUSY. Each write is atomic and idempotent, and persisting
      * progress before TTS lets a failed episode resume rather than rolling back.
      */
-    fun finalizeEpisode(
+    suspend fun finalizeEpisode(
         episode: Episode,
         podcast: Podcast,
         topicOrder: List<String> = emptyList(),
@@ -510,7 +510,7 @@ class EpisodeService(
      * pool and risking SQLITE_BUSY. Each internal episode save is atomic on its own, and the recap →
      * show-notes → sources steps are independent idempotent updates that are safe to apply separately.
      */
-    fun regenerateRecap(episode: Episode, podcast: Podcast): Episode {
+    suspend fun regenerateRecap(episode: Episode, podcast: Podcast): Episode {
         // Derive the candidate topic labels from the episode's existing links (distinct topics that
         // currently carry a topic_order, in order) so re-running recap recomputes — and prunes — the
         // discussed set for already-generated episodes.

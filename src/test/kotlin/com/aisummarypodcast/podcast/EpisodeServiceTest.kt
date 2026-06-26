@@ -22,10 +22,13 @@ import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastRepository
 import com.aisummarypodcast.store.PostArticleRepository
 import com.aisummarypodcast.tts.TtsPipeline
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.test.runTest
 import org.springframework.context.ApplicationEventPublisher
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -73,7 +76,7 @@ class EpisodeServiceTest {
 
     private fun setupRecapMocks(podcast: Podcast) {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
-        every { episodeRecapGenerator.generate(any(), podcast, filterModelDef, any()) } returns RecapResult(
+        coEvery { episodeRecapGenerator.generate(any(), podcast, filterModelDef, any()) } returns RecapResult(
             recap = "Recap text.", usage = TokenUsage(800, 60), costCents = 0
         )
     }
@@ -81,7 +84,7 @@ class EpisodeServiceTest {
     // --- createEpisodeFromPipelineResult tests ---
 
     @Test
-    fun `creates PENDING_REVIEW episode when requireReview is true`() {
+    fun `creates PENDING_REVIEW episode when requireReview is true`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(
             script = "Script", filterModel = "filter", composeModel = "compose",
@@ -99,7 +102,7 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `creates un-approved episode when requirePublishApproval is true`() {
+    fun `creates un-approved episode when requirePublishApproval is true`() = runTest {
         val approvalPodcast = podcast.copy(requirePublishApproval = true)
         val result = PipelineResult(
             script = "Script", filterModel = "filter", composeModel = "compose",
@@ -108,7 +111,7 @@ class EpisodeServiceTest {
         val saved = mutableListOf<Episode>()
         every { episodeRepository.save(capture(saved)) } answers { firstArg<Episode>().copy(id = 5) }
         every { podcastRepository.save(any()) } answers { firstArg() }
-        every { ttsPipeline.generateForExistingEpisode(any(), approvalPodcast) } answers { firstArg<Episode>().copy(status = EpisodeStatus.GENERATED) }
+        coEvery { ttsPipeline.generateForExistingEpisode(any(), approvalPodcast) } answers { firstArg<Episode>().copy(status = EpisodeStatus.GENERATED) }
         setupRecapMocks(approvalPodcast)
 
         episodeService.createEpisodeFromPipelineResult(approvalPodcast, result)
@@ -129,12 +132,12 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `creates GENERATED episode with TTS when requireReview is false`() {
+    fun `creates GENERATED episode with TTS when requireReview is false`() = runTest {
         val result = PipelineResult(
             script = "Script", filterModel = "filter", composeModel = "compose",
             processedArticleIds = listOf(10L)
         )
-        every { ttsPipeline.generateForExistingEpisode(any(), podcast) } answers {
+        coEvery { ttsPipeline.generateForExistingEpisode(any(), podcast) } answers {
             firstArg<Episode>().copy(audioFilePath = "/audio.mp3", durationSeconds = 60, status = EpisodeStatus.GENERATED)
         }
         every { episodeRepository.save(any()) } answers { firstArg<Episode>().copy(id = 5) }
@@ -143,12 +146,12 @@ class EpisodeServiceTest {
 
         val episode = episodeService.createEpisodeFromPipelineResult(podcast, result)
 
-        verify { ttsPipeline.generateForExistingEpisode(any(), podcast) }
+        coVerify { ttsPipeline.generateForExistingEpisode(any(), podcast) }
         verify { episodeArticleRepository.insertIgnore(5L, 10L, null, null) }
     }
 
     @Test
-    fun `saves episode-article links for all processed articles`() {
+    fun `saves episode-article links for all processed articles`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(
             script = "Script", filterModel = "filter", composeModel = "compose",
@@ -167,7 +170,7 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `generates and stores recap`() {
+    fun `generates and stores recap`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(
             script = "Script", filterModel = "filter", composeModel = "compose",
@@ -183,13 +186,13 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `recap failure does not block episode creation`() {
+    fun `recap failure does not block episode creation`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(script = "Script", filterModel = "filter", composeModel = "compose")
         every { episodeRepository.save(any()) } answers { firstArg<Episode>().copy(id = 5) }
         every { podcastRepository.save(any()) } answers { firstArg() }
         every { modelResolver.resolve(reviewPodcast, PipelineStage.FILTER) } returns filterModelDef
-        every { episodeRecapGenerator.generate(any(), reviewPodcast, filterModelDef) } throws RuntimeException("LLM error")
+        coEvery { episodeRecapGenerator.generate(any(), reviewPodcast, filterModelDef) } throws RuntimeException("LLM error")
 
         episodeService.createEpisodeFromPipelineResult(reviewPodcast, result)
 
@@ -197,7 +200,7 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `updates lastGeneratedAt on podcast`() {
+    fun `updates lastGeneratedAt on podcast`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(script = "Script", filterModel = "filter", composeModel = "compose")
         every { episodeRepository.save(any()) } answers { firstArg<Episode>().copy(id = 5) }
@@ -210,7 +213,7 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `marks articles as processed after linking`() {
+    fun `marks articles as processed after linking`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(
             script = "Script", filterModel = "filter", composeModel = "compose",
@@ -232,7 +235,7 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `saves topic order when topicOrder is present in pipeline result`() {
+    fun `saves topic order when topicOrder is present in pipeline result`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(
             script = "Script", filterModel = "filter", composeModel = "compose",

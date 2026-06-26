@@ -4,6 +4,8 @@ import com.aisummarypodcast.store.PodcastStyle
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -22,7 +24,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `generates single-speaker audio with default voice`() {
+    fun `generates single-speaker audio with default voice`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -43,7 +45,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `uses model from ttsSettings when specified`() {
+    fun `uses model from ttsSettings when specified`() = runTest {
         val request = TtsRequest(
             script = "Test",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -69,11 +71,11 @@ class InworldTtsProviderTest {
             language = "en",
             userId = "u1"
         )
-        assertThrows<IllegalStateException> { provider.generate(request) }
+        assertThrows<IllegalStateException> { runBlocking { provider.generate(request) } }
     }
 
     @Test
-    fun `generates dialogue with per-turn voice`() {
+    fun `generates dialogue with per-turn voice`() = runTest {
         val request = TtsRequest(
             script = "<host>Hello there!</host><cohost>Hey, how are you?</cohost>",
             ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2"),
@@ -105,11 +107,11 @@ class InworldTtsProviderTest {
             userId = "u1"
         )
 
-        assertThrows<IllegalStateException> { provider.generate(request) }
+        assertThrows<IllegalStateException> { runBlocking { provider.generate(request) } }
     }
 
     @Test
-    fun `generates interview style with interviewer and expert roles`() {
+    fun `generates interview style with interviewer and expert roles`() = runTest {
         val request = TtsRequest(
             script = "<interviewer>What happened?</interviewer><expert>A lot of things.</expert>",
             ttsVoices = mapOf("interviewer" to "voice-1", "expert" to "voice-2"),
@@ -131,7 +133,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `passes speed and temperature from ttsSettings`() {
+    fun `passes speed and temperature from ttsSettings`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -150,7 +152,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `uses default temperature of 0_8 when not configured`() {
+    fun `uses default temperature of 0_8 when not configured`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -171,7 +173,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `uses explicit temperature when configured`() {
+    fun `uses explicit temperature when configured`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -192,7 +194,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `passes deliveryMode and suppresses temperature default when set`() {
+    fun `passes deliveryMode and suppresses temperature default when set`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -213,7 +215,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `blank deliveryMode is treated as unset`() {
+    fun `blank deliveryMode is treated as unset`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -233,7 +235,7 @@ class InworldTtsProviderTest {
     // --- Parallel generation tests ---
 
     @Test
-    fun `monologue generates multiple chunks in parallel and preserves order`() {
+    fun `monologue generates multiple chunks in parallel and preserves order`() = runTest {
         // Create a script that will be split into multiple chunks (each > 2000 chars total)
         val chunk1Text = "A".repeat(1500) + ". "
         val chunk2Text = "B".repeat(1500) + ". "
@@ -272,7 +274,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `dialogue generates all turn chunks in parallel and preserves order`() {
+    fun `dialogue generates all turn chunks in parallel and preserves order`() = runTest {
         val audio1 = Base64.getEncoder().encodeToString(byteArrayOf(10))
         val audio2 = Base64.getEncoder().encodeToString(byteArrayOf(20))
         val audio3 = Base64.getEncoder().encodeToString(byteArrayOf(30))
@@ -303,7 +305,7 @@ class InworldTtsProviderTest {
     // --- Retry on 429 tests ---
 
     @Test
-    fun `retries on 429 and succeeds on second attempt`() {
+    fun `retries on 429 and succeeds on second attempt`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -342,7 +344,7 @@ class InworldTtsProviderTest {
             apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8))
         } throws InworldRateLimitException("Rate limited")
 
-        val exception = assertThrows<InworldRateLimitException> { provider.generate(request) }
+        val exception = assertThrows<InworldRateLimitException> { runBlocking { provider.generate(request) } }
         assertEquals("Rate limited", exception.message)
 
         verify(exactly = 3) {
@@ -353,7 +355,7 @@ class InworldTtsProviderTest {
     // --- Post-processing integration tests ---
 
     @Test
-    fun `monologue post-processes script before sending to API`() {
+    fun `monologue post-processes script before sending to API`() = runTest {
         val request = TtsRequest(
             script = "**Breaking** news! [excitedly] Check [this](https://example.com).",
             ttsVoices = mapOf("default" to "voice-1"),
@@ -374,7 +376,7 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `dialogue post-processes each turn before sending to API`() {
+    fun `dialogue post-processes each turn before sending to API`() = runTest {
         val request = TtsRequest(
             script = "<host>**Welcome** to the show! [cheerfully] Hello.</host><cohost>[sigh] Thanks for having me.</cohost>",
             ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2"),

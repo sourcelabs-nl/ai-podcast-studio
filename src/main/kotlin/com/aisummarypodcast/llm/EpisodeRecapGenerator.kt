@@ -1,6 +1,8 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.store.Podcast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
@@ -20,17 +22,19 @@ class EpisodeRecapGenerator(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun generate(scriptText: String, podcast: Podcast, filterModelDef: ResolvedModel, topicLabels: List<String> = emptyList()): RecapResult {
+    suspend fun generate(scriptText: String, podcast: Podcast, filterModelDef: ResolvedModel, topicLabels: List<String> = emptyList()): RecapResult {
         log.info("[LLM] Generating recap of previous episode for podcast '{}' ({})", podcast.name, podcast.id)
         val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef)
         val prompt = buildPrompt(scriptText, topicLabels)
 
         val (result, elapsed) = measureTimedValue {
-            val chatResponse = chatClient.prompt()
-                .user(prompt)
-                .options(OpenAiChatOptions.builder().model(filterModelDef.model))
-                .call()
-                .chatResponse()
+            val chatResponse = withContext(Dispatchers.IO) {
+                chatClient.prompt()
+                    .user(prompt)
+                    .options(OpenAiChatOptions.builder().model(filterModelDef.model))
+                    .call()
+                    .chatResponse()
+            }
 
             val rawResponse = chatResponse?.result?.output?.text
                 ?: throw IllegalStateException("Empty response from LLM for episode recap generation")

@@ -9,8 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.slf4j.LoggerFactory
@@ -49,7 +49,7 @@ class ArticleScoreSummarizer(
      *   completed count and the total. Throttled to at most ~50 callbacks per run so callers can
      *   stream live progress without flooding the event bus on large batches.
      */
-    fun scoreSummarize(
+    suspend fun scoreSummarize(
         articles: List<Article>,
         podcast: Podcast,
         filterModelDef: ResolvedModel,
@@ -65,7 +65,7 @@ class ArticleScoreSummarizer(
         val completed = AtomicInteger(0)
         val progressStep = maxOf(1, total / 50)
 
-        return runBlocking(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             supervisorScope {
                 articles.map { article ->
                     async {

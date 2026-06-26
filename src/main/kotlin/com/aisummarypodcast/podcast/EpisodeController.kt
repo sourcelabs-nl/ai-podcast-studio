@@ -167,7 +167,7 @@ class EpisodeController(
     }
 
     @PostMapping("/{episodeId}/regenerate-recap")
-    fun regenerateRecap(
+    suspend fun regenerateRecap(
         @PathVariable userId: String,
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long

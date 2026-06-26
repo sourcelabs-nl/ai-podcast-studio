@@ -241,7 +241,7 @@ class PodcastController(
     }
 
     @PostMapping("/{podcastId}/episodes/{episodeId}/regenerate")
-    fun regenerate(
+    suspend fun regenerate(
         @PathVariable userId: String,
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long

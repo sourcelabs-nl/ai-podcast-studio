@@ -7,6 +7,8 @@ import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.User
 import com.aisummarypodcast.user.UserService
 import com.ninjasquad.springmockk.MockkBean
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.verify
@@ -17,6 +19,7 @@ import org.springframework.http.MediaType
 
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 
 @WebMvcTest(EpisodeController::class)
@@ -306,14 +309,16 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(2L) } returns generatedEpisode
-        every { episodeService.regenerateRecap(generatedEpisode, podcast) } returns episodeWithRecap
+        coEvery { episodeService.regenerateRecap(generatedEpisode, podcast) } returns episodeWithRecap
 
-        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/regenerate-recap"))
+        val mvcResult = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/regenerate-recap"))
+            .andReturn()
+        mockMvc.perform(asyncDispatch(mvcResult))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.recap").value("New recap."))
             .andExpect(jsonPath("$.showNotes").value("New recap."))
 
-        verify { episodeService.regenerateRecap(generatedEpisode, podcast) }
+        coVerify { episodeService.regenerateRecap(generatedEpisode, podcast) }
     }
 
     @Test
@@ -322,7 +327,9 @@ class EpisodeControllerTest {
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(99L) } returns null
 
-        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/99/regenerate-recap"))
+        val mvcResult = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/99/regenerate-recap"))
+            .andReturn()
+        mockMvc.perform(asyncDispatch(mvcResult))
             .andExpect(status().isNotFound)
     }
 
@@ -333,7 +340,9 @@ class EpisodeControllerTest {
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(2L) } returns otherPodcastEpisode
 
-        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/regenerate-recap"))
+        val mvcResult = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/regenerate-recap"))
+            .andReturn()
+        mockMvc.perform(asyncDispatch(mvcResult))
             .andExpect(status().isNotFound)
     }
 
@@ -342,9 +351,11 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(2L) } returns generatedEpisode
-        every { episodeService.regenerateRecap(generatedEpisode, podcast) } throws RuntimeException("LLM error")
+        coEvery { episodeService.regenerateRecap(generatedEpisode, podcast) } throws RuntimeException("LLM error")
 
-        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/regenerate-recap"))
+        val mvcResult = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/regenerate-recap"))
+            .andReturn()
+        mockMvc.perform(asyncDispatch(mvcResult))
             .andExpect(status().isInternalServerError)
             .andExpect(jsonPath("$.error").exists())
     }

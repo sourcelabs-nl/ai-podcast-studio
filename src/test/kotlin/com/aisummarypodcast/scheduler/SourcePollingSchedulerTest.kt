@@ -15,6 +15,8 @@ import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -35,7 +37,7 @@ class SourcePollingSchedulerTest {
     }
     private val sourceService = mockk<SourceService>(relaxed = true)
     private val podcastService = mockk<PodcastService> {
-        every { scoreReadySources(any()) } returns Unit
+        coEvery { scoreReadySources(any()) } returns Unit
     }
 
     private val podcast = Podcast(id = "p1", userId = "owner-1", name = "Test", topic = "tech")
@@ -282,8 +284,8 @@ class SourcePollingSchedulerTest {
 
         scheduler().pollSources()
 
-        verify(exactly = 1) { podcastService.scoreReadySources(podcast) }
-        verify(exactly = 1) { podcastService.scoreReadySources(podcast2) }
+        coVerify(exactly = 1) { podcastService.scoreReadySources(podcast) }
+        coVerify(exactly = 1) { podcastService.scoreReadySources(podcast2) }
     }
 
     @Test
@@ -300,11 +302,11 @@ class SourcePollingSchedulerTest {
         every { sourceRepository.findAll() } returns listOf(s1, s2)
         every { podcastService.findById("p1") } returns podcast
         every { podcastService.findById("p2") } returns podcast2
-        every { podcastService.scoreReadySources(podcast) } throws RuntimeException("boom")
+        coEvery { podcastService.scoreReadySources(podcast) } throws RuntimeException("boom")
 
         scheduler().pollSources()
 
-        verify(exactly = 1) { podcastService.scoreReadySources(podcast2) }
+        coVerify(exactly = 1) { podcastService.scoreReadySources(podcast2) }
     }
 
     @Test

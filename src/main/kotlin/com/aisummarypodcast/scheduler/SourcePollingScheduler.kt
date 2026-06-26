@@ -20,7 +20,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
 import java.net.URI
 import java.time.Instant
@@ -146,9 +145,6 @@ class SourcePollingScheduler(
             }
         }
     }
-
-    /** Blocking entry point for [pollPodcastSourcesNow], for callers that are not coroutines. */
-    fun catchUpPoll(podcastId: String) = runBlocking { pollPodcastSourcesNow(podcastId) }
 
     private suspend fun pollHostGroup(host: String?, sources: List<Source>, sourcesByPodcast: Map<String, List<Source>>) {
         for ((index, source) in sources.withIndex()) {

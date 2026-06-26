@@ -5,9 +5,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.ResourceAccessException
@@ -69,7 +69,7 @@ class InworldTtsProvider(
         return "$base\n$pronunciationGuide"
     }
 
-    override fun generate(request: TtsRequest): TtsResult {
+    override suspend fun generate(request: TtsRequest): TtsResult {
         val modelId = request.ttsSettings["model"] ?: DEFAULT_MODEL
         val deliveryMode = request.ttsSettings["deliveryMode"]?.takeIf { it.isNotBlank() }?.uppercase()
         val options = InworldSynthesisOptions(
@@ -88,7 +88,7 @@ class InworldTtsProvider(
         }
     }
 
-    private fun generateMonologue(request: TtsRequest, modelId: String, options: InworldSynthesisOptions): TtsResult {
+    private suspend fun generateMonologue(request: TtsRequest, modelId: String, options: InworldSynthesisOptions): TtsResult {
         val voiceId = request.ttsVoices["default"]
             ?: throw IllegalStateException("Inworld TTS requires a 'default' voice in ttsVoices")
 
@@ -98,7 +98,7 @@ class InworldTtsProvider(
 
         val totalCharacters = AtomicInteger(0)
         val semaphore = Semaphore(MAX_CONCURRENCY)
-        val audioChunks = runBlocking(Dispatchers.IO) {
+        val audioChunks = withContext(Dispatchers.IO) {
             chunks.mapIndexed { index, chunk ->
                 async {
                     semaphore.withPermit {
@@ -119,7 +119,7 @@ class InworldTtsProvider(
         )
     }
 
-    private fun generateDialogue(request: TtsRequest, modelId: String, options: InworldSynthesisOptions): TtsResult {
+    private suspend fun generateDialogue(request: TtsRequest, modelId: String, options: InworldSynthesisOptions): TtsResult {
         val turns = DialogueScriptParser.parse(request.script)
         if (turns.isEmpty()) {
             throw IllegalStateException("Dialogue script produced no speaker turns")
@@ -143,7 +143,7 @@ class InworldTtsProvider(
 
         val totalCharacters = AtomicInteger(0)
         val semaphore = Semaphore(MAX_CONCURRENCY)
-        val audioChunks = runBlocking(Dispatchers.IO) {
+        val audioChunks = withContext(Dispatchers.IO) {
             allChunks.mapIndexed { index, work ->
                 async {
                     semaphore.withPermit {

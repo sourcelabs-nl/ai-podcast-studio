@@ -8,6 +8,7 @@ import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.ai.chat.client.ChatClient
@@ -257,7 +258,7 @@ class BriefingComposerTest {
     }
 
     @Test
-    fun `compose returns CompositionResult with token usage`() {
+    fun `compose returns CompositionResult with token usage`() = runTest {
         val composeModelDef = ResolvedModel(provider = "openrouter", model = "test-model", cost = null)
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test Pod", topic = "tech")
         val articles = listOf(

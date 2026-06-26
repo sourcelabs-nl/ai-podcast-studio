@@ -3,6 +3,8 @@ package com.aisummarypodcast.tts
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -14,7 +16,7 @@ class ElevenLabsTtsProviderTest {
     private val provider = ElevenLabsTtsProvider(apiClient)
 
     @Test
-    fun `generates audio with default voice`() {
+    fun `generates audio with default voice`() = runTest {
         val request = TtsRequest(
             script = "Hello world",
             ttsVoices = mapOf("default" to "voice123"),
@@ -32,7 +34,7 @@ class ElevenLabsTtsProviderTest {
     }
 
     @Test
-    fun `passes voice settings to API client`() {
+    fun `passes voice settings to API client`() = runTest {
         val request = TtsRequest(
             script = "Test text",
             ttsVoices = mapOf("default" to "voice123"),
@@ -57,6 +59,6 @@ class ElevenLabsTtsProviderTest {
             userId = "u1"
         )
 
-        assertThrows<IllegalStateException> { provider.generate(request) }
+        assertThrows<IllegalStateException> { runBlocking { provider.generate(request) } }
     }
 }

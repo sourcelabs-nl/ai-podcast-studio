@@ -14,7 +14,7 @@ interface EpisodePublisher {
 
     suspend fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult
 
-    fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult {
+    suspend fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult {
         throw UnsupportedOperationException("${targetName()} does not support updating published episodes")
     }
 

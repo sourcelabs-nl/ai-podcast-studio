@@ -86,7 +86,7 @@ class LlmPipeline(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun aggregateScoreAndFilter(
+    suspend fun aggregateScoreAndFilter(
         podcast: Podcast,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): List<Article>? {
@@ -171,7 +171,7 @@ class LlmPipeline(
      * not repeated later (net-zero total cost). Respects the per-podcast LLM cost gate using a
      * scoring-only estimate; skips the podcast if its unscored ready-source articles would exceed it.
      */
-    fun scoreReadySources(podcast: Podcast) {
+    suspend fun scoreReadySources(podcast: Podcast) {
         val sources = sourceRepository.findByPodcastId(podcast.id)
         val readySources = sources.filter { !sourceAggregator.shouldAggregate(it) }
         if (readySources.isEmpty()) return
@@ -257,7 +257,7 @@ class LlmPipeline(
         )
     }
 
-    fun compose(
+    suspend fun compose(
         filteredArticles: List<FilteredArticle>,
         podcast: Podcast,
         followUpAnnotations: Map<Long, String> = emptyMap(),
@@ -337,7 +337,7 @@ class LlmPipeline(
         )
     }
 
-    fun recompose(articles: List<Article>, podcast: Podcast, topicLabels: List<String> = emptyList(), onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult {
+    suspend fun recompose(articles: List<Article>, podcast: Podcast, topicLabels: List<String> = emptyList(), onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         val ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())

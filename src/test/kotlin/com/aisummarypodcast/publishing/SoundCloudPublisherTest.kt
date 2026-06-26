@@ -20,7 +20,6 @@ import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -218,7 +217,7 @@ class SoundCloudPublisherTest {
     }
 
     @Test
-    fun `update calls updateTrack with show notes description`() {
+    fun `update calls updateTrack with show notes description`() = runTest {
         val episodeWithNotes = episode.copy(
             showNotes = "Recap.\n\nSources:\n- Article\n  https://example.com/1"
         )
@@ -234,7 +233,7 @@ class SoundCloudPublisherTest {
     }
 
     @Test
-    fun `update falls back to recap when no show notes`() {
+    fun `update falls back to recap when no show notes`() = runTest {
         val episodeWithRecap = episode.copy(recap = "Short recap")
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.updateTrack("access-token", 456, description = "Short recap\n\nFor the full list of sources and show notes: $expectedSourcesUrl") } returns trackResponse
