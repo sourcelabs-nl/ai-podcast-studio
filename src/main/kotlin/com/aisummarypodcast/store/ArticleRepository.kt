@@ -15,7 +15,7 @@ interface ArticleRepository : CrudRepository<Article, Long>, ArticleRepositoryCu
     @Query("SELECT * FROM articles WHERE source_id IN (:sourceIds) AND published_at >= :since")
     fun findAllSince(sourceIds: List<String>, since: String): List<Article>
 
-    @Query("SELECT * FROM articles WHERE source_id IN (:sourceIds) AND is_processed = 0 AND published_at >= :since")
+    @Query("SELECT * FROM articles WHERE source_id IN (:sourceIds) AND is_processed = 0 AND published_at >= :since ORDER BY relevance_score DESC NULLS LAST")
     fun findUnprocessedSince(sourceIds: List<String>, since: String): List<Article>
 
     fun findBySourceIdAndContentHash(sourceId: String, contentHash: String): Article?

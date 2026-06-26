@@ -10,8 +10,7 @@ import org.springframework.web.client.HttpClientErrorException
 /**
  * Translates publishing failures to HTTP responses, keeping that web concern out of the controller
  * (Rule SB8). Scoped to [PublishingController] so the mapping does not leak to unrelated controllers.
- * The `unpublish` endpoint handles its own exceptions inline (it maps [IllegalStateException] to 404),
- * so those never reach this advice.
+ * Mapping is by exception type (see [PublishingExceptions]); no exception-message sniffing.
  */
 @RestControllerAdvice(assignableTypes = [PublishingController::class])
 class PublishingExceptionHandler {
@@ -26,22 +25,28 @@ class PublishingExceptionHandler {
     fun handleIllegalArgument(e: IllegalArgumentException): ResponseEntity<Any> =
         ResponseEntity.badRequest().body(mapOf("error" to e.message))
 
+    @ExceptionHandler(TargetNotConfiguredException::class)
+    fun handleTargetNotConfigured(e: TargetNotConfiguredException): ResponseEntity<Any> =
+        ResponseEntity.badRequest().body(mapOf("error" to e.message, "code" to "target_not_configured"))
+
+    @ExceptionHandler(PublishApprovalRequiredException::class)
+    fun handleApprovalRequired(e: PublishApprovalRequiredException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to e.message, "code" to "approval_required"))
+
+    @ExceptionHandler(AlreadyPublishedException::class)
+    fun handleAlreadyPublished(e: AlreadyPublishedException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to e.message))
+
+    @ExceptionHandler(NoPublicationFoundException::class)
+    fun handlePublicationNotFound(e: NoPublicationFoundException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to e.message))
+
+    @ExceptionHandler(OAuthExpiredException::class)
+    fun handleOAuthExpired(e: OAuthExpiredException): ResponseEntity<Any> = oauthExpired(e.message)
+
     @ExceptionHandler(IllegalStateException::class)
-    fun handleIllegalState(e: IllegalStateException): ResponseEntity<Any> {
-        val message = e.message ?: "Publishing failed"
-        return when {
-            message.contains("not configured or enabled", ignoreCase = true) ->
-                ResponseEntity.badRequest().body(mapOf("error" to message, "code" to "target_not_configured"))
-            message.contains("re-authorize", ignoreCase = true) || message.contains("refresh failed", ignoreCase = true) ->
-                oauthExpired(message)
-            message.contains("already published") ->
-                ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to message))
-            message.contains("approved for publication", ignoreCase = true) ->
-                ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to message, "code" to "approval_required"))
-            else ->
-                ResponseEntity.badRequest().body(mapOf("error" to message))
-        }
-    }
+    fun handleIllegalState(e: IllegalStateException): ResponseEntity<Any> =
+        ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Publishing failed")))
 
     @ExceptionHandler(HttpClientErrorException.Unauthorized::class)
     fun handleUnauthorized(e: HttpClientErrorException.Unauthorized): ResponseEntity<Any> = oauthExpired(e.message)

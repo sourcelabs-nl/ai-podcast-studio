@@ -21,11 +21,14 @@ interface EpisodePublicationRepository :
      */
     fun findByEpisodeIdIn(episodeIds: Collection<Long>, pageable: Pageable): Page<EpisodePublication>
 
-    // Status values must match EpisodeStatus enum names
+    // Status values must match EpisodeStatus enum names.
+    // Ordered newest-first by the episode's generatedAt so the caller (SoundCloud playlist
+    // rebuild) gets DB-sorted rows and need not sort in memory.
     @Query("""
         SELECT ep.* FROM episode_publications ep
         JOIN episodes e ON ep.episode_id = e.id
         WHERE e.podcast_id = :podcastId AND ep.target = :target AND ep.status = 'PUBLISHED'
+        ORDER BY e.generated_at DESC
     """)
     fun findPublishedByPodcastIdAndTarget(podcastId: String, target: String): List<EpisodePublication>
 }

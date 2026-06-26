@@ -28,7 +28,7 @@ class SourceController(
         val sourceType = SourceType.fromValue(request.type)
             ?: return ResponseEntity.badRequest().build()
         return try {
-            val source = sourceService.create(podcastId, sourceType, request.url, request.pollIntervalMinutes, request.enabled, request.aggregate, request.maxFailures, request.maxBackoffHours, request.pollDelaySeconds, request.categoryFilter, request.label)
+            val source = sourceService.create(podcastId, sourceType, request.url, request.toConfig())
             ResponseEntity.created(URI.create("/users/$userId/podcasts/$podcastId/sources/${source.id}"))
                 .body(source.toResponse())
         } catch (e: IllegalArgumentException) {
@@ -73,7 +73,7 @@ class SourceController(
 
         val sourceType = SourceType.fromValue(request.type)
             ?: return ResponseEntity.badRequest().build()
-        val updated = sourceService.update(sourceId, sourceType, request.url, request.pollIntervalMinutes, request.enabled, request.aggregate, request.maxFailures, request.maxBackoffHours, request.pollDelaySeconds, request.categoryFilter, request.label)
+        val updated = sourceService.update(sourceId, sourceType, request.url, request.toConfig())
             ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(updated.toResponse())
     }

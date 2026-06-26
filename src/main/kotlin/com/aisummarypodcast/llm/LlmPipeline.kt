@@ -208,7 +208,7 @@ class LlmPipeline(
         articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels)
     }
 
-    fun dedup(
+    suspend fun dedup(
         eligible: List<Article>,
         podcast: Podcast,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
@@ -296,7 +296,7 @@ class LlmPipeline(
         )
     }
 
-    fun run(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult? {
+    suspend fun run(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult? {
         val eligible = aggregateScoreAndFilter(podcast, onProgress) ?: return null
         val dedupStageResult = dedup(eligible, podcast, onProgress) ?: return null
         val composeStageResult = compose(
@@ -388,7 +388,7 @@ class LlmPipeline(
         )
     }
 
-    fun preview(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PreviewResult? {
+    suspend fun preview(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PreviewResult? {
         val sources = sourceRepository.findByPodcastId(podcast.id)
         val sourceIds = sources.map { it.id }
         if (sourceIds.isEmpty()) return null

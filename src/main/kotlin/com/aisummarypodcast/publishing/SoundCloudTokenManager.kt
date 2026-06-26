@@ -27,7 +27,7 @@ class SoundCloudTokenManager(
 
     private fun refreshToken(userId: String, connection: DecryptedOAuthConnection): String {
         val refreshToken = connection.refreshToken
-            ?: throw IllegalStateException("SoundCloud connection for user $userId has no refresh token. Please re-authorize.")
+            ?: throw OAuthExpiredException("SoundCloud connection for user $userId has no refresh token. Please re-authorize.")
 
         return try {
             log.info("Proactively refreshing SoundCloud token for user {}", userId)
@@ -52,7 +52,7 @@ class SoundCloudTokenManager(
             tokenResponse.accessToken
         } catch (e: Exception) {
             log.error("Failed to refresh SoundCloud token for user {}: {}", userId, e.message, e)
-            throw IllegalStateException("SoundCloud token refresh failed. Please re-authorize your SoundCloud account.", e)
+            throw OAuthExpiredException("SoundCloud token refresh failed. Please re-authorize your SoundCloud account.", e)
         }
     }
 }

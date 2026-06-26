@@ -3,7 +3,6 @@ package com.aisummarypodcast.publishing
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.user.UserService
-import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -15,8 +14,6 @@ class PublishingController(
     private val episodeService: EpisodeService,
     private val publishingService: PublishingService
 ) {
-
-    private val log = LoggerFactory.getLogger(javaClass)
 
     @PostMapping("/publish/{target}")
     suspend fun publish(
@@ -54,17 +51,9 @@ class PublishingController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        return try {
-            val publication = publishingService.unpublish(episode, podcast, userId, target)
-            ResponseEntity.ok(publication.toResponse())
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        } catch (e: IllegalStateException) {
-            ResponseEntity.notFound().build()
-        } catch (e: Exception) {
-            log.error("Unpublish failed for episode {} from {}: {}", episodeId, target, e.message, e)
-            ResponseEntity.internalServerError().body(mapOf("error" to "Unpublish failed: ${e.message}"))
-        }
+        // Publishing failures are translated to HTTP by PublishingExceptionHandler (Rule SB8).
+        val publication = publishingService.unpublish(episode, podcast, userId, target)
+        return ResponseEntity.ok(publication.toResponse())
     }
 
     @GetMapping("/publications")

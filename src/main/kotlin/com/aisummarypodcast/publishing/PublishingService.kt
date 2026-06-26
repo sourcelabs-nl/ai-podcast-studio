@@ -34,7 +34,7 @@ class PublishingService(
 
         val publicationTarget = targetService.get(podcast.id, target)
         if (publicationTarget == null || !publicationTarget.enabled) {
-            throw IllegalStateException("Publication target '$target' is not configured or enabled for this podcast")
+            throw TargetNotConfiguredException("Publication target '$target' is not configured or enabled for this podcast")
         }
 
         if (episode.status != EpisodeStatus.GENERATED) {
@@ -42,7 +42,7 @@ class PublishingService(
         }
 
         if (podcast.requirePublishApproval && !episode.publishApproved) {
-            throw IllegalStateException("Episode must be approved for publication before it can be published")
+            throw PublishApprovalRequiredException("Episode must be approved for publication before it can be published")
         }
 
         if (episode.audioFilePath == null) {
@@ -173,7 +173,7 @@ class PublishingService(
             ?: throw IllegalArgumentException("Unsupported publish target: $target")
 
         val publication = publicationRepository.findByEpisodeIdAndTarget(episode.id!!, target)
-            ?: throw IllegalStateException("No publication found for episode ${episode.id} on $target")
+            ?: throw NoPublicationFoundException("No publication found for episode ${episode.id} on $target")
 
         if (publication.status != PublicationStatus.PUBLISHED) {
             throw IllegalStateException("Publication is not in PUBLISHED status (current: ${publication.status})")
@@ -252,12 +252,10 @@ class PublishingService(
 
         val episodeIds = publications.map { it.episodeId }.distinct()
         val episodes = episodeIds.mapNotNull { episodeRepository.findByIdOrNull(it) }
-        val episodeById = episodes.associateBy { it.id }
 
-        // Newest first — standard podcast playlist order
-        val sortedPublications = publications
-            .sortedByDescending { episodeById[it.episodeId]?.generatedAt ?: "" }
-        val trackIds = sortedPublications.mapNotNull { it.externalId?.toLongOrNull() }
+        // publications already arrive newest-first (ordered by episode generatedAt in the query),
+        // which is the standard podcast playlist order
+        val trackIds = publications.mapNotNull { it.externalId?.toLongOrNull() }
         require(trackIds.isNotEmpty()) { "No valid SoundCloud track IDs found" }
 
         val staleTrackIds = soundCloudPublisher.updateTrackPermalinks(podcast, userId, episodes, publications)

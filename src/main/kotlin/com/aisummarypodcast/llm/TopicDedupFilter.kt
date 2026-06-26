@@ -1,6 +1,7 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.store.Article
+import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
@@ -53,7 +54,7 @@ class TopicDedupFilter(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun filter(
+    suspend fun filter(
         candidates: List<Article>,
         historicalArticles: List<Article>,
         userId: String,
@@ -92,7 +93,7 @@ class TopicDedupFilter(
                     if (attempt < maxRetries) {
                         val backoffMs = 1000L * (1 shl (attempt - 1))
                         log.warn("[Dedup] Retry {}/{} for topic dedup filter: {}", attempt, maxRetries, e.message)
-                        Thread.sleep(backoffMs)
+                        delay(backoffMs)
                     }
                 }
             }

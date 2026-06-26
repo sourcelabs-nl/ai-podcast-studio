@@ -50,4 +50,18 @@ data class Episode(
     val recapOutputTokens: Int = 0,
     val recapCostCents: Int = 0,
     @Version val version: Long? = null
-)
+) {
+    /**
+     * Aggregate LLM totals are derived sums of the four per-stage triples
+     * (score / dedup / compose / recap). These are the single read path; callers must
+     * NOT compute aggregates any other way. See the class KDoc for the invariant.
+     */
+    fun sumStageInputTokens(): Int =
+        scoreInputTokens + dedupInputTokens + composeInputTokens + recapInputTokens
+
+    fun sumStageOutputTokens(): Int =
+        scoreOutputTokens + dedupOutputTokens + composeOutputTokens + recapOutputTokens
+
+    fun sumStageCostCents(): Int =
+        scoreCostCents + dedupCostCents + composeCostCents + recapCostCents
+}

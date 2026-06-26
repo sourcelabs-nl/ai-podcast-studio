@@ -75,7 +75,7 @@ class PodcastService(
         return resumePoint
     }
 
-    private fun doRetry(episode: Episode, podcast: Podcast, resumePoint: ResumePoint) {
+    private suspend fun doRetry(episode: Episode, podcast: Podcast, resumePoint: ResumePoint) {
         // The stage may be reported repeatedly within a stage (e.g. per-article scoring progress);
         // only persist the pipeline stage on an actual transition, but always emit the event so the
         // frontend can render live progress. A benign race on the first tick is harmless.
@@ -226,11 +226,11 @@ class PodcastService(
         return podcastRepository.save(updated)
     }
 
-    fun previewBriefing(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PreviewResult? {
+    suspend fun previewBriefing(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PreviewResult? {
         return llmPipeline.preview(podcast, onProgress)
     }
 
-    fun generateBriefing(podcast: Podcast): GenerateBriefingResult {
+    suspend fun generateBriefing(podcast: Podcast): GenerateBriefingResult {
         if (episodeService.hasActiveEpisode(podcast.id)) {
             log.info("Podcast '{}' ({}) has an active episode (generating/pending/approved) — skipping generation", podcast.name, podcast.id)
             return GenerateBriefingResult(episode = null)
@@ -255,15 +255,13 @@ class PodcastService(
 
             // Stage 1-2: Aggregate, score, find eligible articles
             val eligible = llmPipeline.aggregateScoreAndFilter(podcast, onProgress) ?: run {
-                val fresh = episodeRepository.findByIdOrNull(generatingEpisode.id!!)
-                if (fresh != null) episodeRepository.delete(fresh)
+                episodeService.deleteGeneratingEpisode(generatingEpisode.id!!)
                 return GenerateBriefingResult(episode = null)
             }
 
             // Stage 3: Dedup filter
             val dedupResult = llmPipeline.dedup(eligible, podcast, onProgress) ?: run {
-                val fresh = episodeRepository.findByIdOrNull(generatingEpisode.id!!)
-                if (fresh != null) episodeRepository.delete(fresh)
+                episodeService.deleteGeneratingEpisode(generatingEpisode.id!!)
                 return GenerateBriefingResult(episode = null)
             }
 
@@ -337,7 +335,6 @@ class PodcastService(
         ).toString()
 
         val articles = articleRepository.findUnprocessedSince(sourceIds, since)
-            .sortedByDescending { it.relevanceScore }
         val unlinkedPosts = postRepository.findUnlinkedSince(sourceIds, since)
 
         val articleIds = articles.map { it.id!! }

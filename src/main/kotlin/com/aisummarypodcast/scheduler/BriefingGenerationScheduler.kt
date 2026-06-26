@@ -55,7 +55,7 @@ class BriefingGenerationScheduler(
         scope.cancel()
     }
 
-    fun checkAndGenerate() {
+    suspend fun checkAndGenerate() {
         val podcasts = podcastService.findAll()
 
         for (podcast in podcasts) {
@@ -121,7 +121,7 @@ class BriefingGenerationScheduler(
         }
     }
 
-    private fun generateBriefing(podcast: Podcast) {
+    private suspend fun generateBriefing(podcast: Podcast) {
         log.info("[Pipeline] Starting briefing generation for podcast '{}' ({})", podcast.name, podcast.id)
         val mark = TimeSource.Monotonic.markNow()
 

@@ -219,7 +219,7 @@ class PodcastController(
     }
 
     @PostMapping("/{podcastId}/generate")
-    fun generate(@PathVariable userId: String, @PathVariable podcastId: String): ResponseEntity<Any> {
+    suspend fun generate(@PathVariable userId: String, @PathVariable podcastId: String): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (podcast.userId != userId) return ResponseEntity.notFound().build()

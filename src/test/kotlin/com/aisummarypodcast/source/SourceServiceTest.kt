@@ -57,7 +57,7 @@ class SourceServiceTest {
         )
         every { sourceRepository.findById("s1") } returns Optional.of(disabledSource)
 
-        service.update("s1", SourceType.RSS, "https://example.com/feed", 60, enabled = true)
+        service.update("s1", SourceType.RSS, "https://example.com/feed", SourceConfig(pollIntervalMinutes = 60, enabled = true))
 
         assertTrue(sourceSlot.captured.enabled)
         assertEquals(0, sourceSlot.captured.consecutiveFailures)
@@ -73,7 +73,7 @@ class SourceServiceTest {
         )
         every { sourceRepository.findById("s1") } returns Optional.of(source)
 
-        service.update("s1", SourceType.RSS, "https://example.com/new-feed", 60, enabled = true)
+        service.update("s1", SourceType.RSS, "https://example.com/new-feed", SourceConfig(pollIntervalMinutes = 60, enabled = true))
 
         assertEquals(2, sourceSlot.captured.consecutiveFailures)
         assertEquals("transient", sourceSlot.captured.lastFailureType)

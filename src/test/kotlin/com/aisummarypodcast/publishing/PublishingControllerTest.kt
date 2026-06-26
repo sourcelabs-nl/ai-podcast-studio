@@ -115,7 +115,7 @@ class PublishingControllerTest {
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(episodeId) } returns episode
         coEvery { publishingService.publish(episode, podcast, userId, "soundcloud") } throws
-            IllegalStateException("Episode is already published to soundcloud")
+            AlreadyPublishedException("Episode is already published to soundcloud")
 
         val mvcResult = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/$episodeId/publish/soundcloud"))
             .andReturn()

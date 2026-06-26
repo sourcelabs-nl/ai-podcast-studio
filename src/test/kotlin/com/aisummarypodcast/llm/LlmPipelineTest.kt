@@ -22,9 +22,12 @@ import com.aisummarypodcast.store.SourceType
 import com.aisummarypodcast.store.TtsProviderType
 import com.aisummarypodcast.tts.TtsProvider
 import com.aisummarypodcast.tts.TtsProviderFactory
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -88,7 +91,7 @@ class LlmPipelineTest {
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns articles
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        every { topicDedupFilter.filter(articles, emptyList(), podcast.userId, filterModelDef) } returns
+        coEvery { topicDedupFilter.filter(articles, emptyList(), podcast.userId, filterModelDef) } returns
             DedupFilterResult(articles.map { FilteredArticle(it) }, TokenUsage(100, 50))
     }
 
@@ -96,9 +99,11 @@ class LlmPipelineTest {
     fun `returns null when podcast has no sources`() {
         every { sourceRepository.findByPodcastId("p1") } returns emptyList()
 
-        val result = pipeline.run(podcast)
+        runTest {
+            val result = pipeline.run(podcast)
 
-        assertNull(result)
+            assertNull(result)
+        }
     }
 
     @Test
@@ -111,20 +116,24 @@ class LlmPipelineTest {
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns emptyList()
 
-        val result = pipeline.run(podcast)
+        runTest {
+            val result = pipeline.run(podcast)
 
-        assertNull(result)
+            assertNull(result)
+        }
     }
 
     @Test
     fun `returns null when all articles filtered as duplicates`() {
         setupBasicPipeline()
-        every { topicDedupFilter.filter(any(), any(), any(), any()) } returns
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(emptyList(), TokenUsage(100, 50))
 
-        val result = pipeline.run(podcast)
+        runTest {
+            val result = pipeline.run(podcast)
 
-        assertNull(result)
+            assertNull(result)
+        }
     }
 
     @Test
@@ -150,17 +159,19 @@ class LlmPipelineTest {
         every { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) } returns listOf(scored)
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns listOf(scored)
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        every { topicDedupFilter.filter(listOf(scored), emptyList(), "u1", filterModelDef) } returns
+        coEvery { topicDedupFilter.filter(listOf(scored), emptyList(), "u1", filterModelDef) } returns
             DedupFilterResult(listOf(FilteredArticle(scored)), TokenUsage(100, 50))
         every { briefingComposer.compose(listOf(scored), podcast, composeModelDef, "", emptyMap()) } returns compositionResult
 
-        val result = pipeline.run(podcast)
+        runTest {
+            val result = pipeline.run(podcast)
 
-        assertNotNull(result)
-        assertEquals("Today in tech...", result!!.script)
+            assertNotNull(result)
+            assertEquals("Today in tech...", result!!.script)
 
-        verify { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) }
-        verify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) }
+            verify { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) }
+            verify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) }
+        }
     }
 
     @Test
@@ -168,7 +179,7 @@ class LlmPipelineTest {
         setupBasicPipeline()
         every { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        pipeline.run(podcast)
+        runTest { pipeline.run(podcast) }
 
         verify { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) }
         verify { articleEligibilityService.findHistoricalArticles(podcast) }
@@ -179,27 +190,29 @@ class LlmPipelineTest {
         val historical = listOf(Article(id = 99, sourceId = "s1", title = "Old", body = "old", url = "http://old.com", contentHash = "h99"))
         setupBasicPipeline()
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns historical
-        every { topicDedupFilter.filter(listOf(scoredArticle), historical, "u1", filterModelDef) } returns
+        coEvery { topicDedupFilter.filter(listOf(scoredArticle), historical, "u1", filterModelDef) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle)), TokenUsage(100, 50))
         every { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        pipeline.run(podcast)
+        runTest { pipeline.run(podcast) }
 
-        verify { topicDedupFilter.filter(listOf(scoredArticle), historical, "u1", filterModelDef) }
+        coVerify { topicDedupFilter.filter(listOf(scoredArticle), historical, "u1", filterModelDef) }
     }
 
     @Test
     fun `passes follow-up annotations from dedup filter to composer`() {
         setupBasicPipeline()
-        every { topicDedupFilter.filter(any(), any(), any(), any()) } returns
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle, "Previously covered release")), TokenUsage(100, 50))
         every { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, "", mapOf(1L to "Previously covered release")) } returns
             CompositionResult("Script with follow-up", TokenUsage(500, 200))
 
-        val result = pipeline.run(podcast)
+        runTest {
+            val result = pipeline.run(podcast)
 
-        assertNotNull(result)
-        verify { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, "", mapOf(1L to "Previously covered release")) }
+            assertNotNull(result)
+            verify { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, "", mapOf(1L to "Previously covered release")) }
+        }
     }
 
     @Test
@@ -208,11 +221,13 @@ class LlmPipelineTest {
         setupBasicPipeline(podcast = dialoguePodcast)
         every { dialogueComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("<host>Hello!</host>", TokenUsage(500, 200))
 
-        val result = pipeline.run(dialoguePodcast)
+        runTest {
+            val result = pipeline.run(dialoguePodcast)
 
-        assertNotNull(result)
-        verify { dialogueComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
-        verify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+            assertNotNull(result)
+            verify { dialogueComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+            verify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+        }
     }
 
     @Test
@@ -221,26 +236,30 @@ class LlmPipelineTest {
         setupBasicPipeline(podcast = interviewPodcast)
         every { interviewComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("<interviewer>Q?</interviewer>", TokenUsage(500, 200))
 
-        val result = pipeline.run(interviewPodcast)
+        runTest {
+            val result = pipeline.run(interviewPodcast)
 
-        assertNotNull(result)
-        verify { interviewComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
-        verify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+            assertNotNull(result)
+            verify { interviewComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+            verify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+        }
     }
 
     @Test
     fun `includes dedup filter token usage in pipeline result`() {
         setupBasicPipeline()
-        every { topicDedupFilter.filter(any(), any(), any(), any()) } returns
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle)), TokenUsage(200, 100))
         every { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns
             CompositionResult("Script", TokenUsage(500, 300))
 
-        val result = pipeline.run(podcast)
+        runTest {
+            val result = pipeline.run(podcast)
 
-        assertNotNull(result)
-        assertEquals(700, result!!.llmInputTokens)
-        assertEquals(400, result.llmOutputTokens)
+            assertNotNull(result)
+            assertEquals(700, result!!.llmInputTokens)
+            assertEquals(400, result.llmOutputTokens)
+        }
     }
 
     @Test
@@ -248,7 +267,7 @@ class LlmPipelineTest {
         setupBasicPipeline()
         every { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        pipeline.run(podcast)
+        runTest { pipeline.run(podcast) }
 
         verify(exactly = 0) { articleRepository.save(match { it.isProcessed }) }
     }
@@ -259,7 +278,7 @@ class LlmPipelineTest {
         setupBasicPipeline(podcast = podcastWithPronunciations)
         every { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        pipeline.run(podcastWithPronunciations)
+        runTest { pipeline.run(podcastWithPronunciations) }
 
         verify { ttsProviderMock.scriptGuidelines(PodcastStyle.NEWS_BRIEFING, mapOf("Anthropic" to "/ænˈθɹɒpɪk/")) }
     }
@@ -304,10 +323,12 @@ class LlmPipelineTest {
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns articles
 
-        val result = pipelineWithLowThreshold.run(podcast)
+        runTest {
+            val result = pipelineWithLowThreshold.run(podcast)
 
-        assertNull(result)
-        verify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
+            assertNull(result)
+            verify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
+        }
     }
 
     // --- Stage method tests ---
@@ -345,16 +366,18 @@ class LlmPipelineTest {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        every { topicDedupFilter.filter(listOf(scoredArticle), emptyList(), "u1", filterModelDef) } returns
+        coEvery { topicDedupFilter.filter(listOf(scoredArticle), emptyList(), "u1", filterModelDef) } returns
             DedupFilterResult(listOf(filteredArticle), TokenUsage(100, 50))
 
-        val result = pipeline.dedup(listOf(scoredArticle), podcast)
+        runTest {
+            val result = pipeline.dedup(listOf(scoredArticle), podcast)
 
-        assertNotNull(result)
-        assertEquals(1, result!!.filteredArticles.size)
-        assertEquals("AI Safety", result.filteredArticles[0].topic)
-        assertEquals(listOf("AI Safety"), result.topicLabels)
-        assertEquals(filterModelDef.model, result.filterModel)
+            assertNotNull(result)
+            assertEquals(1, result!!.filteredArticles.size)
+            assertEquals("AI Safety", result.filteredArticles[0].topic)
+            assertEquals(listOf("AI Safety"), result.topicLabels)
+            assertEquals(filterModelDef.model, result.filterModel)
+        }
     }
 
     @Test
@@ -362,12 +385,14 @@ class LlmPipelineTest {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        every { topicDedupFilter.filter(any(), any(), any(), any()) } returns
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(emptyList(), TokenUsage(100, 50))
 
-        val result = pipeline.dedup(listOf(scoredArticle), podcast)
+        runTest {
+            val result = pipeline.dedup(listOf(scoredArticle), podcast)
 
-        assertNull(result)
+            assertNull(result)
+        }
     }
 
     @Test
@@ -375,11 +400,11 @@ class LlmPipelineTest {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        every { topicDedupFilter.filter(any(), any(), any(), any()) } throws
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } throws
             IllegalStateException("No content to map due to end-of-input")
 
         assertThrows(IllegalStateException::class.java) {
-            pipeline.dedup(listOf(scoredArticle), podcast)
+            runTest { pipeline.dedup(listOf(scoredArticle), podcast) }
         }
     }
 

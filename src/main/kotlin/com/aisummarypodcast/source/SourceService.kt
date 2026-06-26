@@ -35,21 +35,21 @@ class SourceService(
         postRepository.deleteOldUnlinkedPosts(cutoff)
     }
 
-    fun create(podcastId: String, type: SourceType, url: String, pollIntervalMinutes: Int = 30, enabled: Boolean = true, aggregate: Boolean? = null, maxFailures: Int? = null, maxBackoffHours: Int? = null, pollDelaySeconds: Int? = null, categoryFilter: String? = null, label: String? = null): Source {
-        validateUrl(type, url, categoryFilter)
+    fun create(podcastId: String, type: SourceType, url: String, config: SourceConfig = SourceConfig()): Source {
+        validateUrl(type, url, config.categoryFilter)
         val source = Source(
             id = UUID.randomUUID().toString(),
             podcastId = podcastId,
             type = type,
             url = url,
-            pollIntervalMinutes = pollIntervalMinutes,
-            enabled = enabled,
-            aggregate = aggregate,
-            maxFailures = maxFailures,
-            maxBackoffHours = maxBackoffHours,
-            pollDelaySeconds = pollDelaySeconds,
-            categoryFilter = categoryFilter,
-            label = label,
+            pollIntervalMinutes = config.pollIntervalMinutes,
+            enabled = config.enabled,
+            aggregate = config.aggregate,
+            maxFailures = config.maxFailures,
+            maxBackoffHours = config.maxBackoffHours,
+            pollDelaySeconds = config.pollDelaySeconds,
+            categoryFilter = config.categoryFilter,
+            label = config.label,
             createdAt = Instant.now().toString()
         )
         return sourceRepository.save(source)
@@ -103,10 +103,10 @@ class SourceService(
 
     fun findById(sourceId: String): Source? = sourceRepository.findByIdOrNull(sourceId)
 
-    fun update(sourceId: String, type: SourceType, url: String, pollIntervalMinutes: Int, enabled: Boolean, aggregate: Boolean? = null, maxFailures: Int? = null, maxBackoffHours: Int? = null, pollDelaySeconds: Int? = null, categoryFilter: String? = null, label: String? = null): Source? {
+    fun update(sourceId: String, type: SourceType, url: String, config: SourceConfig): Source? {
         val source = findById(sourceId) ?: return null
-        val reEnabling = enabled && !source.enabled
-        var updated = source.copy(type = type, url = url, pollIntervalMinutes = pollIntervalMinutes, enabled = enabled, aggregate = aggregate, maxFailures = maxFailures, maxBackoffHours = maxBackoffHours, pollDelaySeconds = pollDelaySeconds, categoryFilter = categoryFilter, label = label)
+        val reEnabling = config.enabled && !source.enabled
+        var updated = source.copy(type = type, url = url, pollIntervalMinutes = config.pollIntervalMinutes, enabled = config.enabled, aggregate = config.aggregate, maxFailures = config.maxFailures, maxBackoffHours = config.maxBackoffHours, pollDelaySeconds = config.pollDelaySeconds, categoryFilter = config.categoryFilter, label = config.label)
         if (reEnabling) {
             updated = updated.copy(consecutiveFailures = 0, lastFailureType = null, disabledReason = null)
         }

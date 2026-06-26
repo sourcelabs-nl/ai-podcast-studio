@@ -25,6 +25,8 @@ import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.transaction.annotation.Transactional
+import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Instant
 
 @Service
@@ -80,6 +82,18 @@ class EpisodeService(
             PodcastEvent(this, podcast.id, "episode", episode.id!!, "episode.generating", emptyMap())
         )
         return episode
+    }
+
+    /**
+     * Deletes a GENERATING placeholder episode that never produced any content (e.g. when no
+     * eligible articles were found). Owns the episode lifecycle so callers don't touch the
+     * repository directly (Rule A2). No-op if the episode no longer exists.
+     */
+    @Transactional
+    fun deleteGeneratingEpisode(episodeId: Long) {
+        val episode = episodeRepository.findByIdOrNull(episodeId) ?: return
+        episodeRepository.delete(episode)
+        log.info("[Pipeline] Deleted empty GENERATING episode {}", episodeId)
     }
 
     fun updatePipelineStage(episodeId: Long, stage: String) {
@@ -209,9 +223,9 @@ class EpisodeService(
                 recapCostCents = recapResult.costCents ?: 0
             )
             val updated = episodeRepository.save(withStages.copy(
-                llmInputTokens = sumStageInputTokens(withStages),
-                llmOutputTokens = sumStageOutputTokens(withStages),
-                llmCostCents = sumStageCostCents(withStages)
+                llmInputTokens = withStages.sumStageInputTokens(),
+                llmOutputTokens = withStages.sumStageOutputTokens(),
+                llmCostCents = withStages.sumStageCostCents()
             ))
             log.info("[Pipeline] Recap generated and stored for episode {} (podcast '{}' ({}))", episode.id, podcast.name, podcast.id)
             // Demote topics the script did not actually discuss to "background" so the feed's
@@ -227,20 +241,6 @@ class EpisodeService(
             episode
         }
     }
-
-    /**
-     * Aggregate LLM totals are derived sums of the four per-stage triples.
-     * These helpers are the single write path; callers must NOT compute aggregates
-     * any other way. See KDoc on [Episode] for the invariant.
-     */
-    private fun sumStageInputTokens(e: Episode): Int =
-        e.scoreInputTokens + e.dedupInputTokens + e.composeInputTokens + e.recapInputTokens
-
-    private fun sumStageOutputTokens(e: Episode): Int =
-        e.scoreOutputTokens + e.dedupOutputTokens + e.composeOutputTokens + e.recapOutputTokens
-
-    private fun sumStageCostCents(e: Episode): Int =
-        e.scoreCostCents + e.dedupCostCents + e.composeCostCents + e.recapCostCents
 
     @Transactional
     fun saveDedupResults(episode: Episode, dedupResult: DedupStageResult) {
@@ -273,9 +273,9 @@ class EpisodeService(
             recapCostCents = 0
         )
         episodeRepository.save(withStages.copy(
-            llmInputTokens = sumStageInputTokens(withStages),
-            llmOutputTokens = sumStageOutputTokens(withStages),
-            llmCostCents = sumStageCostCents(withStages)
+            llmInputTokens = withStages.sumStageInputTokens(),
+            llmOutputTokens = withStages.sumStageOutputTokens(),
+            llmCostCents = withStages.sumStageCostCents()
         ))
         log.info("[Pipeline] Saved dedup results for episode {} ({} articles)", episode.id, dedupResult.filteredArticles.size)
     }
@@ -293,9 +293,9 @@ class EpisodeService(
             researchCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.researchCostCents, composeResult.researchCostCents)
         )
         episodeRepository.save(withStages.copy(
-            llmInputTokens = sumStageInputTokens(withStages),
-            llmOutputTokens = sumStageOutputTokens(withStages),
-            llmCostCents = sumStageCostCents(withStages)
+            llmInputTokens = withStages.sumStageInputTokens(),
+            llmOutputTokens = withStages.sumStageOutputTokens(),
+            llmCostCents = withStages.sumStageCostCents()
         ))
         log.info("[Pipeline] Saved compose result for episode {}", episode.id)
     }
@@ -621,6 +621,40 @@ class EpisodeService(
             podcastId,
             listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)
         ).isNotEmpty()
+    }
+
+    /**
+     * Deletes episodes for [podcast] generated before [cutoff], removing both the MP3 file and the
+     * database row. Returns the number of episodes removed. Owns the data access for the scheduled
+     * cleanup so the scheduler stays an entry point (Rule A2).
+     */
+    @Transactional
+    fun cleanupOldEpisodes(podcast: Podcast, cutoff: String): Int {
+        val oldEpisodes = episodeRepository.findByPodcastId(podcast.id)
+            .filter { it.generatedAt < cutoff }
+
+        for (episode in oldEpisodes) {
+            deleteAudioFile(episode)
+            episodeRepository.delete(episode)
+        }
+
+        if (oldEpisodes.isNotEmpty()) {
+            log.info("Cleaned up {} old episodes for podcast {}", oldEpisodes.size, podcast.id)
+        }
+        return oldEpisodes.size
+    }
+
+    private fun deleteAudioFile(episode: Episode) {
+        val audioPath = episode.audioFilePath?.let { Path.of(it) } ?: return
+        try {
+            if (Files.exists(audioPath)) {
+                Files.delete(audioPath)
+            } else {
+                log.warn("MP3 file not found for episode {}: {}", episode.id, audioPath)
+            }
+        } catch (e: Exception) {
+            log.error("Failed to delete MP3 file for episode {}: {}", episode.id, e.message)
+        }
     }
 
 }
