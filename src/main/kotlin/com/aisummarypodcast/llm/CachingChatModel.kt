@@ -48,7 +48,11 @@ class CachingChatModel(
 
         if (!hasPendingToolCalls(response)) {
             val responseText = response.result?.output?.text
-            if (responseText != null) {
+            // Never cache a blank/empty completion. A model that degenerates (e.g. burns its whole
+            // maxTokens budget producing nothing parseable) returns an empty string, not null —
+            // caching it poisons every retry and every future regenerate with the same parse
+            // failure, turning a transient model hiccup into a permanently stuck episode.
+            if (!responseText.isNullOrBlank()) {
                 val usage = response.metadata?.usage
                 llmCacheRepository.save(
                     LlmCache(

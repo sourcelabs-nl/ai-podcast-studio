@@ -136,6 +136,23 @@ class CachingChatModelTest {
     }
 
     @Test
+    fun `blank response is not cached`() {
+        // A degenerate model run (e.g. burning its whole maxTokens budget) returns an empty
+        // string, not null. Caching it would poison every retry and regenerate with the same
+        // parse failure, so blank completions must never be stored.
+        val prompt = Prompt("Cluster these articles", OpenAiChatOptions.builder().model("test-model").build())
+        val blankResponse = ChatResponse(listOf(Generation(AssistantMessage(""))))
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns null
+        every { delegate.call(prompt) } returns blankResponse
+
+        val result = cachingChatModel.call(prompt)
+
+        assertEquals("", result.result!!.output.text)
+        verify(exactly = 0) { llmCacheRepository.save(any<LlmCache>()) }
+    }
+
+    @Test
     fun `tool-loop intermediate call with tool calls in response is not cached`() {
         val prompt = Prompt("user prompt", OpenAiChatOptions.builder().model("test-model").build())
         val toolCall = AssistantMessage.ToolCall("call-1", "function", "searchPastEpisodes", "{\"query\":\"speckit\"}")
