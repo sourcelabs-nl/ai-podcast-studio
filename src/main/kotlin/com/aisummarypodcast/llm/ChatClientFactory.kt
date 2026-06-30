@@ -79,8 +79,11 @@ class ChatClientFactory(
                     "Configure a user provider for '${resolvedModel.provider}' or set the appropriate environment variable."
             )
 
-        // Generous request timeout: composition with tool calls can run for minutes.
-        val openAiClient = buildOpenAiClient(config, Duration.ofMinutes(5))
+        // Generous request timeout: composition with deep-dive web research and history tool
+        // calls over a large article set can run well past five minutes on slower models. The
+        // dedup/filter stages bound their own output via maxTokens, so a longer ceiling here
+        // only ever helps the long compose request and never lets a degenerate call hang.
+        val openAiClient = buildOpenAiClient(config, Duration.ofMinutes(10))
         val chatModel = OpenAiChatModel.builder()
             .openAiClient(openAiClient)
             .build()
