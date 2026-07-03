@@ -31,6 +31,7 @@ Apply rules based on file types:
 - **All `.kt` files**: Apply rules from the `architecture` skill (A1-A7), `kotlin-quality` skill (K1-K9), and `spring-boot` skill (SB1-SB7), plus the inline rules below (Controller Hygiene, Service Layer, Testing, Jackson 3.x, Concurrency, LLM Prompt Grounding).
 - **`@Table`-annotated entities (e.g. under `store/`), `*Repository.kt`, `*.sql` files**: Additionally apply rules from the `spring-data-jdbc` skill and `database-design` skill (DB1-DB5). Use the `flyway-migration` skill to validate migration files. (Note: this codebase combines domain and entity in one class and does not use the `*Entity.kt` suffix; match `@Table` instead of the filename.)
 - **Jackson-related files**: Use the `jackson-migration` skill as reference for Jackson 2.x vs 3.x patterns.
+- **AI/LLM files** (files using `ChatModel`/`ChatClient`/`OpenAiChatOptions`/`BeanOutputConverter`, or anything under `com.aisummarypodcast.llm`): Additionally apply rules from the `spring-ai` skill (SA1-SA6).
 
 ### Controller Hygiene
 

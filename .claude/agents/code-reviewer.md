@@ -28,6 +28,7 @@ skills:
   - database-design
   - flyway-migration
   - jackson-migration
+  - spring-ai
 model: sonnet
 ---
 
