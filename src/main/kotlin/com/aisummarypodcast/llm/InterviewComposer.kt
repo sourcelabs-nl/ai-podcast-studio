@@ -21,6 +21,10 @@ class InterviewComposer(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    companion object {
+        private val INTERVIEW_ROLES = setOf("interviewer", "expert")
+    }
+
     suspend fun compose(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
         return compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
@@ -38,6 +42,7 @@ class InterviewComposer(
                 chatClient.prompt()
                     .user(prompt)
                     .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
+                    .advisors(RoleTagValidationAdvisor(INTERVIEW_ROLES))
                     .call()
                     .chatResponse()
             }
@@ -117,7 +122,7 @@ class InterviewComposer(
             Requirements:
             - The interviewer (~35% of words) asks questions, bridges between topics, reacts, challenges, and provides commentary
             - The expert (~65% of words) delivers substantive news content, provides context, and offers analysis
-            - Use XML-style tags for each speaker turn. The ONLY valid tags are: <interviewer>, <expert>
+            - Use XML-style tags for each speaker turn. The ONLY valid tags are: ${INTERVIEW_ROLES.joinToString(", ") { "<$it>" }}
             - Example format:
             <interviewer>Example question or reaction</interviewer>
             <expert>Example detailed answer with analysis</expert>

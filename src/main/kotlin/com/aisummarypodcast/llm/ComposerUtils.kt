@@ -211,7 +211,15 @@ fun buildHandlesBlock(): String =
 fun buildResearchNamesBlock(): String =
     "\n            - RESEARCH NAMES FOR THE EAR: A spoken episode cannot absorb a rapid list of paper codenames and author surnames. Lead with what a piece of research DOES, and voice its codename only when the name itself is the news. Do not stack author attributions like \"X from Smith and colleagues\" on every paper: drop or soften the surnames (at most credit a notable lab or company), and never recite more than one unfamiliar proper name per sentence."
 
-private val SPEAKER_TURN_PATTERN = Regex("<(\\w+)>.*?</\\1>", RegexOption.DOT_MATCHES_ALL)
+internal val SPEAKER_TURN_PATTERN = Regex("<(\\w+)>.*?</\\1>", RegexOption.DOT_MATCHES_ALL)
+
+/**
+ * The set of speaker roles a compose-stage script is allowed to use, derived from the podcast's
+ * configured TTS voices. Shared by prompt-building (so the model is told the valid tags) and
+ * [RoleTagValidationAdvisor] (so a leaked tag outside this set is rejected before TTS ever sees it).
+ */
+fun resolveSpeakerRoles(podcast: Podcast): Set<String> =
+    podcast.ttsVoices?.keys?.toSet() ?: setOf("host", "cohost")
 
 /**
  * Strips any text before the first opening speaker tag and after the last closing speaker tag.

@@ -38,6 +38,7 @@ class DialogueComposer(
                 chatClient.prompt()
                     .user(prompt)
                     .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
+                    .advisors(RoleTagValidationAdvisor(resolveSpeakerRoles(podcast)))
                     .call()
                     .chatResponse()
             }
@@ -61,7 +62,7 @@ class DialogueComposer(
 
     internal fun buildPrompt(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): String {
         val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
-        val speakerRoles = podcast.ttsVoices?.keys?.toList() ?: listOf("host", "cohost")
+        val speakerRoles = resolveSpeakerRoles(podcast).toList()
         val tagExamples = speakerRoles.joinToString("\n            ") { role -> "<$role>Example text</$role>" }
 
         val nameInstruction = if (podcast.speakerNames != null && podcast.speakerNames.isNotEmpty()) {
