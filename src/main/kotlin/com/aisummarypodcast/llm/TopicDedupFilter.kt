@@ -82,7 +82,16 @@ class TopicDedupFilter(
                             // maxTokens caps a degenerating response (e.g. a repetition loop emitting
                             // hundreds of near-duplicate clusters) so it fails in seconds instead of
                             // streaming for minutes before truncating mid-JSON.
-                            .options(OpenAiChatOptions.builder().model(modelDef.model).temperature(0.3).maxTokens(DEDUP_MAX_OUTPUT_TOKENS))
+                            .options(
+                                OpenAiChatOptions.builder()
+                                    .model(modelDef.model)
+                                    .temperature(0.3)
+                                    .maxTokens(DEDUP_MAX_OUTPUT_TOKENS)
+                                    // deepseek-v4-flash reasons by default on OpenRouter; its hidden reasoning
+                                    // tokens count against maxTokens and can consume the whole budget, leaving
+                                    // no room for the actual JSON output. Disable it explicitly.
+                                    .reasoningEffort("none")
+                            )
                             .call()
                             .responseEntity(converter)
                     }
