@@ -34,7 +34,11 @@ data class BackupProperties(
 
 data class ComposeProperties(
     val rapidFireBudgetFraction: Double = 0.15,
-    val rapidFireMaxItems: Int = 6
+    val rapidFireMaxItems: Int = 6,
+    // Upper bound on articles fed into a single compose request. On busy days dozens of articles can
+    // survive scoring and dedup; composing all of them in one LLM call is slow (risking the compose
+    // timeout) and dilutes the episode. We keep the highest-relevance articles and drop the rest.
+    val maxArticles: Int = 40
 )
 
 data class ResearchProperties(

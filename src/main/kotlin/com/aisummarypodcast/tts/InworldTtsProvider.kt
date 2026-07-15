@@ -181,6 +181,12 @@ class InworldTtsProvider(
                 val delayMs = RETRY_DELAYS_MS[attempt]
                 log.warn("Inworld I/O error '{}' (attempt {}/{}), retrying in {}ms", e.message, attempt + 1, MAX_RETRY_ATTEMPTS, delayMs)
                 delay(delayMs)
+            } catch (e: InworldTransientException) {
+                // Transient server-side failure (HTTP 5xx, e.g. a brief 503 upstream outage) — retry
+                if (attempt == MAX_RETRY_ATTEMPTS - 1) throw e
+                val delayMs = RETRY_DELAYS_MS[attempt]
+                log.warn("Inworld transient error '{}' (attempt {}/{}), retrying in {}ms", e.message, attempt + 1, MAX_RETRY_ATTEMPTS, delayMs)
+                delay(delayMs)
             }
         }
         throw IllegalStateException("Unreachable")

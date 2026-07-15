@@ -125,6 +125,8 @@ app:
   compose:
     rapid-fire-budget-fraction: 0.15
     rapid-fire-max-items: 6
+    # Cap on articles fed into a single compose request (highest-relevance kept, rest dropped).
+    max-articles: 40
   episodes:
     directory: ./data
     retention-days: 365

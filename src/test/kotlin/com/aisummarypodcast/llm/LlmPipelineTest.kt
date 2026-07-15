@@ -2,6 +2,7 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
+import com.aisummarypodcast.config.ComposeProperties
 import com.aisummarypodcast.config.EncryptionProperties
 import com.aisummarypodcast.config.EpisodesProperties
 import com.aisummarypodcast.config.FeedProperties
@@ -26,6 +27,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -183,6 +185,61 @@ class LlmPipelineTest {
 
         verify { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) }
         verify { articleEligibilityService.findHistoricalArticles(podcast) }
+    }
+
+    @Test
+    fun `dedup caps compose articles to the highest-relevance ones`() {
+        val cappedProperties = appProperties.copy(compose = ComposeProperties(maxArticles = 2))
+        val cappedPipeline = LlmPipeline(
+            articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
+            sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
+            articleEligibilityService, topicDedupFilter
+        )
+
+        val low = scoredArticle.copy(id = 1, relevanceScore = 5)
+        val high = scoredArticle.copy(id = 2, relevanceScore = 9)
+        val mid = scoredArticle.copy(id = 3, relevanceScore = 7)
+        val eligible = listOf(low, high, mid)
+
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
+        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
+        coEvery { topicDedupFilter.filter(eligible, emptyList(), "u1", filterModelDef) } returns
+            DedupFilterResult(eligible.map { FilteredArticle(it) }, TokenUsage(100, 50))
+
+        runTest {
+            val result = cappedPipeline.dedup(eligible, podcast)
+
+            assertNotNull(result)
+            assertEquals(listOf(2L, 3L), result!!.filteredArticles.map { it.article.id })
+        }
+    }
+
+    @Test
+    fun `compose caps its input to the highest-relevance articles`() {
+        val cappedProperties = appProperties.copy(compose = ComposeProperties(maxArticles = 2))
+        val cappedPipeline = LlmPipeline(
+            articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
+            sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
+            articleEligibilityService, topicDedupFilter
+        )
+
+        val low = scoredArticle.copy(id = 1, relevanceScore = 5)
+        val high = scoredArticle.copy(id = 2, relevanceScore = 9)
+        val mid = scoredArticle.copy(id = 3, relevanceScore = 7)
+        val filtered = listOf(low, high, mid).map { FilteredArticle(it) }
+
+        every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
+        val composedArticles = slot<List<Article>>()
+        coEvery {
+            briefingComposer.compose(capture(composedArticles), podcast, composeModelDef, "", any<Map<Long, String>>(), any())
+        } returns CompositionResult("Script", TokenUsage(500, 200))
+
+        runTest {
+            cappedPipeline.compose(filtered, podcast)
+
+            assertEquals(listOf(2L, 3L), composedArticles.captured.map { it.id })
+        }
     }
 
     @Test

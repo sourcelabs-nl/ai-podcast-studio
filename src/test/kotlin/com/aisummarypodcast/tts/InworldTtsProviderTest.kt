@@ -352,6 +352,56 @@ class InworldTtsProviderTest {
         }
     }
 
+    // --- Retry on transient 5xx tests ---
+
+    @Test
+    fun `retries on transient 5xx and succeeds on second attempt`() = runTest {
+        val request = TtsRequest(
+            script = "Hello world",
+            ttsVoices = mapOf("default" to "voice-1"),
+            ttsSettings = emptyMap(),
+            language = "en",
+            userId = "u1"
+        )
+
+        var callCount = 0
+        every {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8))
+        } answers {
+            callCount++
+            if (callCount == 1) throw InworldTransientException("Inworld API error (HTTP 503): upstream connect error")
+            InworldSpeechResponse(sampleAudio, 11)
+        }
+
+        val result = provider.generate(request)
+
+        assertEquals(1, result.audioChunks.size)
+        assertEquals(11, result.totalCharacters)
+        assertEquals(2, callCount)
+    }
+
+    @Test
+    fun `throws InworldTransientException after exhausting retries`() {
+        val request = TtsRequest(
+            script = "Hello world",
+            ttsVoices = mapOf("default" to "voice-1"),
+            ttsSettings = emptyMap(),
+            language = "en",
+            userId = "u1"
+        )
+
+        every {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8))
+        } throws InworldTransientException("Inworld API error (HTTP 503): upstream connect error")
+
+        val exception = assertThrows<InworldTransientException> { runBlocking { provider.generate(request) } }
+        assertEquals("Inworld API error (HTTP 503): upstream connect error", exception.message)
+
+        verify(exactly = 3) {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8))
+        }
+    }
+
     // --- Post-processing integration tests ---
 
     @Test

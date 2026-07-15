@@ -229,22 +229,32 @@ class LlmPipeline(
             return null
         }
 
-        val followUpAnnotations = buildFollowUpAnnotations(dedupResult.filteredArticles)
-        val topicLabels = dedupResult.filteredArticles.mapNotNull { it.topic }.distinct()
+        // Cap the compose input to the highest-relevance articles. On busy days dozens can survive
+        // scoring and dedup; composing all of them in one LLM call risks the compose timeout and
+        // dilutes the episode. Cap here (as well as in compose) so the follow-up annotations, topic
+        // labels, token totals, and episode-article links below all derive from the same capped set.
+        val composeArticles = capForCompose(dedupResult.filteredArticles)
+        if (composeArticles.size < dedupResult.filteredArticles.size) {
+            log.info("[LLM] Compose article cap applied for podcast '{}' ({}): {} → {} articles (top by relevance)",
+                podcast.name, podcast.id, dedupResult.filteredArticles.size, composeArticles.size)
+        }
+
+        val followUpAnnotations = buildFollowUpAnnotations(composeArticles)
+        val topicLabels = composeArticles.mapNotNull { it.topic }.distinct()
         val dedupCostCents = CostEstimator.estimateLlmCostCents(
             dedupResult.usage.inputTokens, dedupResult.usage.outputTokens, dedupModelDef.cost
         )
 
         // Score-stage totals: sum tokens from the articles surviving into this episode and
         // compute cost from the SUM (not per-article costs, which lose sub-cent precision).
-        val scoreInputTokens = dedupResult.filteredArticles.sumOf { it.article.llmInputTokens ?: 0 }
-        val scoreOutputTokens = dedupResult.filteredArticles.sumOf { it.article.llmOutputTokens ?: 0 }
+        val scoreInputTokens = composeArticles.sumOf { it.article.llmInputTokens ?: 0 }
+        val scoreOutputTokens = composeArticles.sumOf { it.article.llmOutputTokens ?: 0 }
         val scoreCostCents = CostEstimator.estimateLlmCostCents(
             scoreInputTokens, scoreOutputTokens, filterModelDef.cost
         ) ?: 0
 
         return DedupStageResult(
-            filteredArticles = dedupResult.filteredArticles,
+            filteredArticles = composeArticles,
             filterModel = filterModelDef.model,
             dedupModel = dedupModelDef.model,
             usage = dedupResult.usage,
@@ -257,6 +267,10 @@ class LlmPipeline(
         )
     }
 
+    // Keeps the highest-relevance articles up to the configured compose cap; drops the rest.
+    private fun capForCompose(articles: List<FilteredArticle>): List<FilteredArticle> =
+        articles.sortedByDescending { it.article.relevanceScore ?: 0 }.take(appProperties.compose.maxArticles)
+
     suspend fun compose(
         filteredArticles: List<FilteredArticle>,
         podcast: Podcast,
@@ -265,7 +279,14 @@ class LlmPipeline(
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): ComposeStageResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
-        val toCompose = filteredArticles.map { it.article }
+        // Enforce the compose cap at this shared chokepoint so every entry path is bounded — including
+        // retry-from-compose, which reloads previously persisted articles and skips dedup entirely.
+        val composeArticles = capForCompose(filteredArticles)
+        if (composeArticles.size < filteredArticles.size) {
+            log.info("[LLM] Compose article cap applied for podcast '{}' ({}): {} → {} articles (top by relevance)",
+                podcast.name, podcast.id, filteredArticles.size, composeArticles.size)
+        }
+        val toCompose = composeArticles.map { it.article }
         onProgress("composing", mapOf("articleCount" to toCompose.size))
 
         val ttsProvider = ttsProviderFactory.resolve(podcast)

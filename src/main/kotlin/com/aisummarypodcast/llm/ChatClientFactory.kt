@@ -80,10 +80,10 @@ class ChatClientFactory(
             )
 
         // Generous request timeout: composition with deep-dive web research and history tool
-        // calls over a large article set can run well past five minutes on slower models. The
+        // calls over a large article set can run well past ten minutes on slower models. The
         // dedup/filter stages bound their own output via maxTokens, so a longer ceiling here
         // only ever helps the long compose request and never lets a degenerate call hang.
-        val openAiClient = buildOpenAiClient(config, Duration.ofMinutes(10))
+        val openAiClient = buildOpenAiClient(config, Duration.ofMinutes(20))
         val chatModel = OpenAiChatModel.builder()
             .openAiClient(openAiClient)
             .build()

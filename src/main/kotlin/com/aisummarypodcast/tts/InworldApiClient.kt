@@ -135,12 +135,16 @@ class InworldApiClient(
 
     private fun handleError(status: HttpStatusCode, body: ByteArray) {
         val bodyStr = String(body)
-        when (status.value()) {
+        when (val code = status.value()) {
             401 -> throw IllegalStateException("Inworld API credentials are invalid or expired")
             429 -> throw InworldRateLimitException("Inworld rate limit exceeded. Please try again later.")
+            in 500..599 -> {
+                log.error("Inworld API error (HTTP {}): {}", code, bodyStr)
+                throw InworldTransientException("Inworld API error (HTTP $code): $bodyStr")
+            }
             else -> {
-                log.error("Inworld API error (HTTP {}): {}", status.value(), bodyStr)
-                throw IllegalStateException("Inworld API error (HTTP ${status.value()}): $bodyStr")
+                log.error("Inworld API error (HTTP {}): {}", code, bodyStr)
+                throw IllegalStateException("Inworld API error (HTTP $code): $bodyStr")
             }
         }
     }
