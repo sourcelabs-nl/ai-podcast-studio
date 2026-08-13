@@ -19,5 +19,7 @@ data class Article(
     val llmInputTokens: Int? = null,
     val llmOutputTokens: Int? = null,
     val llmCostCents: Int? = null,
+    /** Provider-reported cost (USD) of this article's scoring call(s); null when none was reported. */
+    val llmReportedCostUsd: Double? = null,
     val subtopic: String? = null
 )

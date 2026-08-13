@@ -80,7 +80,11 @@ internal fun <T : Any> org.springframework.data.domain.Page<T>.toResponse(): Pag
 internal fun <T : Any, R : Any> org.springframework.data.domain.Page<T>.toResponse(mapper: (T) -> R): PagedResponse<R> =
     PagedResponse(items = content.map(mapper), page = number, pageSize = size, total = totalElements, totalPages = totalPages)
 
-internal fun Episode.toResponse(scoreCalls: Int = 0, costFor: StageCostFn = noopStageCostFn) = EpisodeResponse(
+internal fun Episode.toResponse(
+    scoreCalls: Int = 0,
+    scoreReportedCostCents: Double? = null,
+    costFor: StageCostFn = noopStageCostFn
+) = EpisodeResponse(
     id = id!!,
     podcastId = podcastId,
     generatedAt = generatedAt,
@@ -103,10 +107,14 @@ internal fun Episode.toResponse(scoreCalls: Int = 0, costFor: StageCostFn = noop
     pipelineStage = pipelineStage,
     researchCalls = researchCalls,
     researchCostCents = researchCostCents,
-    costs = buildCosts(scoreCalls, costFor)
+    costs = buildCosts(scoreCalls, scoreReportedCostCents, costFor)
 )
 
-private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCostsResponse {
+private fun Episode.buildCosts(
+    scoreCalls: Int,
+    scoreReportedCostCents: Double?,
+    costFor: StageCostFn
+): EpisodeCostsResponse {
     fun llmCalls(input: Int, output: Int, cost: Double): Int =
         if (input > 0 || output > 0 || cost > 0) 1 else 0
     // Always recompute the stage cost from tokens + model rate at full precision so sub-cent
@@ -117,7 +125,11 @@ private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCo
         if (input == 0 && output == 0) persistedCost.toDouble()
         else costFor(model, input, output) ?: persistedCost.toDouble()
 
-    val scoreCost = effective(scoreCostCents, filterModel, scoreInputTokens, scoreOutputTokens)
+    // A provider-reported cost is an actual charge, so it wins over recomputation from tokens and
+    // rates. Only the score stage persists one (summed from its per-article calls); the other
+    // stages have no persisted reported value and stay on the recompute-then-persisted fallback.
+    val scoreCost = scoreReportedCostCents
+        ?: effective(scoreCostCents, filterModel, scoreInputTokens, scoreOutputTokens)
     // Dedup runs on its own model; legacy episodes (null dedupModel) fall back to the filter model.
     val dedupModelLabel = dedupModel ?: filterModel
     val dedupCost = effective(dedupCostCents, dedupModelLabel, dedupInputTokens, dedupOutputTokens)
@@ -165,7 +177,8 @@ private fun Episode.buildCosts(scoreCalls: Int, costFor: StageCostFn): EpisodeCo
             calls = researchCalls,
             costCents = researchCost
         ),
-        totalCostCents = totalCostCents
+        totalCostCents = totalCostCents,
+        costSource = llmCostSource?.name
     )
 }
 

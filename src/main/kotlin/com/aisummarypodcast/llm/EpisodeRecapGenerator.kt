@@ -6,12 +6,14 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
+import kotlin.math.roundToInt
 import kotlin.time.measureTimedValue
 
 data class RecapResult(
     val recap: String,
     val usage: TokenUsage,
     val costCents: Int?,
+    val costSource: LlmCostSource,
     val coveredTopics: List<String> = emptyList()
 )
 
@@ -41,8 +43,14 @@ class EpisodeRecapGenerator(
 
             val extraction = CoveredTopicsExtractor.extract(rawResponse)
             val usage = TokenUsage.fromChatResponse(chatResponse)
-            val costCents = CostEstimator.estimateLlmCostCents(usage.inputTokens, usage.outputTokens, filterModelDef.cost)
-            RecapResult(extraction.recap, usage, costCents, extraction.coveredTopics)
+            val resolvedCost = CostEstimator.resolveLlmCost(usage, filterModelDef.cost)
+            RecapResult(
+                recap = extraction.recap,
+                usage = usage,
+                costCents = resolvedCost.costCents?.roundToInt(),
+                costSource = resolvedCost.source,
+                coveredTopics = extraction.coveredTopics
+            )
         }
 
         log.info("[LLM] Episode recap generated for podcast '{}' ({}) in {}", podcast.name, podcast.id, elapsed)

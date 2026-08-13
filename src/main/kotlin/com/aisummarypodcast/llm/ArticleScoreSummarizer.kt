@@ -19,6 +19,7 @@ import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.roundToInt
 
 data class ScoreSummarizeResult(
     val relevanceScore: Int = 0,
@@ -91,7 +92,9 @@ class ArticleScoreSummarizer(
 
                                         val result = responseEntity.entity()
                                         val usage = TokenUsage.fromChatResponse(responseEntity.response())
-                                        val costCents = CostEstimator.estimateLlmCostCents(usage.inputTokens, usage.outputTokens, filterModelDef.cost)
+                                        // Prefer the provider's own charge over the configured rates; the reported
+                                        // value is also persisted so the score stage can be aggregated correctly.
+                                        val costCents = CostEstimator.resolveLlmCost(usage, filterModelDef.cost).costCents?.roundToInt()
 
                                         val score = result?.relevanceScore ?: 0
                                         val summary = result?.summary?.takeIf { it.isNotBlank() }
@@ -103,7 +106,10 @@ class ArticleScoreSummarizer(
                                             subtopic = subtopic,
                                             llmInputTokens = (article.llmInputTokens ?: 0) + usage.inputTokens,
                                             llmOutputTokens = (article.llmOutputTokens ?: 0) + usage.outputTokens,
-                                            llmCostCents = CostEstimator.addNullableCosts(article.llmCostCents, costCents)
+                                            llmCostCents = CostEstimator.addNullableCosts(article.llmCostCents, costCents),
+                                            llmReportedCostUsd = CostEstimator.addNullableReportedCosts(
+                                                article.llmReportedCostUsd, usage.reportedCostUsd
+                                            )
                                         )
                                         articleRepository.save(updated)
 

@@ -1,12 +1,18 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.config.ModelCost
+import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.store.LlmCache
 import com.aisummarypodcast.store.LlmCacheRepository
+import com.openai.core.JsonValue
+import com.openai.models.completions.CompletionUsage
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.ai.chat.messages.AssistantMessage
 import org.springframework.ai.chat.metadata.ChatResponseMetadata
@@ -249,5 +255,59 @@ class CachingChatModelTest {
         val usage = TokenUsage.fromChatResponse(result)
         assertEquals(0, usage.inputTokens)
         assertEquals(0, usage.outputTokens)
+    }
+
+    @Test
+    fun `reported cost is stored on a cache miss`() {
+        val prompt = Prompt("Summarize this article", OpenAiChatOptions.builder().model("test-model").build())
+        val nativeUsage = CompletionUsage.builder()
+            .promptTokens(200).completionTokens(50).totalTokens(250)
+            .putAdditionalProperty("cost", JsonValue.from(7.6E-5))
+            .build()
+        val metadata = ChatResponseMetadata.builder()
+            .usage(DefaultUsage(200, 50, 250, nativeUsage))
+            .build()
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns null
+        every { delegate.call(prompt) } returns ChatResponse(listOf(Generation(AssistantMessage("A summary"))), metadata)
+
+        cachingChatModel.call(prompt)
+
+        val savedSlot = slot<LlmCache>()
+        verify { llmCacheRepository.save(capture(savedSlot)) }
+        assertEquals(7.6E-5, savedSlot.captured.reportedCostUsd)
+    }
+
+    @Test
+    fun `reported cost is replayed on a cache hit and marked as cached`() {
+        val prompt = Prompt("Summarize this article", OpenAiChatOptions.builder().model("test-model").build())
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns LlmCache(
+            id = 1, promptHash = "hash", model = "test-model", response = "Cached summary",
+            createdAt = "2026-01-01T00:00:00Z", inputTokens = 300, outputTokens = 75,
+            reportedCostUsd = 7.6E-5
+        )
+
+        val usage = TokenUsage.fromChatResponse(cachingChatModel.call(prompt))
+
+        assertEquals(7.6E-5, usage.reportedCostUsd)
+        assertTrue(usage.reportedCostFromCache)
+        assertEquals(LlmCostSource.API_CACHED, CostEstimator.resolveLlmCost(usage, null).source)
+    }
+
+    @Test
+    fun `legacy cache row without a reported cost replays tokens only`() {
+        val prompt = Prompt("Summarize this article", OpenAiChatOptions.builder().model("test-model").build())
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns LlmCache(
+            id = 1, promptHash = "hash", model = "test-model", response = "Cached summary",
+            createdAt = "2026-01-01T00:00:00Z", inputTokens = 300, outputTokens = 75
+        )
+        val cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00)
+
+        val usage = TokenUsage.fromChatResponse(cachingChatModel.call(prompt))
+
+        assertEquals(300, usage.inputTokens)
+        assertEquals(75, usage.outputTokens)
+        assertNull(usage.reportedCostUsd)
+        assertEquals(LlmCostSource.TABLE, CostEstimator.resolveLlmCost(usage, cost).source)
     }
 }

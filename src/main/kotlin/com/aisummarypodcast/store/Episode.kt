@@ -1,5 +1,6 @@
 package com.aisummarypodcast.store
 
+import com.aisummarypodcast.llm.LlmCostSource
 import org.springframework.data.annotation.Id
 import org.springframework.data.annotation.Version
 import org.springframework.data.relational.core.mapping.Table
@@ -49,6 +50,11 @@ data class Episode(
     val recapInputTokens: Int = 0,
     val recapOutputTokens: Int = 0,
     val recapCostCents: Int = 0,
+    /**
+     * Where the aggregate LLM cost came from, aggregated across the contributing stages.
+     * Null for episodes generated before this column existed; those are presented as estimates.
+     */
+    val llmCostSource: LlmCostSource? = null,
     @Version val version: Long? = null
 ) {
     /**
