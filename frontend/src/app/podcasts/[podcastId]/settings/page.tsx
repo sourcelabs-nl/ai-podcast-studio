@@ -743,6 +743,22 @@ export default function PodcastSettingsPage() {
                   </FieldGroup>
                 );
               })()}
+              {form.ttsProvider === "inworld" && (
+                <FieldGroup label="Enhanced Audio Quality" description="Inworld only. Applies denoising to the synthesized audio to reduce background noise and artifacts. Matches the 'Enhanced' toggle in the Inworld studio.">
+                  <Switch
+                    checked={form.ttsSettings?.enhanceGeneration === "true"}
+                    onCheckedChange={(checked) => {
+                      const next = { ...(form.ttsSettings ?? {}) };
+                      if (checked) {
+                        next.enhanceGeneration = "true";
+                      } else {
+                        delete next.enhanceGeneration;
+                      }
+                      update("ttsSettings", next);
+                    }}
+                  />
+                </FieldGroup>
+              )}
               <FieldGroup label="TTS Voices" description="Voice assignment per role. For monologue styles use key 'default'. For dialogue/interview use role keys (e.g. 'interviewer', 'expert', 'host', 'cohost'). Values are provider-specific voice IDs.">
                 <KeyValueEditor
                   value={form.ttsVoices}

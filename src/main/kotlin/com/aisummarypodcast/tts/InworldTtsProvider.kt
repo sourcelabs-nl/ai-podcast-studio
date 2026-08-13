@@ -77,7 +77,8 @@ class InworldTtsProvider(
             // deliveryMode replaces temperature on TTS-2 — only default temperature when deliveryMode is unset
             temperature = if (deliveryMode != null) request.ttsSettings["temperature"]?.toDoubleOrNull()
                           else request.ttsSettings["temperature"]?.toDoubleOrNull() ?: DEFAULT_TEMPERATURE,
-            deliveryMode = deliveryMode
+            deliveryMode = deliveryMode,
+            enhanceGeneration = request.ttsSettings["enhanceGeneration"]?.toBooleanStrictOrNull()
         )
         val style = inferStyle(request)
 

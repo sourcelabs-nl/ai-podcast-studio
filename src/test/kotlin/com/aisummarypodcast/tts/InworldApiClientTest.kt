@@ -48,4 +48,51 @@ class InworldApiClientTest {
             client.createClient("u1")
         }
     }
+
+    // --- Request body tests ---
+
+    private fun buildBody(options: InworldSynthesisOptions = InworldSynthesisOptions()): Map<String, Any> =
+        InworldApiClient(providerConfigService, mockk())
+            .buildSynthesisBody("voice-1", "Hello world", "inworld-tts-2", options)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun audioConfigOf(body: Map<String, Any>): Map<String, Any> = body["audioConfig"] as Map<String, Any>
+
+    @Test
+    fun `buildSynthesisBody uses the documented bitRate field name`() {
+        val audioConfig = audioConfigOf(buildBody())
+
+        assertEquals(128000, audioConfig["bitRate"])
+        assertFalse(audioConfig.containsKey("bitRateHertz"), "bitRateHertz is not a documented Inworld field")
+        assertEquals("MP3", audioConfig["audioEncoding"])
+        assertEquals(48000, audioConfig["sampleRateHertz"])
+    }
+
+    @Test
+    fun `buildSynthesisBody omits enhanceGeneration when unset`() {
+        assertFalse(buildBody().containsKey("enhanceGeneration"))
+    }
+
+    @Test
+    fun `buildSynthesisBody sends enhanceGeneration when enabled`() {
+        assertEquals(true, buildBody(InworldSynthesisOptions(enhanceGeneration = true))["enhanceGeneration"])
+    }
+
+    @Test
+    fun `buildSynthesisBody sends enhanceGeneration false when explicitly disabled`() {
+        assertEquals(false, buildBody(InworldSynthesisOptions(enhanceGeneration = false))["enhanceGeneration"])
+    }
+
+    @Test
+    fun `buildSynthesisBody sends deliveryMode instead of temperature when both set`() {
+        val body = buildBody(InworldSynthesisOptions(temperature = 0.8, deliveryMode = "EXPRESSIVE"))
+
+        assertEquals("EXPRESSIVE", body["deliveryMode"])
+        assertFalse(body.containsKey("temperature"), "deliveryMode replaces temperature on TTS-2")
+    }
+
+    @Test
+    fun `buildSynthesisBody maps speed onto speakingRate`() {
+        assertEquals(1.2, audioConfigOf(buildBody(InworldSynthesisOptions(speed = 1.2)))["speakingRate"])
+    }
 }

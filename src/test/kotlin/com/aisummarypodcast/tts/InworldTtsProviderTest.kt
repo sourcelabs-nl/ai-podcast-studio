@@ -232,6 +232,66 @@ class InworldTtsProviderTest {
         assertEquals(1, result.audioChunks.size)
     }
 
+    @Test
+    fun `passes enhanceGeneration from ttsSettings`() = runTest {
+        val request = TtsRequest(
+            script = "Hello world",
+            ttsVoices = mapOf("default" to "voice-1"),
+            ttsSettings = mapOf("enhanceGeneration" to "true"),
+            language = "en",
+            userId = "u1"
+        )
+        every {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8, enhanceGeneration = true))
+        } returns InworldSpeechResponse(sampleAudio, 11)
+
+        provider.generate(request)
+
+        verify {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8, enhanceGeneration = true))
+        }
+    }
+
+    @Test
+    fun `enhanceGeneration is left unset when not configured`() = runTest {
+        val request = TtsRequest(
+            script = "Hello world",
+            ttsVoices = mapOf("default" to "voice-1"),
+            ttsSettings = emptyMap(),
+            language = "en",
+            userId = "u1"
+        )
+        every {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8, enhanceGeneration = null))
+        } returns InworldSpeechResponse(sampleAudio, 11)
+
+        provider.generate(request)
+
+        verify {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8, enhanceGeneration = null))
+        }
+    }
+
+    @Test
+    fun `non-boolean enhanceGeneration is ignored`() = runTest {
+        val request = TtsRequest(
+            script = "Hello world",
+            ttsVoices = mapOf("default" to "voice-1"),
+            ttsSettings = mapOf("enhanceGeneration" to "yes"),
+            language = "en",
+            userId = "u1"
+        )
+        every {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8, enhanceGeneration = null))
+        } returns InworldSpeechResponse(sampleAudio, 11)
+
+        provider.generate(request)
+
+        verify {
+            apiClient.synthesizeSpeech("u1", "voice-1", "Hello world", "inworld-tts-1.5-max", InworldSynthesisOptions(temperature = 0.8, enhanceGeneration = null))
+        }
+    }
+
     // --- Parallel generation tests ---
 
     @Test

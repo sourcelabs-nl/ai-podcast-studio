@@ -22,7 +22,9 @@ data class InworldSpeechResponse(
 data class InworldSynthesisOptions(
     val speed: Double? = null,
     val temperature: Double? = null,
-    val deliveryMode: String? = null
+    val deliveryMode: String? = null,
+    /** Inworld's "Enhanced" audio quality toggle — applies denoising to reduce artifacts. */
+    val enhanceGeneration: Boolean? = null
 )
 
 @Component
@@ -39,13 +41,11 @@ class InworldApiClient(
         .maxIdleTime(Duration.ofSeconds(30))
         .build()
 
-    fun synthesizeSpeech(userId: String, voiceId: String, text: String, modelId: String, options: InworldSynthesisOptions = InworldSynthesisOptions()): InworldSpeechResponse {
-        val client = createClient(userId)
-
+    internal fun buildSynthesisBody(voiceId: String, text: String, modelId: String, options: InworldSynthesisOptions): Map<String, Any> {
         val audioConfig = mutableMapOf<String, Any>(
             "audioEncoding" to "MP3",
             "sampleRateHertz" to 48000,
-            "bitRateHertz" to 128000
+            "bitRate" to 128000
         )
         options.speed?.let { audioConfig["speakingRate"] = it }
 
@@ -60,7 +60,14 @@ class InworldApiClient(
         } else {
             options.temperature?.let { body["temperature"] = it }
         }
+        options.enhanceGeneration?.let { body["enhanceGeneration"] = it }
         body["applyTextNormalization"] = "ON"
+        return body
+    }
+
+    fun synthesizeSpeech(userId: String, voiceId: String, text: String, modelId: String, options: InworldSynthesisOptions = InworldSynthesisOptions()): InworldSpeechResponse {
+        val client = createClient(userId)
+        val body = buildSynthesisBody(voiceId, text, modelId, options)
 
         @Suppress("UNCHECKED_CAST")
         val response = client.post()
