@@ -25,6 +25,11 @@ data class UpcomingContent(
     val effectiveArticleCount: Long
 )
 
+/** Score-stage facts for an episode's cost breakdown: how many article calls it made. */
+data class ScoreStageSummary(
+    val calls: Int
+)
+
 data class LinkedArticlesResult(
     val articles: List<Article>,
     val topicLabels: List<String>,

@@ -4,8 +4,10 @@ import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.store.Article
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import kotlin.math.roundToInt
 
 class CostEstimatorTest {
 
@@ -192,5 +194,147 @@ class CostEstimatorTest {
     fun `estimateScoringCostCents returns null without pricing`() {
         val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null)
         assertNull(CostEstimator.estimateScoringCostCents(listOf(article("x".repeat(1000))), noPricingModel))
+    }
+
+    // --- resolveLlmCost tests ---
+
+    private val filterCost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00)
+
+    @Test
+    fun `reported cost is preferred over the configured rates`() {
+        val usage = TokenUsage(10000, 2000, reportedCostUsd = 0.00042)
+
+        val resolved = CostEstimator.resolveLlmCost(usage, filterCost)
+
+        assertEquals(0.042, resolved.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.API, resolved.source)
+    }
+
+    @Test
+    fun `replayed reported cost resolves as API_CACHED`() {
+        val usage = TokenUsage(10000, 2000, reportedCostUsd = 0.00042, reportedCostFromCache = true)
+
+        assertEquals(LlmCostSource.API_CACHED, CostEstimator.resolveLlmCost(usage, filterCost).source)
+    }
+
+    @Test
+    fun `falls back to the configured rates when nothing is reported`() {
+        val resolved = CostEstimator.resolveLlmCost(TokenUsage(10000, 2000), filterCost)
+
+        assertEquals(6.0, resolved.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.TABLE, resolved.source)
+    }
+
+    @Test
+    fun `resolves to unknown without a reported cost or configured rates`() {
+        val resolved = CostEstimator.resolveLlmCost(TokenUsage(10000, 2000), null)
+
+        assertNull(resolved.costCents)
+        assertEquals(LlmCostSource.UNKNOWN, resolved.source)
+    }
+
+    @Test
+    fun `sub-cent reported cost survives at full precision`() {
+        val resolved = CostEstimator.resolveLlmCost(TokenUsage(500, 100, reportedCostUsd = 7.6E-5), filterCost)
+
+        assertEquals(0.0076, resolved.costCents!!, 1e-9)
+        assertEquals(0, resolved.costCents!!.roundToInt())
+    }
+
+    // --- aggregateStageCost tests ---
+
+    private fun reportingCall(cost: Double) = LlmCallCost(100, 20, cost)
+    private fun silentCall(input: Int, output: Int) = LlmCallCost(input, output, null)
+
+    @Test
+    fun `stage where every call reported sums the reported costs`() {
+        val calls = (1..40).map { reportingCall(0.0004) }
+
+        val resolved = CostEstimator.aggregateStageCost(calls, filterCost)
+
+        assertEquals(1.6, resolved.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.API, resolved.source)
+    }
+
+    @Test
+    fun `stage with partial reporting adds a rate estimate for the gap and is MIXED`() {
+        // 38 reporting calls totalling $0.0152, plus 2 that reported nothing but used 900/300 tokens.
+        val calls = (1..38).map { reportingCall(0.0004) } + listOf(silentCall(900, 300))
+
+        val resolved = CostEstimator.aggregateStageCost(calls, filterCost)
+
+        val gapCents = (900 * 3.00 + 300 * 15.00) / 1_000_000.0 * 100
+        assertEquals(1.52 + gapCents, resolved.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.MIXED, resolved.source)
+    }
+
+    @Test
+    fun `partial stage total is never the bare sum of the reported costs`() {
+        val calls = listOf(reportingCall(0.0004), silentCall(900, 300))
+
+        val resolved = CostEstimator.aggregateStageCost(calls, filterCost)
+
+        assertNotEquals(0.04, resolved.costCents!!)
+        assertNotEquals(LlmCostSource.API, resolved.source)
+    }
+
+    @Test
+    fun `stage where no call reported is estimated from the summed tokens`() {
+        val calls = listOf(silentCall(600, 200), silentCall(300, 100))
+
+        val resolved = CostEstimator.aggregateStageCost(calls, filterCost)
+
+        assertEquals((900 * 3.00 + 300 * 15.00) / 1_000_000.0 * 100, resolved.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.TABLE, resolved.source)
+    }
+
+    @Test
+    fun `non-reporting calls contribute nothing without rates but still force MIXED`() {
+        val calls = listOf(reportingCall(0.0004), silentCall(900, 300))
+
+        val resolved = CostEstimator.aggregateStageCost(calls, null)
+
+        assertEquals(0.04, resolved.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.MIXED, resolved.source)
+    }
+
+    @Test
+    fun `stage with no reported cost and no rates is unknown`() {
+        val resolved = CostEstimator.aggregateStageCost(listOf(silentCall(900, 300)), null)
+
+        assertNull(resolved.costCents)
+        assertEquals(LlmCostSource.UNKNOWN, resolved.source)
+    }
+
+    @Test
+    fun `stage without any calls is unknown`() {
+        val resolved = CostEstimator.aggregateStageCost(emptyList(), filterCost)
+
+        assertNull(resolved.costCents)
+        assertEquals(LlmCostSource.UNKNOWN, resolved.source)
+    }
+
+    // --- ResolvedLlmCost.reportedCostCents tests ---
+
+    @Test
+    fun `reported cost cents is carried for API, API_CACHED and MIXED sources`() {
+        assertEquals(0.42, ResolvedLlmCost(0.42, LlmCostSource.API).reportedCostCents)
+        assertEquals(0.42, ResolvedLlmCost(0.42, LlmCostSource.API_CACHED).reportedCostCents)
+        assertEquals(0.42, ResolvedLlmCost(0.42, LlmCostSource.MIXED).reportedCostCents)
+    }
+
+    @Test
+    fun `reported cost cents is null for TABLE and UNKNOWN sources`() {
+        assertNull(ResolvedLlmCost(0.42, LlmCostSource.TABLE).reportedCostCents)
+        assertNull(ResolvedLlmCost(null, LlmCostSource.UNKNOWN).reportedCostCents)
+    }
+
+    // --- addNullableReportedCosts tests ---
+
+    @Test
+    fun `nullable reported costs accumulate and stay null when both are absent`() {
+        assertNull(CostEstimator.addNullableReportedCosts(null, null))
+        assertEquals(0.0004, CostEstimator.addNullableReportedCosts(null, 0.0004))
+        assertEquals(0.0006, CostEstimator.addNullableReportedCosts(0.0002, 0.0004)!!, 1e-9)
     }
 }

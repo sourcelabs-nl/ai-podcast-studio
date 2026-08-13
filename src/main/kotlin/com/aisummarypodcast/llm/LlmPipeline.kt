@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import kotlin.math.roundToInt
 import kotlin.time.measureTimedValue
 
 data class PipelineResult(
@@ -22,6 +23,7 @@ data class PipelineResult(
     val llmInputTokens: Int = 0,
     val llmOutputTokens: Int = 0,
     val llmCostCents: Int? = null,
+    val llmCostSource: LlmCostSource? = null,
     val processedArticleIds: List<Long> = emptyList(),
     val articleTopics: Map<Long, String> = emptyMap(),
     val dedupModel: String? = null,
@@ -31,12 +33,15 @@ data class PipelineResult(
     val scoreInputTokens: Int = 0,
     val scoreOutputTokens: Int = 0,
     val scoreCostCents: Int = 0,
+    val scoreReportedCostCents: Double? = null,
     val dedupInputTokens: Int = 0,
     val dedupOutputTokens: Int = 0,
     val dedupCostCents: Int = 0,
+    val dedupReportedCostCents: Double? = null,
     val composeInputTokens: Int = 0,
     val composeOutputTokens: Int = 0,
-    val composeCostCents: Int = 0
+    val composeCostCents: Int = 0,
+    val composeReportedCostCents: Double? = null
 )
 
 data class PreviewResult(
@@ -52,9 +57,13 @@ data class DedupStageResult(
     val followUpAnnotations: Map<Long, String>,
     val topicLabels: List<String>,
     val dedupCostCents: Int?,
+    val dedupCostSource: LlmCostSource,
+    val dedupReportedCostCents: Double? = null,
     val scoreInputTokens: Int = 0,
     val scoreOutputTokens: Int = 0,
-    val scoreCostCents: Int = 0
+    val scoreCostCents: Int = 0,
+    val scoreCostSource: LlmCostSource = LlmCostSource.UNKNOWN,
+    val scoreReportedCostCents: Double? = null
 )
 
 data class ComposeStageResult(
@@ -63,6 +72,8 @@ data class ComposeStageResult(
     val usage: TokenUsage,
     val topicOrder: List<String>,
     val composeCostCents: Int?,
+    val composeCostSource: LlmCostSource,
+    val composeReportedCostCents: Double? = null,
     val researchCalls: Int = 0,
     val researchCostCents: Int? = null
 )
@@ -241,17 +252,14 @@ class LlmPipeline(
 
         val followUpAnnotations = buildFollowUpAnnotations(composeArticles)
         val topicLabels = composeArticles.mapNotNull { it.topic }.distinct()
-        val dedupCostCents = CostEstimator.estimateLlmCostCents(
-            dedupResult.usage.inputTokens, dedupResult.usage.outputTokens, dedupModelDef.cost
-        )
+        val dedupCost = CostEstimator.resolveLlmCost(dedupResult.usage, dedupModelDef.cost)
 
-        // Score-stage totals: sum tokens from the articles surviving into this episode and
-        // compute cost from the SUM (not per-article costs, which lose sub-cent precision).
+        // Score-stage totals: sum tokens from the articles surviving into this episode. Where the
+        // provider reported a cost per article those values are summed; the rest are estimated from
+        // the SUM of their tokens (per-article integer cents lose sub-cent precision).
         val scoreInputTokens = composeArticles.sumOf { it.article.llmInputTokens ?: 0 }
         val scoreOutputTokens = composeArticles.sumOf { it.article.llmOutputTokens ?: 0 }
-        val scoreCostCents = CostEstimator.estimateLlmCostCents(
-            scoreInputTokens, scoreOutputTokens, filterModelDef.cost
-        ) ?: 0
+        val scoreCost = scoreStageCost(composeArticles.map { it.article }, filterModelDef)
 
         return DedupStageResult(
             filteredArticles = composeArticles,
@@ -260,12 +268,29 @@ class LlmPipeline(
             usage = dedupResult.usage,
             followUpAnnotations = followUpAnnotations,
             topicLabels = topicLabels,
-            dedupCostCents = dedupCostCents,
+            dedupCostCents = dedupCost.costCents?.roundToInt(),
+            dedupCostSource = dedupCost.source,
+            dedupReportedCostCents = dedupCost.reportedCostCents,
             scoreInputTokens = scoreInputTokens,
             scoreOutputTokens = scoreOutputTokens,
-            scoreCostCents = scoreCostCents
+            scoreCostCents = scoreCost.costCents?.roundToInt() ?: 0,
+            scoreCostSource = scoreCost.source,
+            scoreReportedCostCents = scoreCost.reportedCostCents
         )
     }
+
+    /**
+     * Totals the score stage from the per-article calls: reported costs are summed and the articles
+     * that reported nothing are estimated from their own tokens, so a partial sum is never
+     * presented as a complete one (see [CostEstimator.aggregateStageCost]).
+     */
+    private fun scoreStageCost(articles: List<Article>, filterModelDef: ResolvedModel): ResolvedLlmCost =
+        CostEstimator.aggregateStageCost(
+            articles.map {
+                LlmCallCost(it.llmInputTokens ?: 0, it.llmOutputTokens ?: 0, it.llmReportedCostUsd)
+            },
+            filterModelDef.cost
+        )
 
     // Keeps the highest-relevance articles up to the configured compose cap; drops the rest.
     private fun capForCompose(articles: List<FilteredArticle>): List<FilteredArticle> =
@@ -298,9 +323,7 @@ class LlmPipeline(
             else -> briefingComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
         }
 
-        val composeCostCents = CostEstimator.estimateLlmCostCents(
-            compositionResult.usage.inputTokens, compositionResult.usage.outputTokens, composeModelDef.cost
-        )
+        val composeCost = CostEstimator.resolveLlmCost(compositionResult.usage, composeModelDef.cost)
 
         val researchCostCents = if (compositionResult.researchCalls > 0) {
             compositionResult.researchCalls * appProperties.research.tavily.costPerCallCents
@@ -311,7 +334,9 @@ class LlmPipeline(
             composeModel = composeModelDef.model,
             usage = compositionResult.usage,
             topicOrder = compositionResult.topicOrder,
-            composeCostCents = composeCostCents,
+            composeCostCents = composeCost.costCents?.roundToInt(),
+            composeCostSource = composeCost.source,
+            composeReportedCostCents = composeCost.reportedCostCents,
             researchCalls = compositionResult.researchCalls,
             researchCostCents = researchCostCents
         )
@@ -340,6 +365,9 @@ class LlmPipeline(
             llmInputTokens = dedupStageResult.usage.inputTokens + composeStageResult.usage.inputTokens,
             llmOutputTokens = dedupStageResult.usage.outputTokens + composeStageResult.usage.outputTokens,
             llmCostCents = totalCostCents,
+            llmCostSource = LlmCostSource.aggregate(
+                listOf(dedupStageResult.scoreCostSource, dedupStageResult.dedupCostSource, composeStageResult.composeCostSource)
+            ),
             processedArticleIds = processedArticleIds,
             articleTopics = articleTopics,
             dedupModel = dedupStageResult.dedupModel,
@@ -349,12 +377,15 @@ class LlmPipeline(
             scoreInputTokens = dedupStageResult.scoreInputTokens,
             scoreOutputTokens = dedupStageResult.scoreOutputTokens,
             scoreCostCents = dedupStageResult.scoreCostCents,
+            scoreReportedCostCents = dedupStageResult.scoreReportedCostCents,
             dedupInputTokens = dedupStageResult.usage.inputTokens,
             dedupOutputTokens = dedupStageResult.usage.outputTokens,
             dedupCostCents = dedupStageResult.dedupCostCents ?: 0,
+            dedupReportedCostCents = dedupStageResult.dedupReportedCostCents,
             composeInputTokens = composeStageResult.usage.inputTokens,
             composeOutputTokens = composeStageResult.usage.outputTokens,
-            composeCostCents = composeStageResult.composeCostCents ?: 0
+            composeCostCents = composeStageResult.composeCostCents ?: 0,
+            composeReportedCostCents = composeStageResult.composeReportedCostCents
         )
     }
 
@@ -372,9 +403,8 @@ class LlmPipeline(
         }
 
         val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
-        val costCents = CostEstimator.estimateLlmCostCents(
-            compositionResult.usage.inputTokens, compositionResult.usage.outputTokens, composeModelDef.cost
-        )
+        val composeCost = CostEstimator.resolveLlmCost(compositionResult.usage, composeModelDef.cost)
+        val costCents = composeCost.costCents?.roundToInt()
 
         val researchCostCents = if (compositionResult.researchCalls > 0) {
             compositionResult.researchCalls * appProperties.research.tavily.costPerCallCents
@@ -384,9 +414,7 @@ class LlmPipeline(
         // Costs tab still shows the cost of scoring this episode's articles.
         val scoreInputTokens = articles.sumOf { it.llmInputTokens ?: 0 }
         val scoreOutputTokens = articles.sumOf { it.llmOutputTokens ?: 0 }
-        val scoreCostCents = CostEstimator.estimateLlmCostCents(
-            scoreInputTokens, scoreOutputTokens, filterModelDef.cost
-        ) ?: 0
+        val scoreCost = scoreStageCost(articles, filterModelDef)
 
         log.info("[LLM] Recompose complete for podcast '{}' ({}): {} articles", podcast.name, podcast.id, articles.size)
         return PipelineResult(
@@ -396,16 +424,19 @@ class LlmPipeline(
             llmInputTokens = compositionResult.usage.inputTokens,
             llmOutputTokens = compositionResult.usage.outputTokens,
             llmCostCents = costCents,
+            llmCostSource = LlmCostSource.aggregate(listOf(scoreCost.source, composeCost.source)),
             processedArticleIds = articles.map { it.id!! },
             topicOrder = compositionResult.topicOrder,
             researchCalls = compositionResult.researchCalls,
             researchCostCents = researchCostCents,
             scoreInputTokens = scoreInputTokens,
             scoreOutputTokens = scoreOutputTokens,
-            scoreCostCents = scoreCostCents,
+            scoreCostCents = scoreCost.costCents?.roundToInt() ?: 0,
+            scoreReportedCostCents = scoreCost.reportedCostCents,
             composeInputTokens = compositionResult.usage.inputTokens,
             composeOutputTokens = compositionResult.usage.outputTokens,
-            composeCostCents = costCents ?: 0
+            composeCostCents = costCents ?: 0,
+            composeReportedCostCents = composeCost.reportedCostCents
         )
     }
 

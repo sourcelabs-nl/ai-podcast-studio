@@ -65,8 +65,9 @@ class EpisodeController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
+        val scoreStage = episodeService.scoreStageSummary(episodeId)
         return ResponseEntity.ok(episode.toResponse(
-            scoreCalls = episodeService.countArticles(episodeId),
+            scoreCalls = scoreStage.calls,
             costFor = stageCostFn
         ))
     }

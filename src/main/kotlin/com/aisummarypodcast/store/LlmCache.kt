@@ -11,5 +11,7 @@ data class LlmCache(
     val response: String,
     val createdAt: String,
     val inputTokens: Int? = null,
-    val outputTokens: Int? = null
+    val outputTokens: Int? = null,
+    /** Provider-reported cost (USD) of the cached call; null for rows stored before it was captured. */
+    val reportedCostUsd: Double? = null
 )

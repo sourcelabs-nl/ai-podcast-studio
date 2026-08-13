@@ -58,6 +58,10 @@ class InworldApiClientTest {
     @Suppress("UNCHECKED_CAST")
     private fun audioConfigOf(body: Map<String, Any>): Map<String, Any> = body["audioConfig"] as Map<String, Any>
 
+    @Suppress("UNCHECKED_CAST")
+    private fun previousRequestsOf(body: Map<String, Any>): List<Map<String, Any>> =
+        (body["synthesisContext"] as Map<String, Any>)["previousRequests"] as List<Map<String, Any>>
+
     @Test
     fun `buildSynthesisBody uses the documented bitRate field name`() {
         val audioConfig = audioConfigOf(buildBody())
@@ -85,14 +89,75 @@ class InworldApiClientTest {
 
     @Test
     fun `buildSynthesisBody sends deliveryMode instead of temperature when both set`() {
-        val body = buildBody(InworldSynthesisOptions(temperature = 0.8, deliveryMode = "EXPRESSIVE"))
+        val body = buildBody(InworldSynthesisOptions(temperature = 0.8, deliveryMode = "CREATIVE"))
 
-        assertEquals("EXPRESSIVE", body["deliveryMode"])
+        assertEquals("CREATIVE", body["deliveryMode"])
         assertFalse(body.containsKey("temperature"), "deliveryMode replaces temperature on TTS-2")
     }
 
     @Test
     fun `buildSynthesisBody maps speed onto speakingRate`() {
         assertEquals(1.2, audioConfigOf(buildBody(InworldSynthesisOptions(speed = 1.2)))["speakingRate"])
+    }
+
+    // --- speakingRate clamping ---
+
+    @Test
+    fun `buildSynthesisBody clamps speakingRate above the supported range`() {
+        assertEquals(1.5, audioConfigOf(buildBody(InworldSynthesisOptions(speed = 2.0)))["speakingRate"])
+    }
+
+    @Test
+    fun `buildSynthesisBody clamps speakingRate below the supported range`() {
+        assertEquals(0.5, audioConfigOf(buildBody(InworldSynthesisOptions(speed = 0.2)))["speakingRate"])
+    }
+
+    @Test
+    fun `buildSynthesisBody honours a legal speakingRate below the recommended minimum`() {
+        assertEquals(0.7, audioConfigOf(buildBody(InworldSynthesisOptions(speed = 0.7)))["speakingRate"])
+    }
+
+    @Test
+    fun `buildSynthesisBody omits speakingRate when speed is unset`() {
+        assertFalse(audioConfigOf(buildBody()).containsKey("speakingRate"))
+    }
+
+    // --- language ---
+
+    @Test
+    fun `buildSynthesisBody sends the language field when set`() {
+        assertEquals("nl", buildBody(InworldSynthesisOptions(language = "nl"))["language"])
+    }
+
+    @Test
+    fun `buildSynthesisBody omits language when unset`() {
+        assertFalse(buildBody().containsKey("language"))
+    }
+
+    @Test
+    fun `buildSynthesisBody omits language when blank`() {
+        assertFalse(buildBody(InworldSynthesisOptions(language = " ")).containsKey("language"))
+    }
+
+    // --- synthesisContext ---
+
+    @Test
+    fun `buildSynthesisBody omits synthesisContext when there are no previous requests`() {
+        assertFalse(buildBody().containsKey("synthesisContext"))
+    }
+
+    @Test
+    fun `buildSynthesisBody sends previous requests as text objects in order`() {
+        val body = buildBody(InworldSynthesisOptions(previousRequests = listOf("First chunk.", "Second chunk.")))
+
+        assertEquals(
+            listOf(mapOf("text" to "First chunk."), mapOf("text" to "Second chunk.")),
+            previousRequestsOf(body)
+        )
+    }
+
+    @Test
+    fun `buildSynthesisBody always enables text normalization`() {
+        assertEquals("ON", buildBody()["applyTextNormalization"])
     }
 }

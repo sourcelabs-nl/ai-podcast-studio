@@ -4,6 +4,7 @@ import com.aisummarypodcast.llm.ArticleEligibilityService
 import com.aisummarypodcast.llm.ComposeStageResult
 import com.aisummarypodcast.llm.DedupStageResult
 import com.aisummarypodcast.llm.EpisodeRecapGenerator
+import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineResult
 import com.aisummarypodcast.llm.PipelineStage
@@ -139,17 +140,21 @@ class EpisodeService(
                 llmInputTokens = result.llmInputTokens,
                 llmOutputTokens = result.llmOutputTokens,
                 llmCostCents = result.llmCostCents,
+                llmCostSource = result.llmCostSource,
                 researchCalls = result.researchCalls,
                 researchCostCents = result.researchCostCents,
                 scoreInputTokens = result.scoreInputTokens,
                 scoreOutputTokens = result.scoreOutputTokens,
                 scoreCostCents = result.scoreCostCents,
+                scoreReportedCostCents = result.scoreReportedCostCents,
                 dedupInputTokens = result.dedupInputTokens,
                 dedupOutputTokens = result.dedupOutputTokens,
                 dedupCostCents = result.dedupCostCents,
+                dedupReportedCostCents = result.dedupReportedCostCents,
                 composeInputTokens = result.composeInputTokens,
                 composeOutputTokens = result.composeOutputTokens,
                 composeCostCents = result.composeCostCents,
+                composeReportedCostCents = result.composeReportedCostCents,
                 pipelineStage = if (podcast.requireReview) null else "tts",
                 status = if (podcast.requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING,
                 publishApproved = !podcast.requirePublishApproval
@@ -224,7 +229,11 @@ class EpisodeService(
                 recap = recapResult.recap,
                 recapInputTokens = recapResult.usage.inputTokens,
                 recapOutputTokens = recapResult.usage.outputTokens,
-                recapCostCents = recapResult.costCents ?: 0
+                recapCostCents = recapResult.costCents ?: 0,
+                recapReportedCostCents = recapResult.reportedCostCents,
+                llmCostSource = LlmCostSource.aggregate(
+                    listOfNotNull(episode.llmCostSource, recapResult.costSource)
+                )
             )
             val updated = episodeRepository.save(withStages.copy(
                 llmInputTokens = withStages.sumStageInputTokens(),
@@ -266,15 +275,22 @@ class EpisodeService(
             scoreInputTokens = dedupResult.scoreInputTokens,
             scoreOutputTokens = dedupResult.scoreOutputTokens,
             scoreCostCents = dedupResult.scoreCostCents,
+            scoreReportedCostCents = dedupResult.scoreReportedCostCents,
             dedupInputTokens = dedupResult.usage.inputTokens,
             dedupOutputTokens = dedupResult.usage.outputTokens,
             dedupCostCents = dedupResult.dedupCostCents ?: 0,
+            dedupReportedCostCents = dedupResult.dedupReportedCostCents,
+            llmCostSource = LlmCostSource.aggregate(
+                listOf(dedupResult.scoreCostSource, dedupResult.dedupCostSource)
+            ),
             composeInputTokens = 0,
             composeOutputTokens = 0,
             composeCostCents = 0,
+            composeReportedCostCents = null,
             recapInputTokens = 0,
             recapOutputTokens = 0,
-            recapCostCents = 0
+            recapCostCents = 0,
+            recapReportedCostCents = null
         )
         episodeRepository.save(withStages.copy(
             llmInputTokens = withStages.sumStageInputTokens(),
@@ -293,6 +309,10 @@ class EpisodeService(
             composeInputTokens = composeResult.usage.inputTokens,
             composeOutputTokens = composeResult.usage.outputTokens,
             composeCostCents = composeResult.composeCostCents ?: 0,
+            composeReportedCostCents = composeResult.composeReportedCostCents,
+            llmCostSource = LlmCostSource.aggregate(
+                listOfNotNull(fresh.llmCostSource, composeResult.composeCostSource)
+            ),
             researchCalls = fresh.researchCalls + composeResult.researchCalls,
             researchCostCents = com.aisummarypodcast.llm.CostEstimator.addNullableCosts(fresh.researchCostCents, composeResult.researchCostCents)
         )
@@ -603,6 +623,10 @@ class EpisodeService(
     fun findById(episodeId: Long): Episode? = episodeRepository.findByIdOrNull(episodeId)
 
     fun countArticles(episodeId: Long): Int = episodeArticleRepository.findByEpisodeId(episodeId).size
+
+    /** Score-stage facts for the cost breakdown: how many article calls the episode's score stage made. */
+    fun scoreStageSummary(episodeId: Long): ScoreStageSummary =
+        ScoreStageSummary(calls = countArticles(episodeId))
 
     fun findByPodcastId(podcastId: String, status: EpisodeStatus? = null): List<Episode> {
         return if (status != null) {

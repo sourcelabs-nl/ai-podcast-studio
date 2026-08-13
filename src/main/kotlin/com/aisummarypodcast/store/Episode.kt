@@ -1,5 +1,6 @@
 package com.aisummarypodcast.store
 
+import com.aisummarypodcast.llm.LlmCostSource
 import org.springframework.data.annotation.Id
 import org.springframework.data.annotation.Version
 import org.springframework.data.relational.core.mapping.Table
@@ -49,6 +50,22 @@ data class Episode(
     val recapInputTokens: Int = 0,
     val recapOutputTokens: Int = 0,
     val recapCostCents: Int = 0,
+    /**
+     * Where the aggregate LLM cost came from, aggregated across the contributing stages.
+     * Null for episodes generated before this column existed; those are presented as estimates.
+     */
+    val llmCostSource: LlmCostSource? = null,
+    /**
+     * Per-stage provider-reported cost in fractional cents, written only when a reported value
+     * contributed to that stage (source `API`, `API_CACHED` or `MIXED`). Null means nothing was
+     * reported for the stage, and the cost breakdown recomputes the row from its tokens and the
+     * model's configured rate instead. These are display values; the `*CostCents` integers above
+     * remain the persisted rounded costs that feed the aggregates and the budget gate.
+     */
+    val scoreReportedCostCents: Double? = null,
+    val dedupReportedCostCents: Double? = null,
+    val composeReportedCostCents: Double? = null,
+    val recapReportedCostCents: Double? = null,
     @Version val version: Long? = null
 ) {
     /**

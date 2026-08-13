@@ -150,7 +150,12 @@ data class EpisodeCostsResponse(
     val recap: LlmStageCostResponse,
     val tts: TtsCostResponse,
     val research: ResearchCostResponse,
-    val totalCostCents: Double
+    val totalCostCents: Double,
+    /**
+     * Where the LLM cost came from: API, API_CACHED, TABLE, MIXED or UNKNOWN. Null for episodes
+     * generated before the source was recorded; those are estimates.
+     */
+    val costSource: String?
 )
 
 data class UpdateScriptRequest(
