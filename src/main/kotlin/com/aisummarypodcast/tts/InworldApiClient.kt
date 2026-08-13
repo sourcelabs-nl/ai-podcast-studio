@@ -24,7 +24,14 @@ data class InworldSynthesisOptions(
     val temperature: Double? = null,
     val deliveryMode: String? = null,
     /** Inworld's "Enhanced" audio quality toggle — applies denoising to reduce artifacts. */
-    val enhanceGeneration: Boolean? = null
+    val enhanceGeneration: Boolean? = null,
+    /** BCP-47 language tag, so Inworld uses a localized voice prompt instead of auto-detecting. */
+    val language: String? = null,
+    /**
+     * Text of the requests that immediately precede this one, oldest first. Sent as
+     * `synthesisContext.previousRequests` so intonation carries across chunk splices.
+     */
+    val previousRequests: List<String> = emptyList()
 )
 
 @Component
@@ -41,13 +48,22 @@ class InworldApiClient(
         .maxIdleTime(Duration.ofSeconds(30))
         .build()
 
+    companion object {
+        /** Documented `audioConfig.speakingRate` range. */
+        private const val MIN_SPEAKING_RATE = 0.5
+        private const val MAX_SPEAKING_RATE = 1.5
+
+        /** Inworld recommends staying at or above this; lower is legal but degrades quality. */
+        private const val RECOMMENDED_MIN_SPEAKING_RATE = 0.8
+    }
+
     internal fun buildSynthesisBody(voiceId: String, text: String, modelId: String, options: InworldSynthesisOptions): Map<String, Any> {
         val audioConfig = mutableMapOf<String, Any>(
             "audioEncoding" to "MP3",
             "sampleRateHertz" to 48000,
             "bitRate" to 128000
         )
-        options.speed?.let { audioConfig["speakingRate"] = it }
+        options.speed?.let { audioConfig["speakingRate"] = clampSpeakingRate(it) }
 
         val body = mutableMapOf<String, Any>(
             "text" to text,
@@ -61,8 +77,29 @@ class InworldApiClient(
             options.temperature?.let { body["temperature"] = it }
         }
         options.enhanceGeneration?.let { body["enhanceGeneration"] = it }
+        options.language?.takeIf { it.isNotBlank() }?.let { body["language"] = it }
+        if (options.previousRequests.isNotEmpty()) {
+            body["synthesisContext"] = mapOf(
+                "previousRequests" to options.previousRequests.map { mapOf("text" to it) }
+            )
+        }
         body["applyTextNormalization"] = "ON"
         return body
+    }
+
+    internal fun clampSpeakingRate(speed: Double): Double {
+        val clamped = speed.coerceIn(MIN_SPEAKING_RATE, MAX_SPEAKING_RATE)
+        when {
+            clamped != speed -> log.warn(
+                "Inworld speakingRate {} is outside the supported range [{}, {}]; clamped to {}",
+                speed, MIN_SPEAKING_RATE, MAX_SPEAKING_RATE, clamped
+            )
+            clamped < RECOMMENDED_MIN_SPEAKING_RATE -> log.warn(
+                "Inworld speakingRate {} is below the recommended minimum of {}; audio quality may degrade",
+                speed, RECOMMENDED_MIN_SPEAKING_RATE
+            )
+        }
+        return clamped
     }
 
     fun synthesizeSpeech(userId: String, voiceId: String, text: String, modelId: String, options: InworldSynthesisOptions = InworldSynthesisOptions()): InworldSpeechResponse {

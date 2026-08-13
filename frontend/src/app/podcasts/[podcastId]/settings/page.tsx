@@ -717,7 +717,7 @@ export default function PodcastSettingsPage() {
                 const current = form.ttsSettings?.deliveryMode ?? "";
                 const value = current === "" ? "_unset" : current;
                 return (
-                  <FieldGroup label="Delivery Mode" description="Inworld TTS-2 only. STABLE for consistency, BALANCED (default) for general use, EXPRESSIVE for emotional range. When set, replaces the temperature parameter.">
+                  <FieldGroup label="Delivery Mode" description="Inworld TTS-2 only. STABLE for consistency, BALANCED (default) for general use, CREATIVE for the widest emotional range. When set, replaces the temperature parameter.">
                     <Select
                       value={value}
                       onValueChange={(v) => {
@@ -737,7 +737,7 @@ export default function PodcastSettingsPage() {
                         <SelectItem value="_unset">— (provider default)</SelectItem>
                         <SelectItem value="STABLE">STABLE</SelectItem>
                         <SelectItem value="BALANCED">BALANCED</SelectItem>
-                        <SelectItem value="EXPRESSIVE">EXPRESSIVE</SelectItem>
+                        <SelectItem value="CREATIVE">CREATIVE</SelectItem>
                       </SelectContent>
                     </Select>
                   </FieldGroup>

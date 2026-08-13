@@ -2,16 +2,26 @@ package com.aisummarypodcast.tts
 
 object InworldScriptPostProcessor {
 
-    private val SUPPORTED_TAGS = setOf("sigh", "laugh", "breathe", "cough", "clear_throat", "yawn")
+    /** Sound names Inworld documents. An unrecognised name is reinterpreted as a steering instruction. */
+    private val SOUND_TAGS = setOf("sigh", "laugh", "breathe", "cough", "clear throat", "yawn")
 
     private val DOUBLE_ASTERISKS = Regex("\\*\\*(.+?)\\*\\*")
     private val MARKDOWN_HEADERS = Regex("(?m)^#{1,6}\\s+.*$")
     private val MARKDOWN_BULLETS = Regex("(?m)^[-*]\\s+")
     private val MARKDOWN_LINKS = Regex("\\[([^]]+)]\\([^)]+\\)")
     private val EMOJIS = Regex("[\\x{1F600}-\\x{1F64F}\\x{1F300}-\\x{1F5FF}\\x{1F680}-\\x{1F6FF}\\x{1F1E0}-\\x{1F1FF}\\x{2600}-\\x{27BF}\\x{2300}-\\x{23FF}\\x{2B50}\\x{2B55}\\x{FE0F}\\x{200D}\\x{20E3}\\x{E0020}-\\x{E007F}\\x{1F900}-\\x{1F9FF}\\x{1FA00}-\\x{1FA6F}\\x{1FA70}-\\x{1FAFF}]+")
-    private val BRACKETED_TAGS = Regex("\\[(\\w+)]")
 
-    fun process(script: String): String {
+    /** Any bracketed tag left after markdown links have been resolved. */
+    internal val BRACKETED_TAG = Regex("\\[([^\\[\\]]*)]")
+
+    /** A steering instruction is free-form English prose, so only letters and light punctuation. */
+    private val INSTRUCTION_CONTENT = Regex("[A-Za-z][A-Za-z ,'-]*")
+
+    /**
+     * @param retainSteeringInstructions keep bracketed delivery instructions, which only
+     *   `inworld-tts-2` understands. Other models read them aloud, so they are stripped there.
+     */
+    fun process(script: String, retainSteeringInstructions: Boolean = false): String {
         var result = script
 
         // 1. Convert **word** → *word*
@@ -29,10 +39,15 @@ object InworldScriptPostProcessor {
         // 5. Strip emojis
         result = EMOJIS.replace(result, "")
 
-        // 6. Whitelist non-verbal tags
-        result = BRACKETED_TAGS.replace(result) { match ->
-            val tag = match.groupValues[1]
-            if (tag in SUPPORTED_TAGS) match.value else ""
+        // 6. Resolve bracketed tags: sounds always, instructions only where they are understood
+        result = BRACKETED_TAG.replace(result) { match ->
+            val tag = match.groupValues[1].trim()
+            val sound = normalizeSoundName(tag)
+            when {
+                sound != null -> "[$sound]"
+                retainSteeringInstructions && isSteeringInstruction(tag) -> match.value
+                else -> ""
+            }
         }
 
         // Clean up any resulting double spaces or blank lines
@@ -41,5 +56,15 @@ object InworldScriptPostProcessor {
         result = result.trim()
 
         return result
+    }
+
+    /** Returns the documented spelling of a sound name, or null when the tag is not a sound. */
+    fun normalizeSoundName(tag: String): String? =
+        tag.trim().lowercase().replace('_', ' ').takeIf { it in SOUND_TAGS }
+
+    /** True for a bracketed tag that Inworld would treat as a delivery instruction, including `reset`. */
+    fun isSteeringInstruction(tag: String): Boolean {
+        val content = tag.trim()
+        return normalizeSoundName(content) == null && INSTRUCTION_CONTENT.matches(content)
     }
 }
