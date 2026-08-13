@@ -69,6 +69,37 @@ Cache rows written before this capability existed have no stored reported cost; 
 - **WHEN** a call returns a blank completion
 - **THEN** nothing is cached, unchanged by this capability
 
+### Requirement: Stage cost aggregated across calls with gaps estimated
+A pipeline stage MAY make more than one LLM call; the scoring stage makes one call per article. When a stage's calls do not all report a cost, the stage total SHALL be the sum of the reported costs plus a table estimate, computed from their own token counts and the model's configured rate, for each call that reported nothing. The stage SHALL be recorded as `MIXED`.
+
+The system SHALL NOT present the sum of only the reported costs as the stage total when some calls reported nothing, because a partial sum is indistinguishable from a complete one and would be honoured over the configured rates, silently understating the stage.
+
+When every call in a stage reported a cost, the stage total SHALL be their sum with source `API`. When no call reported a cost, the stage total SHALL be computed from the summed tokens and the configured rate with source `TABLE`, unchanged from current behaviour.
+
+Summing reported costs is permitted where summing per-article `llm_cost_cents` is not: the existing requirement to recompute score cost from summed tokens exists because integer cents round sub-cent calls to zero, whereas reported costs are full-precision USD values and lose nothing when added.
+
+To support this, the per-article reported cost SHALL be persisted alongside the existing per-article token counts.
+
+#### Scenario: All calls in a stage reported
+- **WHEN** an episode's scoring stage runs 40 article calls and every one reports a cost
+- **THEN** the stage cost is the sum of those 40 reported costs and the stage source is `API`
+
+#### Scenario: Some calls reported and some did not
+- **WHEN** an episode's scoring stage runs 40 article calls, 38 report a cost totalling `$0.0152`, and 2 report nothing but together used 900 input and 300 output tokens
+- **THEN** the stage cost is `$0.0152` plus the configured-rate estimate for those 900 and 300 tokens, and the stage source is `MIXED`
+
+#### Scenario: No call in a stage reported
+- **WHEN** none of a stage's calls report a cost and the model has configured rates
+- **THEN** the stage cost is computed from the summed tokens and the configured rate, and the stage source is `TABLE`
+
+#### Scenario: Partial sum never presented as complete
+- **WHEN** a stage has both reporting and non-reporting calls
+- **THEN** the stage total is never the bare sum of the reported costs alone, and the stage is never recorded as `API`
+
+#### Scenario: Gap estimate impossible without rates
+- **WHEN** a stage has non-reporting calls and the model has no configured rates
+- **THEN** the non-reporting calls contribute nothing to the total and the stage source is `MIXED`, so the shortfall is visible rather than implied to be complete
+
 ### Requirement: Episode records where its LLM cost came from
 Each episode SHALL persist the source of its LLM cost in a nullable `llm_cost_source` column with values `API`, `API_CACHED`, `TABLE`, `MIXED`, or `UNKNOWN`. The value SHALL be `API` when every contributing stage resolved from a provider-reported cost, `TABLE` when none did, `MIXED` when some did and some did not, and `UNKNOWN` when no cost could be determined for any stage. A run in which every contributing stage was a cache replay SHALL record `API_CACHED`.
 
@@ -91,11 +122,11 @@ Episodes generated before this column existed SHALL have a null source, which SH
 - **THEN** its `llm_cost_source` is null and it is presented as an estimate
 
 ### Requirement: Migration adds the reported-cost columns
-Migration `V64` SHALL add a nullable reported-cost column to `llm_cache` and a nullable `llm_cost_source` column to `episodes`. Both SHALL be nullable with no default so that existing rows are distinguishable from rows written after the change. No data SHALL be backfilled: a reported cost that was never captured cannot be reconstructed.
+Migration `V64` SHALL add a nullable reported-cost column to `llm_cache`, a nullable reported-cost column to `articles`, and a nullable `llm_cost_source` column to `episodes`. All SHALL be nullable with no default so that existing rows are distinguishable from rows written after the change. No data SHALL be backfilled: a reported cost that was never captured cannot be reconstructed.
 
 #### Scenario: Migration applies to an existing database
-- **WHEN** `V64` runs against a database containing existing episodes and cache rows
-- **THEN** the new columns are added, existing rows carry null in both, and no existing values are modified
+- **WHEN** `V64` runs against a database containing existing episodes, articles and cache rows
+- **THEN** the new columns are added, existing rows carry null in all of them, and no existing values are modified
 
 #### Scenario: Existing costs remain readable
 - **WHEN** an episode created before `V64` is read after the migration

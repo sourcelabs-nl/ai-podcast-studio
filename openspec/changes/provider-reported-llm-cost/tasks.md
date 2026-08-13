@@ -4,7 +4,7 @@
 - [ ] 1.2 Extract the cost in `TokenUsage.fromChatResponse` from `nativeUsage._additionalProperties()["cost"]`, wrapped so any shape change or conversion failure yields null instead of throwing
 - [ ] 1.3 Treat absent, non-numeric and negative values as no reported cost
 - [ ] 1.4 Resolve a metadata-carried cost first, so a cache replay takes precedence over native usage extraction
-- [ ] 1.5 Decide how `TokenUsage.plus` combines reported costs (sum when both present; result is null only when neither stage reported) and document it on the operator
+- [ ] 1.5 Delete `TokenUsage.plus` and `TokenUsage.ZERO`, which are unreferenced in both `src/main` and `src/test`; aggregation belongs at the stage level (group 5) where the partial-reporting rule can be applied
 
 ## 2. Resolve cost in the estimator
 
@@ -24,17 +24,20 @@
 
 ## 4. Persist and aggregate the source
 
-- [ ] 4.1 Write `V64__add_llm_cost_source.sql` adding a nullable reported-cost column to `llm_cache` and a nullable `llm_cost_source` to `episodes`, with no backfill
+- [ ] 4.1 Write `V64__add_llm_cost_source.sql` adding a nullable reported-cost column to `llm_cache`, a nullable reported-cost column to `articles`, and a nullable `llm_cost_source` to `episodes`, with no backfill
 - [ ] 4.2 Add the `llmCostSource` field to the `Episode` entity
 - [ ] 4.3 Aggregate per-stage sources into the episode value: `API` when all reported, `API_CACHED` when all replayed, `TABLE` when none, `MIXED` when some, `UNKNOWN` when nothing resolved
 - [ ] 4.4 Write the aggregate through the same `EpisodeService` path that already maintains the aggregate cost columns, so it cannot drift
 
 ## 5. Thread it through the pipeline
 
-- [ ] 5.1 Pass the reported cost through `ArticleScoreSummarizer`
-- [ ] 5.2 Pass it through the dedup and compose stages in `LlmPipeline`
-- [ ] 5.3 Pass it through `EpisodeRecapGenerator`
-- [ ] 5.4 Verify the two budget-gate call sites (`LlmPipeline` lines around 129 and 198) still compare rounded integer cents
+- [ ] 5.1 Persist the per-call reported cost onto the article row in `ArticleScoreSummarizer`, alongside the existing token accumulation
+- [ ] 5.2 Aggregate the score stage in `LlmPipeline`: sum the reported per-article costs, estimate the non-reporting articles from their own tokens and the configured rate, and add the two
+- [ ] 5.3 Derive the score stage's source: `API` when every article reported, `TABLE` when none did, `MIXED` otherwise
+- [ ] 5.4 Keep the existing rule that score cost is never summed from per-article `llm_cost_cents`, which rounds sub-cent calls to zero
+- [ ] 5.5 Pass the reported cost through the dedup and compose stages in `LlmPipeline` (single call each, so no partial case)
+- [ ] 5.6 Pass it through `EpisodeRecapGenerator`
+- [ ] 5.7 Verify the two budget-gate call sites (`LlmPipeline` lines around 129 and 198) still compare rounded integer cents
 
 ## 6. Surface it in the API
 
@@ -49,9 +52,11 @@
 - [ ] 7.2 `CostEstimator` resolution: reported preferred, table fallback, unknown, and sub-cent precision preserved
 - [ ] 7.3 `CachingChatModel`: cost stored on miss, replayed on hit, legacy row without a stored cost, blank response not cached
 - [ ] 7.4 Source aggregation: all-reported, all-cached, none, mixed, nothing resolved
-- [ ] 7.5 Migration test covering an existing database with episodes and cache rows
-- [ ] 7.6 Cost breakdown mapping: reported preferred over recomputation, and the existing sub-cent scenario still passing
-- [ ] 7.7 Run the full suite and confirm it is green
+- [ ] 7.5 Score-stage partial reporting: all 40 articles report; 38 report and 2 do not (total is the sum plus the gap estimate, source `MIXED`); none report; non-reporting articles with no configured rate contribute nothing but still force `MIXED`
+- [ ] 7.6 Assert a partial sum is never recorded as source `API`
+- [ ] 7.7 Migration test covering an existing database with episodes and cache rows
+- [ ] 7.8 Cost breakdown mapping: reported preferred over recomputation, and the existing sub-cent scenario still passing
+- [ ] 7.9 Run the full suite and confirm it is green
 
 ## 8. Verification
 

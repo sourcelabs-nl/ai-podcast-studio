@@ -13,8 +13,9 @@ This matters beyond reporting accuracy. `LlmPipeline` aborts generation when the
 - `CostEstimator` prefers the reported cost and falls back to the configured per-Mtok rates, mirroring an `API` / `TABLE` / `UNKNOWN` resolution.
 - Each episode records where its LLM cost came from, so an actual charge is distinguishable from an estimate.
 - `llm_cache` stores the reported cost next to the token counts, and `CachingChatModel` replays it on a cache hit. This preserves today's semantics: the cache already replays token counts, so a cached call is already costed as if it ran, and the budget gate keeps behaving as it does now.
+- A stage that makes several calls (scoring runs one per article) sums the costs that were reported and estimates the rest from their tokens, recording the stage as `MIXED` rather than presenting a partial sum as authoritative.
 - The per-episode cost breakdown prefers a persisted reported cost over recomputing from tokens and rates.
-- Migration `V64` adds the new columns.
+- Migration `V64` adds the new columns, including a per-article reported cost so the score stage can be aggregated correctly.
 
 Not breaking: no API contract is removed, the config rates stay in place as the fallback, and providers that report no cost (the direct `openai` provider) are unaffected.
 
@@ -33,7 +34,8 @@ None. The behaviour belongs to the existing cost-tracking capability.
 - `src/main/kotlin/com/aisummarypodcast/llm/TokenUsage.kt` — carries the reported cost, extracts it from native usage.
 - `src/main/kotlin/com/aisummarypodcast/llm/CostEstimator.kt` — prefers reported over computed, returns the source.
 - `src/main/kotlin/com/aisummarypodcast/llm/CachingChatModel.kt` — persists and replays the reported cost.
-- `src/main/kotlin/com/aisummarypodcast/store/LlmCache.kt`, `Episode.kt` — new fields.
+- `src/main/kotlin/com/aisummarypodcast/store/LlmCache.kt`, `Episode.kt`, `Article.kt` — new fields.
+- `TokenUsage.plus` and `TokenUsage.ZERO` are removed as dead code rather than extended; aggregation belongs at the stage level.
 - `src/main/kotlin/com/aisummarypodcast/llm/LlmPipeline.kt`, `ArticleScoreSummarizer.kt`, `EpisodeRecapGenerator.kt` — pass the reported cost through.
 - `src/main/kotlin/com/aisummarypodcast/podcast/PodcastMappers.kt` — breakdown prefers reported cost.
 - `src/main/resources/db/migration/V64__add_llm_cost_source.sql` — new migration (V63 is current).
