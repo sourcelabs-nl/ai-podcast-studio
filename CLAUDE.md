@@ -51,10 +51,6 @@ Prefer LSP over Grep/Glob for semantic navigation on `.kt` and `.ts`/`.tsx` file
 - **Kotlin LSP limitations:** `goToImplementation`, `incomingCalls`, and `outgoingCalls` are not supported. Use `findReferences` as a fallback for these.
 - **Use Grep/Glob for:** text-based searches (log messages, config keys, string literals), cross-codebase pattern matching, and finding files by name or path.
 
-LSP gives precise, semantic results that understand types, inheritance, and scope. Grep matches text, which can produce false positives from comments, strings, or similarly-named symbols. When you need to understand how code connects, use LSP. When you need to find where a string appears, use Grep.
-
-LSP requires exact file paths and positions. When the file location is unknown, use Glob first to locate the file, then LSP for semantic operations.
-
 ## Application Restart After Changes
 
 Whenever code changes are made to the application, always restart it (`./stop.sh` then `./start.sh`) before testing or using the new feature. Never attempt to exercise a new or modified feature against a running instance that was built from old code.
@@ -71,20 +67,7 @@ The application database is at `./data/ai-summary-podcast.db`. Never query the d
 
 ## Frontend (Next.js Dashboard)
 
-The frontend lives in `frontend/` and uses Next.js (App Router), shadcn/ui, and Tailwind CSS v4.
-
-- **Theme:** Orange primary color using oklch variables following official shadcn theming docs. All CSS variables go in `globals.css` under `:root` / `.dark` using oklch format, mapped via `@theme inline`.
-- **Buttons:** All action buttons use the `default` variant (orange) — never `outline` or `secondary` for action buttons. Use consistent `size="sm"` across the app. Every button must have an icon (from lucide-react) alongside its label. Only use `outline` variant for cancel/close buttons in dialogs, and `destructive` for destructive actions (e.g., Discard). Use `ghost` variant only for inline icon-only buttons (e.g., delete row in key-value editors).
-- **Badges:** Status badges use `default` (orange) for most statuses, except: `outline` (white) for GENERATED, `secondary` (grey) for DISCARDED. The "Published" badge uses `default` (orange) to visually stand out.
-- **Header layout:** Both podcast detail and episode detail pages follow the same header order: title + inline badges on the first line, date/schedule in `text-sm` italic on the second line, description/topic in `text-sm` on the third line. The header icon in the app bar is a Podcast icon from lucide-react next to "AI Podcast Studio".
-- **Episode list columns:** #, Date, Day, Status (with Published badge), Script Model (`text-xs`), TTS Model (`text-xs`), Cost (right-aligned, formatted as dollars), Actions (action buttons + View button with `outline` variant).
-- **Script rendering:** Episode scripts render in chat-bubble style using `text-sm` for body text. Monologue styles use paragraph bubbles; dialogue/interview styles use alternating left/right chat bubbles with speaker labels.
-- **Add/action buttons:** "Add" buttons (e.g., add row, add provider) always go below the content they add to, never in the card header. Use `size="icon-lg"` with a `+` icon. This applies to key-value editors, API key tables, and any list-like content.
-- **Dialog width:** Script viewer dialog uses near-full viewport width (`w-[90vw] !max-w-7xl`). The `!important` is needed to override shadcn's default `sm:max-w-lg`.
-- **Nested tabs:** Do not nest Radix `Tabs` components (shadcn Tabs). Inner tabs conflict with outer tabs context. Use state-based tab switching with styled buttons for sub-tabs inside a card.
-- **API proxy:** `next.config.ts` rewrites `/api/**` to `http://localhost:8085/**`. Update the port if the backend port changes.
-- **Running:** `cd frontend && npm run dev` (use `/Users/soudmaijer/.nvm/versions/node/v22.16.0/bin/npm` to avoid the stale npm v2 at `~/node_modules/.bin/npm`).
-- **Root symlinks:** `node_modules` and `tsconfig.json` in the project root are symlinks to their `frontend/` counterparts. These exist so that IDE language servers (TypeScript, ESLint) can resolve modules and provide diagnostics when files are opened from the project root, rather than only when opened from `frontend/`.
+The frontend lives in `frontend/`. Its conventions are documented in `frontend/CLAUDE.md`, which loads automatically when working with files under that directory.
 
 ## OpenSpec Workflow
 
