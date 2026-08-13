@@ -103,7 +103,7 @@ The HTTP client SHALL use a dedicated Reactor Netty connection provider with a m
 - **THEN** the connection provider evicts it so a subsequent request opens a fresh connection instead of reusing a stale one
 
 ### Requirement: Inworld API error handling
-The system SHALL handle Inworld API errors with clear error messages. HTTP 401 SHALL indicate invalid or expired credentials. HTTP 429 SHALL be retried with exponential backoff (up to 3 attempts with delays of 1s, 2s, 4s). If retries are exhausted, the system SHALL throw an `InworldRateLimitException`. Other error status codes SHALL include the HTTP status and response body in the error message.
+The system SHALL handle Inworld API errors with clear error messages. HTTP 401 SHALL indicate invalid or expired credentials. HTTP 429 SHALL be retried with exponential backoff (up to 3 attempts with delays of 1s, 2s, 4s). If retries are exhausted, the system SHALL throw an `InworldRateLimitException`. HTTP 5xx (500–599) SHALL be treated as transient: it SHALL be retried with the same exponential backoff schedule (up to 3 attempts with delays of 1s, 2s, 4s), and if retries are exhausted the system SHALL throw an `InworldTransientException` including the HTTP status and response body. Other error status codes SHALL throw immediately with the HTTP status and response body in the error message.
 
 Transient I/O failures (`ResourceAccessException`, e.g. connection reset or operation timed out) SHALL be retried with the same exponential backoff schedule (up to 3 attempts with delays of 1s, 2s, 4s). If retries are exhausted, the system SHALL rethrow the `ResourceAccessException`.
 
@@ -129,8 +129,17 @@ Transient I/O failures (`ResourceAccessException`, e.g. connection reset or oper
 - **WHEN** the Inworld API request fails with a `ResourceAccessException` on all 3 retry attempts
 - **THEN** the system rethrows the `ResourceAccessException` from the final attempt
 
-#### Scenario: Generic API error
-- **WHEN** the Inworld API returns HTTP 500
+#### Scenario: Transient 5xx error with successful retry
+- **WHEN** the Inworld API returns HTTP 503 on the first attempt
+- **AND** the retry succeeds on the second attempt
+- **THEN** the system returns the successful response after a 1-second backoff delay and logs a warning
+
+#### Scenario: Transient 5xx error with exhausted retries
+- **WHEN** the Inworld API returns HTTP 503 on all 3 retry attempts
+- **THEN** the system throws an `InworldTransientException` including the HTTP status and response body
+
+#### Scenario: Non-retryable client error
+- **WHEN** the Inworld API returns a non-401, non-429 HTTP 4xx error
 - **THEN** the system logs the error body and throws an error with the HTTP status and body (no retry)
 
 #### Scenario: Partial failure in parallel generation

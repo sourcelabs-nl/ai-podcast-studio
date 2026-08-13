@@ -23,6 +23,8 @@ The system SHALL fetch historical articles by joining `episode_articles` with `a
 - **WHEN** a historical article's title is a 500-character Twitter post embedded as the title
 - **THEN** the dedup prompt's historical block contains a truncated form of the title (with an ellipsis), not the full 500 characters
 
+## ADDED Requirements
+
 ### Requirement: Dedup filter uses a non-reasoning model and fails the episode on error
 The dedup stage SHALL use a non-reasoning model (default `deepseek/deepseek-v4-flash`). Reasoning models are unsuitable because their reasoning tokens are charged against the output-token cap and can return empty content, which previously caused dedup to be silently skipped.
 

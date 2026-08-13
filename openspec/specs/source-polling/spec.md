@@ -3,9 +3,7 @@
 ## Purpose
 
 Scheduled polling of configured content sources (RSS feeds and websites), extracting articles and deduplicating via content hashing.
-
 ## Requirements
-
 ### Requirement: Scheduled source polling
 The system SHALL poll each enabled source on a configurable interval. A `SourcePollingScheduler` SHALL launch a coroutine loop on `ApplicationReadyEvent` that runs every 60 seconds, iterates over all enabled sources, and polls each source whose effective poll interval has elapsed since its last poll. The coroutine loop SHALL use its own `CoroutineScope(Dispatchers.Default + SupervisorJob())` so it runs independently from other schedulers and cannot be starved by them. The scope SHALL be cancelled on `@PreDestroy` for graceful shutdown. The effective poll interval SHALL account for exponential backoff: for sources with `consecutiveFailures > 0`, the interval is `pollIntervalMinutes × 2^consecutiveFailures`, capped at `app.source.max-backoff-hours` converted to minutes. For sources with `consecutiveFailures = 0`, the normal `pollIntervalMinutes` is used. For source types that require per-user API keys (e.g., `"twitter"`), the scheduler SHALL resolve the podcast's owner user ID and pass it to the `SourcePoller`.
 
@@ -48,7 +46,7 @@ All `[Polling]` log messages in `SourcePoller` that identify a source SHALL use 
 - **THEN** the log messages identify the source by its URL (not its UUID)
 
 ### Requirement: RSS/Atom feed polling
-The system SHALL parse RSS and Atom feeds using ROME (`com.rometools:rome`). For sources with type `rss`, the system SHALL fetch the feed, extract entries published after the source's `last_seen_id` timestamp, and store each new entry as a post in the `posts` table. The system SHALL strip HTML markup from the entry content and description using `Jsoup.parse(value).text()` before storing the post body. The system SHALL extract the author from the RSS entry: use `SyndEntry.author` if non-blank, otherwise use the `name` of the first entry in `SyndEntry.authors` if available. If neither provides a non-blank value, `post.author` SHALL be null. The `SourceAggregator` SHALL NOT be called during polling — aggregation is deferred to script generation time.
+The system SHALL parse RSS and Atom feeds using ROME (`com.rometools:rome`). For sources with type `rss`, the system SHALL fetch the feed, extract entries published after the source's `last_seen_id` timestamp, and store each new entry as a post in the `posts` table. The system SHALL strip HTML markup from the entry content and description using `Jsoup.parse(value).text()` before storing the post body. The system SHALL extract the author from the RSS entry: use `SyndEntry.author` if non-blank, otherwise use the `name` of the first entry in `SyndEntry.authors` if available. If neither provides a non-blank value, `post.author` SHALL be null. The `SourceAggregator` SHALL NOT be called inside `SourcePoller.poll`. Aggregation of non-aggregate sources MAY occur in the post-round eager-ranking step (see the `eager-source-ranking` capability); aggregation of aggregate sources (Twitter/nitter) remains deferred to script generation time.
 
 #### Scenario: New RSS entries stored as individual posts
 - **WHEN** an RSS feed contains 3 entries published after the last-seen timestamp
@@ -137,3 +135,37 @@ The system SHALL periodically delete unprocessed articles whose `publishedAt` is
 #### Scenario: Old processed articles retained
 - **WHEN** the source polling scheduler runs and processed articles exist with `publishedAt` older than `max-article-age-days`
 - **THEN** those articles are not deleted (they are historical records of past episodes)
+
+### Requirement: Poll round completion tracking
+The system SHALL record the wall-clock time at which each successful poll round completes, kept in memory on the polling scheduler. Before any round has completed in the current process (for example immediately after startup), the recorded time SHALL be absent. This timestamp lets other components detect whether polling has been running recently (versus the process having been asleep or offline).
+
+#### Scenario: Timestamp set after a poll round
+- **WHEN** a poll round completes
+- **THEN** the last-poll-round-completed time is set to the current time
+
+#### Scenario: Timestamp absent before the first round
+- **WHEN** the process has started but no poll round has completed yet
+- **THEN** the last-poll-round-completed time is absent
+
+### Requirement: On-demand poll of a single podcast's sources
+The system SHALL support polling all enabled sources of a single podcast on demand, to completion, reusing the same host-grouped polling and per-host delay behavior as the scheduled poll loop. A blocking entry point SHALL be available for callers that are not themselves coroutines.
+
+#### Scenario: Poll a podcast's sources on demand
+- **WHEN** an on-demand poll is requested for a podcast
+- **THEN** only that podcast's enabled sources are polled, and the call returns after they have all been polled
+
+#### Scenario: Podcast with no enabled sources
+- **WHEN** an on-demand poll is requested for a podcast that has no enabled sources
+- **THEN** the call returns without polling anything
+
+### Requirement: Post-round eager ranking trigger
+After the poll `supervisorScope` in `SourcePollingScheduler.pollSources()` completes and before recording `lastPollRoundCompletedAt`, the scheduler SHALL trigger eager ranking for each distinct podcast that had a source due in that round, via a `PodcastService` delegate (per the scheduler authoring rules: the scheduler triggers, the service owns the logic). The trigger SHALL run sequentially and inline so that two consecutive poll cycles cannot concurrently score the same unscored article. A failure ranking one podcast SHALL be logged and SHALL NOT abort ranking of the other podcasts or the poll loop.
+
+#### Scenario: Eager ranking triggered for polled podcasts
+- **WHEN** a poll round finishes and two distinct podcasts had due sources
+- **THEN** the scheduler invokes eager ranking once for each of those two podcasts before recording the round completion time
+
+#### Scenario: Eager ranking failure is isolated
+- **WHEN** eager ranking throws for one podcast during the post-round step
+- **THEN** the error is logged and ranking continues for the remaining podcasts and the poll loop is unaffected
+

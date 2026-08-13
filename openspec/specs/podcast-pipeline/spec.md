@@ -199,3 +199,40 @@ During the `scoring` stage, the pipeline SHALL emit progress as articles complet
 - **WHEN** scoring progress is emitted
 - **THEN** progress is delivered via SSE only and is not persisted to the database per article
 
+### Requirement: Catch-up poll before stale scheduled generation
+When a podcast is due for scheduled briefing generation, the system SHALL ensure source data is fresh before composing. If the last completed poll round is older than a configurable threshold (`app.source.stale-round-threshold-minutes`, default 10 minutes) or no poll round has completed in the current process, the generator SHALL first run a synchronous catch-up poll of that podcast's sources and wait for it to finish, then generate. If the last poll round is within the threshold, generation SHALL proceed immediately without an extra poll. This prevents composing an episode against stale data after the machine was asleep or offline through the scheduled time.
+
+#### Scenario: Stale polling triggers a catch-up poll
+- **WHEN** a podcast is due and the last poll round completed more than the threshold ago (e.g. the machine was asleep)
+- **THEN** the generator polls that podcast's sources to completion first, then generates the briefing
+
+#### Scenario: No poll round recorded yet
+- **WHEN** a podcast is due and no poll round has completed in the current process (e.g. just after restart)
+- **THEN** the generator runs a catch-up poll before generating
+
+#### Scenario: Fresh polling skips the catch-up poll
+- **WHEN** a podcast is due and the last poll round completed within the threshold
+- **THEN** the generator proceeds to generate immediately, with no extra poll
+
+### Requirement: Compose input is capped to the highest-relevance articles
+The pipeline SHALL cap the number of articles fed into a single compose request to a configurable maximum (`compose.max-articles`, default 40), keeping the highest `relevance_score` articles and dropping the rest. The cap SHALL be enforced at the shared compose chokepoint so every entry path is bounded, including retry-from-compose which reloads previously persisted articles and skips dedup. Dropped articles SHALL remain unprocessed (not linked to the episode) so they stay eligible and are cleared by the existing age gate once the next episode publishes.
+
+#### Scenario: More surviving articles than the cap
+- **WHEN** 62 articles survive scoring and dedup and `compose.max-articles` is 40
+- **THEN** only the 40 highest-relevance articles are composed, and the cap is logged
+
+#### Scenario: Fewer surviving articles than the cap
+- **WHEN** 12 articles survive scoring and dedup and `compose.max-articles` is 40
+- **THEN** all 12 articles are composed and no cap is applied
+
+#### Scenario: Retry from compose is also bounded
+- **WHEN** a failed episode with 62 persisted articles is retried and resumes from compose (skipping dedup)
+- **THEN** the compose input is still capped to the highest-relevance 40 articles
+
+### Requirement: Compose LLM request timeout
+The compose `ChatClient` SHALL use a request timeout of 20 minutes so a large compose with deep-dive web research and history tool calls has headroom to complete. The dedup and filter stages, which bound their own output via `maxTokens`, are unaffected.
+
+#### Scenario: Long compose within the timeout
+- **WHEN** a compose request over a large article set runs for more than 10 minutes but less than 20 minutes
+- **THEN** the request completes successfully rather than timing out
+
