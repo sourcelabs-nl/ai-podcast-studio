@@ -59,7 +59,7 @@ Whenever code changes are made to the application, always restart it (`./stop.sh
 
 When adding or modifying calls to external APIs (Inworld, ElevenLabs, OpenAI, etc.), always verify the request payload against the actual API documentation before implementing. Proto/gRPC-based APIs often use string enums (e.g., `"ON"` / `"OFF"`) rather than booleans — do not assume field types. After implementing an external API change, test it against the live API before considering the task complete.
 
-When adding or updating model pricing in `application.yaml` (e.g., `input-cost-per-mtok`, `output-cost-per-mtok`), always verify the pricing on the provider's website (e.g., https://openrouter.ai/{provider}/{model}/pricing) before setting values. Do not guess or use training data for pricing, it changes frequently.
+OpenRouter reports its own cost per call, and the pipeline uses that provider-reported value wherever it is present, so the configured rates only matter as a fallback (a call that reports nothing, a stage running on the direct `openai` provider, and the pre-flight estimates that run before any call). When adding or updating model pricing in `application.yaml` (e.g., `input-cost-per-mtok`, `output-cost-per-mtok`), still verify the pricing on the provider's website (e.g., https://openrouter.ai/{provider}/{model}/pricing) before setting values. Do not guess or use training data for pricing, it changes frequently.
 
 ## Production Database
 

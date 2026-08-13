@@ -61,7 +61,8 @@ class CachingChatModel(
                         response = responseText,
                         createdAt = Instant.now().toString(),
                         inputTokens = usage?.promptTokens?.toInt(),
-                        outputTokens = usage?.completionTokens?.toInt()
+                        outputTokens = usage?.completionTokens?.toInt(),
+                        reportedCostUsd = TokenUsage.fromChatResponse(response).reportedCostUsd
                     )
                 )
                 log.debug("LLM cache miss — stored for model={} hash={}", model, promptHash.take(12))
@@ -97,14 +98,21 @@ class CachingChatModel(
         return output is AssistantMessage && output.hasToolCalls()
     }
 
+    /**
+     * A cache hit replays the original call's token counts, so it is already costed as though the
+     * call ran; replaying the reported cost keeps that semantics (and the budget gate's behaviour)
+     * unchanged. The reconstructed [DefaultUsage] has no native usage object to hang the cost from,
+     * so it travels on the response metadata instead; [TokenUsage] reads that key first and marks
+     * the cost as replayed.
+     */
     private fun reconstructResponse(cached: LlmCache): ChatResponse {
-        val metadata = ChatResponseMetadata.builder()
+        val builder = ChatResponseMetadata.builder()
             .usage(DefaultUsage(
                 cached.inputTokens ?: 0,
                 cached.outputTokens ?: 0
             ))
-            .build()
-        return ChatResponse(listOf(Generation(AssistantMessage(cached.response))), metadata)
+        cached.reportedCostUsd?.let { builder.keyValue(TokenUsage.REPORTED_COST_METADATA_KEY, it) }
+        return ChatResponse(listOf(Generation(AssistantMessage(cached.response))), builder.build())
     }
 
     private fun sha256(text: String): String {

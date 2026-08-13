@@ -82,7 +82,8 @@ class EpisodeArticleRepositoryCustomImpl(
                     summary = rs.getString("summary"),
                     llmInputTokens = rs.getObject("llm_input_tokens") as? Int,
                     llmOutputTokens = rs.getObject("llm_output_tokens") as? Int,
-                    llmCostCents = rs.getObject("llm_cost_cents") as? Int
+                    llmCostCents = rs.getObject("llm_cost_cents") as? Int,
+                    llmReportedCostUsd = (rs.getObject("llm_reported_cost_usd") as? Number)?.toDouble()
                 )
             }
             .list()
