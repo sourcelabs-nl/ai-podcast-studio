@@ -59,10 +59,25 @@ app:
         type: llm
         input-cost-per-mtok: 5.00
         output-cost-per-mtok: 25.00
+      "[anthropic/claude-sonnet-5]":
+        type: llm
+        input-cost-per-mtok: 2.00
+        output-cost-per-mtok: 10.00
+      "[anthropic/claude-opus-5]":
+        type: llm
+        input-cost-per-mtok: 5.00
+        output-cost-per-mtok: 25.00
       "[deepseek/deepseek-v4-flash]":
         type: llm
         input-cost-per-mtok: 0.0983
         output-cost-per-mtok: 0.1966
+      # OpenRouter alias (note the leading "~") that always routes to the newest V4 Flash release,
+      # currently deepseek-v4-flash-0731. Pricing is the alias's own listed price; the resolved
+      # target can differ, so cost tracking for this entry is approximate by design.
+      "[~deepseek/deepseek-v4-flash-latest]":
+        type: llm
+        input-cost-per-mtok: 0.08
+        output-cost-per-mtok: 0.252
       # Pricing reflects the cheapest non-ZDR provider (DeepInfra) that Balanced routing selects;
       # the OpenRouter floor ($0.435/$0.87) is a ZDR provider we filter out.
       "[deepseek/deepseek-v4-pro]":
