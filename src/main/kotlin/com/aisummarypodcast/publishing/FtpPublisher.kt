@@ -14,11 +14,11 @@ import com.aisummarypodcast.store.ApiKeyCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.net.ftp.FTPClient
-import org.apache.commons.net.ftp.FTPSClient
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -33,7 +33,8 @@ class FtpPublisher(
     private val podcastRepository: PodcastRepository,
     private val userRepository: UserRepository,
     private val objectMapper: ObjectMapper,
-    private val appProperties: AppProperties
+    private val appProperties: AppProperties,
+    private val connectionFactory: FtpConnectionFactory
 ) : EpisodePublisher {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -64,16 +65,15 @@ class FtpPublisher(
         val baseUrl = podcastPublicUrl ?: appProperties.feed.staticBaseUrl ?: appProperties.feed.baseUrl
         val feedXml = feedGenerator.generate(podcast, user, baseUrl, podcastPublicUrl, publishedTarget = TARGET_NAME)
 
-        val ftpClient = createFtpClient(credentials)
+        val connection = connectionFactory.connectWithFallback(credentials)
+        logFallback(connection)
+        val ftpClient = connection.client
         try {
-            connect(ftpClient, credentials)
             ensureDirectoryExists(ftpClient, podcastPath)
             uploadContent(ftpClient, podcastPath, "feed.xml", feedXml.toByteArray())
             log.info("Uploaded feed.xml for podcast {} to FTP", podcast.id)
         } finally {
-            try {
-                if (ftpClient.isConnected) ftpClient.disconnect()
-            } catch (_: Exception) {}
+            ftpClient.disconnectQuietly()
         }
     }
 
@@ -94,18 +94,16 @@ class FtpPublisher(
         }
         val remoteFile = "${podcastPath}episodes/$audioFileName"
 
-        val ftpClient = createFtpClient(credentials)
+        // Deletion is a control-channel command, so it needs no data-channel probe or mode fallback.
+        val ftpClient = connectionFactory.connect(credentials)
         try {
-            connect(ftpClient, credentials)
             if (ftpClient.deleteFile(remoteFile)) {
                 log.info("Deleted FTP file {}", remoteFile)
             } else {
                 log.warn("Failed to delete FTP file {} (may not exist): {}", remoteFile, ftpClient.replyString)
             }
         } finally {
-            try {
-                if (ftpClient.isConnected) ftpClient.disconnect()
-            } catch (_: Exception) {}
+            ftpClient.disconnectQuietly()
         }
     }
 
@@ -121,10 +119,10 @@ class FtpPublisher(
         val publicUrl = (targetConfig["publicUrl"] as? String)?.takeIf { it.isNotBlank() }
             ?.let { if (it.endsWith("/")) it else "$it/" }
 
-        val ftpClient = createFtpClient(credentials)
+        val connection = connectionFactory.connectWithFallback(credentials)
+        logFallback(connection)
+        val ftpClient = connection.client
         try {
-            connect(ftpClient, credentials)
-
             ensureDirectoryExists(ftpClient, podcastPath)
             val remoteEpisodesPath = "${podcastPath}episodes/"
             ensureDirectoryExists(ftpClient, remoteEpisodesPath)
@@ -162,24 +160,24 @@ class FtpPublisher(
 
             PublishResult(externalId = "ftp:$slug", externalUrl = externalUrl)
         } finally {
-            try {
-                if (ftpClient.isConnected) ftpClient.disconnect()
-            } catch (_: Exception) {}
+            ftpClient.disconnectQuietly()
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun resolveCredentials(userId: String): FtpCredentials {
+    private fun resolveCredentials(userId: String): FtpConnectionSettings {
         val config = providerConfigService.resolveConfig(userId, ApiKeyCategory.PUBLISHING, TARGET_NAME)
             ?: throw IllegalStateException("No FTP credentials configured. Add FTP credentials in publishing settings.")
         val json = config.apiKey ?: throw IllegalStateException("FTP credentials are incomplete")
         val map = objectMapper.readValue(json, Map::class.java) as Map<String, Any>
-        return FtpCredentials(
+        return FtpConnectionSettings(
             host = map["host"] as? String ?: throw IllegalStateException("FTP host is required"),
             port = (map["port"] as? Number)?.toInt() ?: 21,
             username = map["username"] as? String ?: throw IllegalStateException("FTP username is required"),
             password = map["password"] as? String ?: throw IllegalStateException("FTP password is required"),
-            useTls = map["useTls"] as? Boolean ?: true
+            useTls = map["useTls"] as? Boolean ?: true,
+            // Credentials stored before the mode was configurable have no field: passive, as before.
+            transferMode = FtpTransferMode.from(map["transferMode"] as? String)
         )
     }
 
@@ -191,17 +189,13 @@ class FtpPublisher(
         return objectMapper.readValue(target.config, Map::class.java) as Map<String, Any>
     }
 
-    private fun createFtpClient(credentials: FtpCredentials): FTPClient =
-        if (credentials.useTls) FTPSClient() else FTPClient()
-
-    private fun connect(ftpClient: FTPClient, credentials: FtpCredentials) {
-        ftpClient.connectTimeout = 15_000
-        ftpClient.connect(credentials.host, credentials.port)
-        if (!ftpClient.login(credentials.username, credentials.password)) {
-            throw IllegalStateException("FTP authentication failed")
-        }
-        ftpClient.enterLocalPassiveMode()
-        ftpClient.setFileType(FTPClient.BINARY_FILE_TYPE)
+    /** Publishing still works after a fallback, but the stored setting is wrong and should be corrected. */
+    private fun logFallback(connection: FtpConnection) {
+        if (connection.fellBackFrom == null) return
+        log.warn(
+            "FTP fell back from {} to {} mode ({}). Update the transfer mode in publishing settings.",
+            connection.fellBackFrom, connection.transferMode, connection.fallbackReason
+        )
     }
 
     private fun ensureDirectoryExists(ftpClient: FTPClient, remotePath: String) {
@@ -214,28 +208,24 @@ class FtpPublisher(
     }
 
     private fun uploadFile(ftpClient: FTPClient, remotePath: String, localPath: Path) {
-        val remoteFile = "$remotePath${localPath.fileName}"
         Files.newInputStream(localPath).use { input ->
-            if (!ftpClient.storeFile(remoteFile, input)) {
-                throw IllegalStateException("Failed to upload ${localPath.fileName} to FTP: ${ftpClient.replyString}")
-            }
+            store(ftpClient, "$remotePath${localPath.fileName}", input)
         }
     }
 
     private fun uploadContent(ftpClient: FTPClient, remotePath: String, fileName: String, content: ByteArray) {
-        val remoteFile = "$remotePath$fileName"
         ByteArrayInputStream(content).use { input ->
-            if (!ftpClient.storeFile(remoteFile, input)) {
-                throw IllegalStateException("Failed to upload $fileName to FTP: ${ftpClient.replyString}")
-            }
+            store(ftpClient, "$remotePath$fileName", input)
+        }
+    }
+
+    /** The server's reply is the only clue to why a store failed (permissions, quota, 522, 425). */
+    private fun store(ftpClient: FTPClient, remoteFile: String, input: InputStream) {
+        if (!ftpClient.storeFile(remoteFile, input)) {
+            throw FtpConnectionException(
+                FtpPhase.DATA_CHANNEL,
+                "Failed to upload $remoteFile to FTP: ${ftpClient.replyString?.trim()}"
+            )
         }
     }
 }
-
-data class FtpCredentials(
-    val host: String,
-    val port: Int = 21,
-    val username: String,
-    val password: String,
-    val useTls: Boolean = true
-)

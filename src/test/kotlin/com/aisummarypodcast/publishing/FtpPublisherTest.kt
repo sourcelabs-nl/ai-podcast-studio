@@ -33,10 +33,13 @@ class FtpPublisherTest {
         every { it.feed } returns FeedProperties(baseUrl = "http://localhost:8085")
     }
 
+    private val connectionFactory = mockk<FtpConnectionFactory>()
+
     private val publisher = FtpPublisher(
         providerConfigService, targetService, podcastImageService,
         feedGenerator, episodeSourcesGenerator, episodeService,
-        podcastRepository, userRepository, objectMapper, appProperties
+        podcastRepository, userRepository, objectMapper, appProperties,
+        connectionFactory
     )
 
     @Test

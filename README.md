@@ -244,7 +244,7 @@ When `deepDiveEnabled` is set on a podcast, the script composer is given a `webS
 
 ## Publishing
 
-Episodes can be published to multiple targets after generation: **FTP** and **SoundCloud** are supported, configured per-podcast, with per-target publication status tracking. The dashboard's publish wizard handles OAuth and re-auth; SoundCloud upload quota is freed automatically server-side when full. See [docs/publishing.md](docs/publishing.md) for FTP setup, SoundCloud OAuth, X (Twitter) OAuth for sources, and using Nitter as a free alternative.
+Episodes can be published to multiple targets after generation: **FTP** and **SoundCloud** are supported, configured per-podcast, with per-target publication status tracking. The dashboard's publish wizard handles OAuth and re-auth; SoundCloud upload quota is freed automatically server-side when full. FTP(S) connections encrypt the data channel as well as the control channel, tolerate servers behind NAT, and treat the configured passive/active transfer mode as a preference: the data channel is verified before any file moves, and the other mode is used automatically if the configured one cannot open it. Connection failures name the phase that failed, so a network blocking the FTP port is distinguishable from bad credentials. See [docs/publishing.md](docs/publishing.md) for FTP setup, SoundCloud OAuth, X (Twitter) OAuth for sources, and using Nitter as a free alternative.
 
 ## Database Backups
 

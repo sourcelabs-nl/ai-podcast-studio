@@ -22,6 +22,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ProviderConfigDialog } from "@/components/provider-config-dialog";
 import { useTabParam } from "@/hooks/use-tab-param";
 import { cn } from "@/lib/utils";
@@ -32,12 +39,15 @@ interface ProviderConfig {
   baseUrl: string;
 }
 
+type FtpTransferMode = "PASSIVE" | "ACTIVE";
+
 interface FtpForm {
   host: string;
   port: number;
   username: string;
   password: string;
   useTls: boolean;
+  transferMode: FtpTransferMode;
 }
 
 interface SoundCloudForm {
@@ -60,7 +70,7 @@ interface BackupInfo {
 
 const TABS = ["profile", "api-keys", "publishing", "backups"] as const;
 
-const defaultFtp: FtpForm = { host: "", port: 21, username: "", password: "", useTls: true };
+const defaultFtp: FtpForm = { host: "", port: 21, username: "", password: "", useTls: true, transferMode: "PASSIVE" };
 const defaultSoundCloud: SoundCloudForm = { clientId: "", clientSecret: "", callbackUri: "" };
 
 function formatBytes(bytes: number): string {
@@ -131,7 +141,14 @@ function SettingsContent() {
         if (ftpConfig?.baseUrl) {
           try {
             const parsed = JSON.parse(ftpConfig.baseUrl);
-            setFtp((prev) => ({ ...prev, host: parsed.host ?? "", port: parsed.port ?? 21, username: parsed.username ?? "", useTls: parsed.useTls ?? true }));
+            setFtp((prev) => ({
+              ...prev,
+              host: parsed.host ?? "",
+              port: parsed.port ?? 21,
+              username: parsed.username ?? "",
+              useTls: parsed.useTls ?? true,
+              transferMode: parsed.transferMode === "ACTIVE" ? "ACTIVE" : "PASSIVE",
+            }));
           } catch { /* ignore parse errors */ }
         }
         if (scConfig?.baseUrl) {
@@ -309,7 +326,12 @@ function SettingsContent() {
         const body = await res.text();
         throw new Error(body || "Connection test failed");
       }
-      toast.success("FTP connection successful.");
+      // A failed connection comes back as HTTP 200 with success: false, so the body decides.
+      const result: { success: boolean; message?: string } = await res.json();
+      if (!result.success) {
+        throw new Error(result.message || "Connection test failed");
+      }
+      toast.success(result.message || "FTP connection successful.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Connection test failed.");
     } finally {
@@ -531,13 +553,34 @@ function SettingsContent() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="ftp-tls"
-                      checked={ftp.useTls}
-                      onCheckedChange={(checked) => setFtp({ ...ftp, useTls: checked })}
-                    />
-                    <Label htmlFor="ftp-tls">Use TLS</Label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="ftp-transfer-mode">Transfer Mode</Label>
+                      <Select
+                        value={ftp.transferMode}
+                        onValueChange={(value) => setFtp({ ...ftp, transferMode: value as FtpTransferMode })}
+                      >
+                        <SelectTrigger id="ftp-transfer-mode" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PASSIVE">Passive</SelectItem>
+                          <SelectItem value="ACTIVE">Active</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Passive works on most networks. Active only helps when the network blocks outbound data
+                        connections but allows the server to connect back.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 pt-8">
+                      <Switch
+                        id="ftp-tls"
+                        checked={ftp.useTls}
+                        onCheckedChange={(checked) => setFtp({ ...ftp, useTls: checked })}
+                      />
+                      <Label htmlFor="ftp-tls">Use TLS</Label>
+                    </div>
                   </div>
                 </div>
               )}

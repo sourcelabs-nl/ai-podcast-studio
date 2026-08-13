@@ -1,9 +1,5 @@
-# Capability: Publishing Credentials
+## MODIFIED Requirements
 
-## Purpose
-
-Storage, testing, and resolution of publication provider credentials for FTP and SoundCloud publishing.
-## Requirements
 ### Requirement: Publication credential storage
 The system SHALL store publication provider credentials in the `user_provider_configs` table under category `PUBLISHING`. The `encrypted_api_key` column SHALL contain an encrypted JSON string with provider-specific fields:
 - Provider `ftp`: `{"host": "...", "port": 21, "username": "...", "password": "...", "useTls": true, "transferMode": "PASSIVE"}`
@@ -73,23 +69,3 @@ For target `soundcloud`: no request body is needed. The endpoint SHALL verify th
 #### Scenario: Unsupported target
 - **WHEN** a `POST /users/{userId}/publishing/test/youtube` request is received
 - **THEN** the system returns HTTP 400 with an error indicating the target is not supported
-
-### Requirement: SoundCloud credential resolution from user_provider_configs
-The SoundCloud OAuth flow and publisher SHALL resolve `clientId`, `clientSecret`, and `callbackUri` by:
-1. Looking up `user_provider_configs` where `userId` matches, `category = PUBLISHING`, and `provider = soundcloud`
-2. If found, decrypt and parse the JSON to extract `clientId`, `clientSecret`, and `callbackUri`
-3. If not found, fall back to `AppProperties` (`app.soundcloud.client-id`, `app.soundcloud.client-secret`) and derive `callbackUri` from `app.feed.base-url` + `/oauth/soundcloud/callback`
-4. If neither source provides credentials, return an error indicating SoundCloud is not configured
-
-#### Scenario: Credentials from database
-- **WHEN** the SoundCloud OAuth flow is initiated and the user has a `PUBLISHING/soundcloud` config in `user_provider_configs`
-- **THEN** the system uses the DB-stored `clientId`, `clientSecret`, and `callbackUri`
-
-#### Scenario: Credentials from env var fallback
-- **WHEN** the SoundCloud OAuth flow is initiated and the user has no DB config but `APP_SOUNDCLOUD_CLIENT_ID` and `APP_SOUNDCLOUD_CLIENT_SECRET` are set
-- **THEN** the system uses the env var values and derives the callback URI from `app.feed.base-url`
-
-#### Scenario: No credentials available
-- **WHEN** the SoundCloud OAuth flow is initiated and neither DB config nor env vars are available
-- **THEN** the system returns HTTP 400 indicating SoundCloud credentials must be configured
-

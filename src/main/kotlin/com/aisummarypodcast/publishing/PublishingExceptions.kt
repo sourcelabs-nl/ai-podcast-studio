@@ -20,3 +20,13 @@ class AlreadyPublishedException(message: String) : IllegalStateException(message
 
 /** No publication exists for the requested episode/target (maps to 404). */
 class NoPublicationFoundException(message: String) : IllegalStateException(message)
+
+/**
+ * An FTP(S) connection or transfer failed, tagged with the [FtpPhase] it failed in so callers can
+ * explain the cause and decide whether retrying in another transfer mode could help.
+ */
+class FtpConnectionException(
+    val phase: FtpPhase,
+    message: String,
+    cause: Throwable? = null
+) : IllegalStateException(message, cause)

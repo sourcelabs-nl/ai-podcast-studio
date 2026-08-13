@@ -1,36 +1,45 @@
 package com.aisummarypodcast.publishing
 
-import org.apache.commons.net.ftp.FTPClient
-import org.apache.commons.net.ftp.FTPSClient
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 @Service
 class PublishingTestService(
     private val soundCloudTokenManager: SoundCloudTokenManager,
-    private val soundCloudClient: SoundCloudClient
+    private val soundCloudClient: SoundCloudClient,
+    private val ftpConnectionFactory: FtpConnectionFactory
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /**
+     * Runs the exact connection publishing would make, including the fallback to the other transfer
+     * mode, so a passing test means a publish can connect. When the fallback was needed the result
+     * says so, since the stored setting is then wrong even though the test passed.
+     */
     fun testFtp(credentials: FtpTestCredentials): TestConnectionResult {
-        val ftpClient = if (credentials.useTls) FTPSClient() else FTPClient()
-        return try {
-            ftpClient.connectTimeout = 10_000
-            ftpClient.connect(credentials.host, credentials.port)
-            if (!ftpClient.login(credentials.username, credentials.password ?: "")) {
-                return TestConnectionResult(success = false, message = "Authentication failed")
-            }
-            ftpClient.enterLocalPassiveMode()
-            ftpClient.listFiles("/")
-            TestConnectionResult(success = true, message = "Connected successfully")
+        val settings = credentials.toConnectionSettings()
+        val connection = try {
+            ftpConnectionFactory.connectWithFallback(settings)
+        } catch (e: FtpConnectionException) {
+            log.warn("FTP connection test failed in {} phase: {}", e.phase, e.message)
+            return TestConnectionResult(success = false, message = e.message ?: "Connection failed")
         } catch (e: Exception) {
             log.warn("FTP connection test failed: {}", e.message)
-            TestConnectionResult(success = false, message = e.message ?: "Connection failed")
+            return TestConnectionResult(success = false, message = e.message ?: "Connection failed")
+        }
+
+        try {
+            val message = if (connection.fellBackFrom == null) {
+                "Connected successfully"
+            } else {
+                "Connected successfully in ${connection.transferMode} mode. " +
+                    "${connection.fellBackFrom} mode failed (${connection.fallbackReason}). " +
+                    "Set the transfer mode to ${connection.transferMode} to match this network."
+            }
+            return TestConnectionResult(success = true, message = message)
         } finally {
-            try {
-                if (ftpClient.isConnected) ftpClient.disconnect()
-            } catch (_: Exception) {}
+            connection.client.disconnectQuietly()
         }
     }
 

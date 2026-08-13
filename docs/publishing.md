@@ -22,13 +22,32 @@ curl -X PUT http://localhost:8085/users/{userId}/podcasts/{podcastId}/publicatio
   }'
 ```
 
-You can test the FTP connection before publishing:
+### Transfer mode
+
+FTP credentials carry an optional `transferMode` of `PASSIVE` (the default when the field is absent) or `ACTIVE`, selectable in **Settings → Publishing**. It is a preference, not a constraint: the app opens the connection in the configured mode, verifies that a data connection can actually be opened by listing the working directory, and if only that verification fails it reconnects in the other mode before transferring anything. A fallback therefore never leaves a partial file on the server, and it logs a warning naming both modes so the stored setting can be corrected.
+
+Passive works on most networks. Active only helps where the network blocks outbound data connections but allows the server to connect back, which NAT usually prevents. Fallback applies to data-channel failures only: a control connection that times out or is refused, rejected credentials, and failed TLS negotiation all fail identically in either mode and are reported immediately.
+
+When `useTls` is enabled, the data channel is encrypted as well as the control channel (`PBSZ 0` followed by `PROT P`), which servers requiring data-channel protection insist on. Connections also tolerate servers behind NAT that advertise a private address in their passive reply.
+
+### Testing a connection
 
 ```bash
 curl -X POST http://localhost:8085/users/{userId}/publishing/test/ftp \
   -H 'Content-Type: application/json' \
-  -d '{"host": "ftp.example.com", "port": 21, "username": "user", "password": "pass", "useTls": true}'
+  -d '{"host": "ftp.example.com", "port": 21, "username": "user", "password": "pass", "useTls": true, "transferMode": "PASSIVE"}'
 ```
+
+This makes the same connection publishing makes, fallback included, so a passing test means a publish can connect. A failed connection is reported as HTTP 200 with `"success": false` and a message naming the phase that failed (control connection, authentication, TLS, or data channel) plus the server's reply. A control connection that times out says so explicitly, since a blocked FTP port is a network problem no setting can fix. If the connection only worked after falling back, the response reports success and names the mode to save:
+
+```json
+{
+  "success": true,
+  "message": "Connected successfully in PASSIVE mode. ACTIVE mode failed (Data connection failed: 500 I won't open a connection to 192.168.1.160 (only to 77.162.120.119)). Set the transfer mode to PASSIVE to match this network."
+}
+```
+
+To diagnose from outside the application, `scripts/ftp-diagnose.py <host>` probes DNS, port reachability (including 443 as a control, to distinguish a filtered FTP port from an unreachable host), the greeting, `AUTH TLS`, and whether the advertised passive data port can be reached.
 
 ## Publishing to SoundCloud
 

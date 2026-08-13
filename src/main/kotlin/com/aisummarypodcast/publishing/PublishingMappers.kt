@@ -16,6 +16,15 @@ internal fun EpisodePublication.toResponse() = PublicationResponse(
     createdAt = createdAt
 )
 
+internal fun FtpTestCredentials.toConnectionSettings() = FtpConnectionSettings(
+    host = host,
+    port = port,
+    username = username,
+    password = password.orEmpty(),
+    useTls = useTls,
+    transferMode = FtpTransferMode.from(transferMode)
+)
+
 @Suppress("UNCHECKED_CAST")
 internal fun PodcastPublicationTarget.toResponse(objectMapper: ObjectMapper) = PublicationTargetResponse(
     target = target,
