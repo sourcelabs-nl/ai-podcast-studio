@@ -33,12 +33,15 @@ data class PipelineResult(
     val scoreInputTokens: Int = 0,
     val scoreOutputTokens: Int = 0,
     val scoreCostCents: Int = 0,
+    val scoreReportedCostCents: Double? = null,
     val dedupInputTokens: Int = 0,
     val dedupOutputTokens: Int = 0,
     val dedupCostCents: Int = 0,
+    val dedupReportedCostCents: Double? = null,
     val composeInputTokens: Int = 0,
     val composeOutputTokens: Int = 0,
-    val composeCostCents: Int = 0
+    val composeCostCents: Int = 0,
+    val composeReportedCostCents: Double? = null
 )
 
 data class PreviewResult(
@@ -55,10 +58,12 @@ data class DedupStageResult(
     val topicLabels: List<String>,
     val dedupCostCents: Int?,
     val dedupCostSource: LlmCostSource,
+    val dedupReportedCostCents: Double? = null,
     val scoreInputTokens: Int = 0,
     val scoreOutputTokens: Int = 0,
     val scoreCostCents: Int = 0,
-    val scoreCostSource: LlmCostSource = LlmCostSource.UNKNOWN
+    val scoreCostSource: LlmCostSource = LlmCostSource.UNKNOWN,
+    val scoreReportedCostCents: Double? = null
 )
 
 data class ComposeStageResult(
@@ -68,6 +73,7 @@ data class ComposeStageResult(
     val topicOrder: List<String>,
     val composeCostCents: Int?,
     val composeCostSource: LlmCostSource,
+    val composeReportedCostCents: Double? = null,
     val researchCalls: Int = 0,
     val researchCostCents: Int? = null
 )
@@ -264,10 +270,12 @@ class LlmPipeline(
             topicLabels = topicLabels,
             dedupCostCents = dedupCost.costCents?.roundToInt(),
             dedupCostSource = dedupCost.source,
+            dedupReportedCostCents = dedupCost.reportedCostCents,
             scoreInputTokens = scoreInputTokens,
             scoreOutputTokens = scoreOutputTokens,
             scoreCostCents = scoreCost.costCents?.roundToInt() ?: 0,
-            scoreCostSource = scoreCost.source
+            scoreCostSource = scoreCost.source,
+            scoreReportedCostCents = scoreCost.reportedCostCents
         )
     }
 
@@ -328,6 +336,7 @@ class LlmPipeline(
             topicOrder = compositionResult.topicOrder,
             composeCostCents = composeCost.costCents?.roundToInt(),
             composeCostSource = composeCost.source,
+            composeReportedCostCents = composeCost.reportedCostCents,
             researchCalls = compositionResult.researchCalls,
             researchCostCents = researchCostCents
         )
@@ -368,12 +377,15 @@ class LlmPipeline(
             scoreInputTokens = dedupStageResult.scoreInputTokens,
             scoreOutputTokens = dedupStageResult.scoreOutputTokens,
             scoreCostCents = dedupStageResult.scoreCostCents,
+            scoreReportedCostCents = dedupStageResult.scoreReportedCostCents,
             dedupInputTokens = dedupStageResult.usage.inputTokens,
             dedupOutputTokens = dedupStageResult.usage.outputTokens,
             dedupCostCents = dedupStageResult.dedupCostCents ?: 0,
+            dedupReportedCostCents = dedupStageResult.dedupReportedCostCents,
             composeInputTokens = composeStageResult.usage.inputTokens,
             composeOutputTokens = composeStageResult.usage.outputTokens,
-            composeCostCents = composeStageResult.composeCostCents ?: 0
+            composeCostCents = composeStageResult.composeCostCents ?: 0,
+            composeReportedCostCents = composeStageResult.composeReportedCostCents
         )
     }
 
@@ -420,9 +432,11 @@ class LlmPipeline(
             scoreInputTokens = scoreInputTokens,
             scoreOutputTokens = scoreOutputTokens,
             scoreCostCents = scoreCost.costCents?.roundToInt() ?: 0,
+            scoreReportedCostCents = scoreCost.reportedCostCents,
             composeInputTokens = compositionResult.usage.inputTokens,
             composeOutputTokens = compositionResult.usage.outputTokens,
-            composeCostCents = costCents ?: 0
+            composeCostCents = costCents ?: 0,
+            composeReportedCostCents = composeCost.reportedCostCents
         )
     }
 

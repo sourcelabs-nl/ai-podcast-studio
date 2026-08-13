@@ -82,7 +82,6 @@ internal fun <T : Any, R : Any> org.springframework.data.domain.Page<T>.toRespon
 
 internal fun Episode.toResponse(
     scoreCalls: Int = 0,
-    scoreReportedCostCents: Double? = null,
     costFor: StageCostFn = noopStageCostFn
 ) = EpisodeResponse(
     id = id!!,
@@ -107,12 +106,11 @@ internal fun Episode.toResponse(
     pipelineStage = pipelineStage,
     researchCalls = researchCalls,
     researchCostCents = researchCostCents,
-    costs = buildCosts(scoreCalls, scoreReportedCostCents, costFor)
+    costs = buildCosts(scoreCalls, costFor)
 )
 
 private fun Episode.buildCosts(
     scoreCalls: Int,
-    scoreReportedCostCents: Double?,
     costFor: StageCostFn
 ): EpisodeCostsResponse {
     fun llmCalls(input: Int, output: Int, cost: Double): Int =
@@ -126,15 +124,18 @@ private fun Episode.buildCosts(
         else costFor(model, input, output) ?: persistedCost.toDouble()
 
     // A provider-reported cost is an actual charge, so it wins over recomputation from tokens and
-    // rates. Only the score stage persists one (summed from its per-article calls); the other
-    // stages have no persisted reported value and stay on the recompute-then-persisted fallback.
+    // rates. Each stage persists its own reported cents when a reported value contributed; a stage
+    // with none (null) stays on the recompute-then-persisted fallback.
     val scoreCost = scoreReportedCostCents
         ?: effective(scoreCostCents, filterModel, scoreInputTokens, scoreOutputTokens)
     // Dedup runs on its own model; legacy episodes (null dedupModel) fall back to the filter model.
     val dedupModelLabel = dedupModel ?: filterModel
-    val dedupCost = effective(dedupCostCents, dedupModelLabel, dedupInputTokens, dedupOutputTokens)
-    val composeCost = effective(composeCostCents, composeModel, composeInputTokens, composeOutputTokens)
-    val recapCost = effective(recapCostCents, filterModel, recapInputTokens, recapOutputTokens)
+    val dedupCost = dedupReportedCostCents
+        ?: effective(dedupCostCents, dedupModelLabel, dedupInputTokens, dedupOutputTokens)
+    val composeCost = composeReportedCostCents
+        ?: effective(composeCostCents, composeModel, composeInputTokens, composeOutputTokens)
+    val recapCost = recapReportedCostCents
+        ?: effective(recapCostCents, filterModel, recapInputTokens, recapOutputTokens)
     val ttsCost = (ttsCostCents ?: 0).toDouble()
     val researchCost = (researchCostCents ?: 0).toDouble()
     val totalCostCents = scoreCost + dedupCost + composeCost + recapCost + ttsCost + researchCost

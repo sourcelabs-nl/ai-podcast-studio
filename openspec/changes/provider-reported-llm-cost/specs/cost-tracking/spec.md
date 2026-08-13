@@ -100,6 +100,31 @@ To support this, the per-article reported cost SHALL be persisted alongside the 
 - **WHEN** a stage has non-reporting calls and the model has no configured rates
 - **THEN** the non-reporting calls contribute nothing to the total and the stage source is `MIXED`, so the shortfall is visible rather than implied to be complete
 
+### Requirement: Episode persists each stage's reported cost
+Each episode SHALL persist a per-stage provider-reported cost, in fractional cents, for the score, dedup, compose and recap stages. A stage's value SHALL be its full-precision resolved cost when, and only when, a provider-reported value contributed to it: sources `API`, `API_CACHED` and `MIXED`. Sources `TABLE` and `UNKNOWN` SHALL persist null, so those stages are recomputed from tokens and the configured rates on the read path.
+
+A `MIXED` stage's persisted value includes the configured-rate estimate for the calls that reported nothing. It is still persisted as a reported cost because it is closer to the actual charge than recomputing the whole stage from rates, and the episode's `llm_cost_source` already marks such a total `MIXED`.
+
+The rule deciding whether a resolved cost counts as reported SHALL live in one place on the resolved-cost type, rather than being repeated at each stage's call site.
+
+The values SHALL be written through the same `EpisodeService` paths that already maintain the per-stage `*_cost_cents` columns and the `llm_cost_source` aggregate, so they cannot drift from them.
+
+#### Scenario: Stage resolved from a provider-reported cost
+- **WHEN** an episode's compose stage resolves its cost from a provider-reported value with source `API`
+- **THEN** the episode's `compose_reported_cost_cents` is that full-precision value in fractional cents
+
+#### Scenario: Cache-replayed stage persists its reported cost
+- **WHEN** an episode's dedup stage replays a cached reported cost with source `API_CACHED`
+- **THEN** the episode's `dedup_reported_cost_cents` is that value
+
+#### Scenario: Partially reported stage persists its total
+- **WHEN** an episode's score stage resolves to `MIXED`, summing reported per-article costs and a configured-rate estimate for the articles that reported nothing
+- **THEN** the episode's `score_reported_cost_cents` is that combined total and the episode's `llm_cost_source` reflects `MIXED`
+
+#### Scenario: Estimated stage persists no reported cost
+- **WHEN** an episode's recap stage resolves from the configured rates with source `TABLE`, or resolves to `UNKNOWN`
+- **THEN** the episode's `recap_reported_cost_cents` is null
+
 ### Requirement: Episode records where its LLM cost came from
 Each episode SHALL persist the source of its LLM cost in a nullable `llm_cost_source` column with values `API`, `API_CACHED`, `TABLE`, `MIXED`, or `UNKNOWN`. The value SHALL be `API` when every contributing stage resolved from a provider-reported cost, `TABLE` when none did, `MIXED` when some did and some did not, and `UNKNOWN` when no cost could be determined for any stage. A run in which every contributing stage was a cache replay SHALL record `API_CACHED`.
 
@@ -122,7 +147,9 @@ Episodes generated before this column existed SHALL have a null source, which SH
 - **THEN** its `llm_cost_source` is null and it is presented as an estimate
 
 ### Requirement: Migration adds the reported-cost columns
-Migration `V64` SHALL add a nullable reported-cost column to `llm_cache`, a nullable reported-cost column to `articles`, and a nullable `llm_cost_source` column to `episodes`. All SHALL be nullable with no default so that existing rows are distinguishable from rows written after the change. No data SHALL be backfilled: a reported cost that was never captured cannot be reconstructed.
+Migration `V64` SHALL add a nullable reported-cost column to `llm_cache`, a nullable reported-cost column to `articles`, a nullable `llm_cost_source` column to `episodes`, and four nullable per-stage reported-cost columns to `episodes` (`score_reported_cost_cents`, `dedup_reported_cost_cents`, `compose_reported_cost_cents`, `recap_reported_cost_cents`). All SHALL be nullable with no default so that existing rows are distinguishable from rows written after the change. No data SHALL be backfilled: a reported cost that was never captured cannot be reconstructed.
+
+The `llm_cache` and `articles` columns SHALL hold USD, matching the unit the provider reports. The four per-stage episode columns SHALL hold fractional cents, matching the unit the cost breakdown serves, so a stored value needs no second conversion on the read path.
 
 #### Scenario: Migration applies to an existing database
 - **WHEN** `V64` runs against a database containing existing episodes, articles and cache rows
@@ -130,7 +157,7 @@ Migration `V64` SHALL add a nullable reported-cost column to `llm_cache`, a null
 
 #### Scenario: Existing costs remain readable
 - **WHEN** an episode created before `V64` is read after the migration
-- **THEN** its persisted `*_cost_cents` values are unchanged and its cost source is null
+- **THEN** its persisted `*_cost_cents` values are unchanged and its cost source and all four per-stage reported costs are null
 
 ## MODIFIED Requirements
 
@@ -139,7 +166,7 @@ The `EpisodeResponse` DTO SHALL include a nested `costs: EpisodeCostsResponse` o
 
 The `costs` object SHALL additionally expose the episode's `costSource`, reflecting the persisted `llm_cost_source` and null for episodes generated before that column existed, so a client can distinguish an actual charge from an estimate.
 
-All `costCents` fields and `totalCostCents` SHALL be fractional cents (`Double`), not integer cents, so that sub-cent stage costs from cheap models stay visible. For each LLM stage row, `costCents` SHALL be the persisted provider-reported cost when one was captured for that stage. When no reported cost is available, `costCents` SHALL be recomputed from the persisted token totals and the model's configured rate at full precision via `CostEstimator.estimateLlmCostCentsExact`. When the model rate is also unknown, or the stage has zero tokens, the row SHALL fall back to the persisted integer-cent value coerced to `Double`. The TTS and research rows SHALL carry their persisted integer-cent values coerced to `Double`. The `totalCostCents` SHALL be the sum of all six rows' cost cents. Persisted columns (`*_cost_cents`, aggregate `llm_cost_cents`) and the LLM cost gate are unaffected and continue to use rounded integer cents.
+All `costCents` fields and `totalCostCents` SHALL be fractional cents (`Double`), not integer cents, so that sub-cent stage costs from cheap models stay visible. For each of the four LLM stage rows, `costCents` SHALL be that stage's persisted per-stage reported cost when one was captured. When no reported cost is available, `costCents` SHALL be recomputed from the persisted token totals and the model's configured rate at full precision via `CostEstimator.estimateLlmCostCentsExact`. When the model rate is also unknown, or the stage has zero tokens, the row SHALL fall back to the persisted integer-cent value coerced to `Double`. The TTS and research rows SHALL carry their persisted integer-cent values coerced to `Double`. The `totalCostCents` SHALL be the sum of all six rows' cost cents. Persisted columns (`*_cost_cents`, aggregate `llm_cost_cents`) and the LLM cost gate are unaffected and continue to use rounded integer cents.
 
 #### Scenario: Costs object present on episode GET
 - **WHEN** `GET /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}` is called
@@ -154,15 +181,19 @@ All `costCents` fields and `totalCostCents` SHALL be fractional cents (`Double`)
 - **THEN** that row's `calls` field is 1, else 0
 
 #### Scenario: Reported cost preferred over recomputation
-- **WHEN** a stage captured a provider-reported cost of `0.0076` cents and the model also has configured rates
-- **THEN** that row's `costCents` is `0.0076`, not the value recomputed from tokens and rates
+- **WHEN** any of the score, dedup, compose or recap stages captured a provider-reported cost and its model also has configured rates
+- **THEN** that row's `costCents` is the persisted reported value, not the value recomputed from tokens and rates
+
+#### Scenario: Stage without a reported cost is recomputed
+- **WHEN** a stage has a null persisted reported cost, non-zero tokens, and a known model rate
+- **THEN** that row's `costCents` is recomputed from its tokens and rate at full precision
 
 #### Scenario: Sub-cent stage cost stays visible for cheap model
 - **WHEN** an episode's scoring stage used `deepseek/deepseek-v4-flash` with 4785 input and 1899 output tokens, no reported cost, and persisted `score_cost_cents` rounded to 0
 - **THEN** `costs.score.costCents` is the full-precision value (~0.084 cents) recomputed from tokens, not 0
 
 #### Scenario: Stage with unknown model rate falls back to persisted cents
-- **WHEN** a stage has no reported cost, its model is not present in `app.models`, and the persisted stage cost is 3 cents
+- **WHEN** a stage has a null persisted reported cost, its model is not present in `app.models`, and the persisted stage cost is 3 cents
 - **THEN** that row's `costCents` is 3.0
 
 #### Scenario: Cost source exposed for a reported-cost episode
@@ -171,4 +202,4 @@ All `costCents` fields and `totalCostCents` SHALL be fractional cents (`Double`)
 
 #### Scenario: Legacy episode shows zero costs but real token counts
 - **WHEN** a pre-V57 episode is returned via the API
-- **THEN** `costs.score` reflects backfilled token counts; its `costCents` is recomputed from tokens when the model rate is known, otherwise 0.0; dedup/compose/recap rows are zero across the board; tts and research rows reflect the existing persisted values; and `costs.costSource` is null
+- **THEN** all four per-stage reported costs are null; `costs.score` reflects backfilled token counts; its `costCents` is recomputed from tokens when the model rate is known, otherwise 0.0; dedup/compose/recap rows are zero across the board; tts and research rows reflect the existing persisted values; and `costs.costSource` is null

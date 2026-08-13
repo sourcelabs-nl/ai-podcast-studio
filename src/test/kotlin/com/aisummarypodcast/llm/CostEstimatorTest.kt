@@ -314,6 +314,21 @@ class CostEstimatorTest {
         assertEquals(LlmCostSource.UNKNOWN, resolved.source)
     }
 
+    // --- ResolvedLlmCost.reportedCostCents tests ---
+
+    @Test
+    fun `reported cost cents is carried for API, API_CACHED and MIXED sources`() {
+        assertEquals(0.42, ResolvedLlmCost(0.42, LlmCostSource.API).reportedCostCents)
+        assertEquals(0.42, ResolvedLlmCost(0.42, LlmCostSource.API_CACHED).reportedCostCents)
+        assertEquals(0.42, ResolvedLlmCost(0.42, LlmCostSource.MIXED).reportedCostCents)
+    }
+
+    @Test
+    fun `reported cost cents is null for TABLE and UNKNOWN sources`() {
+        assertNull(ResolvedLlmCost(0.42, LlmCostSource.TABLE).reportedCostCents)
+        assertNull(ResolvedLlmCost(null, LlmCostSource.UNKNOWN).reportedCostCents)
+    }
+
     // --- addNullableReportedCosts tests ---
 
     @Test

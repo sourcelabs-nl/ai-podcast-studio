@@ -28,6 +28,10 @@
 - [x] 4.2 Add the `llmCostSource` field to the `Episode` entity
 - [x] 4.3 Aggregate per-stage sources into the episode value: `API` when all reported, `API_CACHED` when all replayed, `TABLE` when none, `MIXED` when some, `UNKNOWN` when nothing resolved
 - [x] 4.4 Write the aggregate through the same `EpisodeService` path that already maintains the aggregate cost columns, so it cannot drift
+- [x] 4.5 Extend `V64` with four nullable `REAL` per-stage reported-cost columns on `episodes` (`score_`, `dedup_`, `compose_`, `recap_reported_cost_cents`), in fractional cents, no backfill
+- [x] 4.6 Add the four nullable `Double?` fields to the `Episode` entity
+- [x] 4.7 Add `ResolvedLlmCost.reportedCostCents`, returning the cost for `API` / `API_CACHED` / `MIXED` and null for `TABLE` / `UNKNOWN`, so the rule lives in one place instead of at four call sites
+- [x] 4.8 Document in KDoc that a `MIXED` stage's persisted value includes the configured-rate gap estimate, which the episode's `llm_cost_source` already marks
 
 ## 5. Thread it through the pipeline
 
@@ -38,6 +42,9 @@
 - [x] 5.5 Pass the reported cost through the dedup and compose stages in `LlmPipeline` (single call each, so no partial case)
 - [x] 5.6 Pass it through `EpisodeRecapGenerator`
 - [x] 5.7 Verify the two budget-gate call sites (`LlmPipeline` lines around 129 and 198) still compare rounded integer cents
+- [x] 5.8 Carry the per-stage reported cents on `PipelineResult`, `DedupStageResult` and `ComposeStageResult`, from `scoreStageCost` and the dedup and compose `resolveLlmCost` sites
+- [x] 5.9 Return the reported cents from `EpisodeRecapGenerator` alongside its existing `costSource`
+- [x] 5.10 Write all four values through the existing `EpisodeService` paths (`createEpisodeFromPipelineResult`, `saveDedupResults`, `saveComposeResult`, the recap path) so they cannot drift from the per-stage cost columns
 
 ## 6. Surface it in the API
 
@@ -45,6 +52,8 @@
 - [x] 6.2 Prefer a persisted reported cost over recomputing the stage row from tokens and rates
 - [x] 6.3 Keep the existing fallbacks in order: reported → recomputed from tokens → persisted integer cents
 - [x] 6.4 Confirm legacy episodes return a null `costSource` and unchanged numbers
+- [x] 6.5 Prefer the persisted reported cents on all four stage rows in `buildCosts`, falling back to the existing recompute-then-persisted logic when null
+- [x] 6.6 Drop `ScoreStageSummary.reportedCostCents` and its re-aggregation over `articles.llm_reported_cost_usd`, superseded by the persisted `episodes.score_reported_cost_cents` (which also covers the `MIXED` case); keep the `calls` count and the article column itself, which `LlmPipeline` still aggregates
 
 ## 7. Tests
 
@@ -57,6 +66,10 @@
 - [x] 7.7 Migration test covering an existing database with episodes and cache rows
 - [x] 7.8 Cost breakdown mapping: reported preferred over recomputation, and the existing sub-cent scenario still passing
 - [x] 7.9 Run the full suite and confirm it is green
+- [x] 7.10 Migration test: the four per-stage reported-cost columns round-trip and read null when nothing was reported
+- [x] 7.11 `ResolvedLlmCost.reportedCostCents`: carried for `API` / `API_CACHED` / `MIXED`, null for `TABLE` / `UNKNOWN`
+- [x] 7.12 Cost breakdown mapping: each of the four rows prefers its persisted reported cost, and a null one falls back to recomputation and then to persisted cents
+- [x] 7.13 `EpisodeService`: `saveDedupResults` and `saveComposeResult` persist the per-stage reported cents, and leave them null when nothing was reported
 
 ## 8. Verification
 

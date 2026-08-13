@@ -16,6 +16,8 @@ class EpisodeCostsMapperTest {
         dedupIn: Int = 0, dedupOut: Int = 0, dedupCost: Int = 0,
         composeIn: Int = 0, composeOut: Int = 0, composeCost: Int = 0,
         recapIn: Int = 0, recapOut: Int = 0, recapCost: Int = 0,
+        scoreReported: Double? = null, dedupReported: Double? = null,
+        composeReported: Double? = null, recapReported: Double? = null,
         ttsChars: Int? = null, ttsCost: Int? = null, ttsCalls: Int? = null,
         researchCalls: Int = 0, researchCost: Int? = null,
         filterModel: String? = "anthropic/claude-haiku-4.5",
@@ -32,6 +34,8 @@ class EpisodeCostsMapperTest {
         dedupInputTokens = dedupIn, dedupOutputTokens = dedupOut, dedupCostCents = dedupCost,
         composeInputTokens = composeIn, composeOutputTokens = composeOut, composeCostCents = composeCost,
         recapInputTokens = recapIn, recapOutputTokens = recapOut, recapCostCents = recapCost,
+        scoreReportedCostCents = scoreReported, dedupReportedCostCents = dedupReported,
+        composeReportedCostCents = composeReported, recapReportedCostCents = recapReported,
         llmCostSource = llmCostSource
     )
 
@@ -103,12 +107,54 @@ class EpisodeCostsMapperTest {
                 "anthropic/claude-haiku-4.5" to ModelCost(type = ModelType.LLM, inputCostPerMtok = 1.00, outputCostPerMtok = 5.00)
             )
         )
-        val resp = episode(scoreIn = 4785, scoreOut = 1899, scoreCost = 0).toResponse(
-            scoreCalls = 40,
-            scoreReportedCostCents = 0.0076,
-            costFor = stageCostFnFromModels(models)
-        )
+        val resp = episode(
+            scoreIn = 4785, scoreOut = 1899, scoreCost = 0, scoreReported = 0.0076
+        ).toResponse(scoreCalls = 40, costFor = stageCostFnFromModels(models))
         assertEquals(0.0076, resp.costs.score.costCents)
+    }
+
+    @Test
+    fun `each LLM stage row prefers its persisted reported cost over recomputation`() {
+        val models = mapOf(
+            "openrouter" to mapOf(
+                "anthropic/claude-haiku-4.5" to ModelCost(type = ModelType.LLM, inputCostPerMtok = 1.00, outputCostPerMtok = 5.00),
+                "anthropic/claude-sonnet-4" to ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00)
+            )
+        )
+        val resp = episode(
+            scoreIn = 4785, scoreOut = 1899, scoreCost = 0, scoreReported = 0.0076,
+            dedupIn = 2000, dedupOut = 400, dedupCost = 1, dedupReported = 4.62,
+            composeIn = 5000, composeOut = 3000, composeCost = 10, composeReported = 9.81,
+            recapIn = 1200, recapOut = 300, recapCost = 1, recapReported = 0.5
+        ).toResponse(scoreCalls = 40, costFor = stageCostFnFromModels(models))
+
+        assertEquals(0.0076, resp.costs.score.costCents)
+        assertEquals(4.62, resp.costs.dedup.costCents)
+        assertEquals(9.81, resp.costs.compose.costCents)
+        assertEquals(0.5, resp.costs.recap.costCents)
+        assertEquals(0.0076 + 4.62 + 9.81 + 0.5, resp.costs.totalCostCents, 0.0001)
+    }
+
+    @Test
+    fun `stage without a reported cost falls back to recomputation from tokens`() {
+        val models = mapOf(
+            "openrouter" to mapOf(
+                "anthropic/claude-sonnet-4" to ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00)
+            )
+        )
+        // 5000 * 3.00 + 3000 * 15.00 per Mtok = $0.06 = 6.0 cents, not the persisted 10.
+        val resp = episode(
+            composeIn = 5000, composeOut = 3000, composeCost = 10, composeReported = null
+        ).toResponse(costFor = stageCostFnFromModels(models))
+        assertEquals(6.0, resp.costs.compose.costCents, 0.0001)
+    }
+
+    @Test
+    fun `stage without a reported cost or model rate falls back to persisted cents`() {
+        val resp = episode(
+            dedupIn = 2000, dedupOut = 400, dedupCost = 3, dedupReported = null
+        ).toResponse()
+        assertEquals(3.0, resp.costs.dedup.costCents)
     }
 
     @Test

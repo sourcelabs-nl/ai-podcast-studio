@@ -550,6 +550,88 @@ class EpisodeServiceTest {
         }) }
     }
 
+    @Test
+    fun `saveDedupResults persists the per-stage reported cost cents`() {
+        val episode = Episode(id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "", status = EpisodeStatus.GENERATING)
+        val article = Article(id = 10L, sourceId = "s1", title = "A1", body = "b", url = "https://x/1", contentHash = "h1")
+        val dedupResult = DedupStageResult(
+            filteredArticles = listOf(FilteredArticle(article)),
+            filterModel = "anthropic/claude-haiku-4.5",
+            dedupModel = "anthropic/claude-sonnet-4.6",
+            usage = TokenUsage(200, 100),
+            followUpAnnotations = emptyMap(),
+            topicLabels = emptyList(),
+            dedupCostCents = 5,
+            dedupCostSource = LlmCostSource.API,
+            dedupReportedCostCents = 4.62,
+            scoreInputTokens = 900, scoreOutputTokens = 180, scoreCostCents = 3,
+            scoreCostSource = LlmCostSource.MIXED,
+            scoreReportedCostCents = 3.14
+        )
+        every { episodeRepository.findById(5L) } returns Optional.of(episode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.saveDedupResults(episode, dedupResult)
+
+        verify { episodeRepository.save(match {
+            it.scoreReportedCostCents == 3.14 &&
+            it.dedupReportedCostCents == 4.62 &&
+            it.composeReportedCostCents == null &&
+            it.recapReportedCostCents == null
+        }) }
+    }
+
+    @Test
+    fun `saveDedupResults leaves the reported cost null when nothing was reported`() {
+        val episode = Episode(id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "", status = EpisodeStatus.GENERATING)
+        val article = Article(id = 10L, sourceId = "s1", title = "A1", body = "b", url = "https://x/1", contentHash = "h1")
+        val dedupResult = DedupStageResult(
+            filteredArticles = listOf(FilteredArticle(article)),
+            filterModel = "anthropic/claude-haiku-4.5",
+            dedupModel = "anthropic/claude-sonnet-4.6",
+            usage = TokenUsage(200, 100),
+            followUpAnnotations = emptyMap(),
+            topicLabels = emptyList(),
+            dedupCostCents = 5,
+            dedupCostSource = LlmCostSource.TABLE,
+            scoreCostSource = LlmCostSource.TABLE
+        )
+        every { episodeRepository.findById(5L) } returns Optional.of(episode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.saveDedupResults(episode, dedupResult)
+
+        verify { episodeRepository.save(match {
+            it.scoreReportedCostCents == null && it.dedupReportedCostCents == null
+        }) }
+    }
+
+    @Test
+    fun `saveComposeResult persists the compose reported cost cents`() {
+        val episode = Episode(
+            id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "",
+            status = EpisodeStatus.GENERATING,
+            scoreReportedCostCents = 3.14
+        )
+        val composeResult = ComposeStageResult(
+            script = "Today in tech...",
+            composeModel = "anthropic/claude-sonnet-4",
+            usage = TokenUsage(500, 300),
+            topicOrder = listOf("AI Safety"),
+            composeCostCents = 10,
+            composeCostSource = LlmCostSource.API,
+            composeReportedCostCents = 9.81
+        )
+        every { episodeRepository.findById(5L) } returns Optional.of(episode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.saveComposeResult(episode, composeResult)
+
+        verify { episodeRepository.save(match {
+            it.composeReportedCostCents == 9.81 && it.scoreReportedCostCents == 3.14
+        }) }
+    }
+
     // --- resetForRetry tests ---
 
     @Test

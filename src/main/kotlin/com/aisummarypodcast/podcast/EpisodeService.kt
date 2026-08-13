@@ -146,12 +146,15 @@ class EpisodeService(
                 scoreInputTokens = result.scoreInputTokens,
                 scoreOutputTokens = result.scoreOutputTokens,
                 scoreCostCents = result.scoreCostCents,
+                scoreReportedCostCents = result.scoreReportedCostCents,
                 dedupInputTokens = result.dedupInputTokens,
                 dedupOutputTokens = result.dedupOutputTokens,
                 dedupCostCents = result.dedupCostCents,
+                dedupReportedCostCents = result.dedupReportedCostCents,
                 composeInputTokens = result.composeInputTokens,
                 composeOutputTokens = result.composeOutputTokens,
                 composeCostCents = result.composeCostCents,
+                composeReportedCostCents = result.composeReportedCostCents,
                 pipelineStage = if (podcast.requireReview) null else "tts",
                 status = if (podcast.requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING,
                 publishApproved = !podcast.requirePublishApproval
@@ -227,6 +230,7 @@ class EpisodeService(
                 recapInputTokens = recapResult.usage.inputTokens,
                 recapOutputTokens = recapResult.usage.outputTokens,
                 recapCostCents = recapResult.costCents ?: 0,
+                recapReportedCostCents = recapResult.reportedCostCents,
                 llmCostSource = LlmCostSource.aggregate(
                     listOfNotNull(episode.llmCostSource, recapResult.costSource)
                 )
@@ -271,18 +275,22 @@ class EpisodeService(
             scoreInputTokens = dedupResult.scoreInputTokens,
             scoreOutputTokens = dedupResult.scoreOutputTokens,
             scoreCostCents = dedupResult.scoreCostCents,
+            scoreReportedCostCents = dedupResult.scoreReportedCostCents,
             dedupInputTokens = dedupResult.usage.inputTokens,
             dedupOutputTokens = dedupResult.usage.outputTokens,
             dedupCostCents = dedupResult.dedupCostCents ?: 0,
+            dedupReportedCostCents = dedupResult.dedupReportedCostCents,
             llmCostSource = LlmCostSource.aggregate(
                 listOf(dedupResult.scoreCostSource, dedupResult.dedupCostSource)
             ),
             composeInputTokens = 0,
             composeOutputTokens = 0,
             composeCostCents = 0,
+            composeReportedCostCents = null,
             recapInputTokens = 0,
             recapOutputTokens = 0,
-            recapCostCents = 0
+            recapCostCents = 0,
+            recapReportedCostCents = null
         )
         episodeRepository.save(withStages.copy(
             llmInputTokens = withStages.sumStageInputTokens(),
@@ -301,6 +309,7 @@ class EpisodeService(
             composeInputTokens = composeResult.usage.inputTokens,
             composeOutputTokens = composeResult.usage.outputTokens,
             composeCostCents = composeResult.composeCostCents ?: 0,
+            composeReportedCostCents = composeResult.composeReportedCostCents,
             llmCostSource = LlmCostSource.aggregate(
                 listOfNotNull(fresh.llmCostSource, composeResult.composeCostSource)
             ),
@@ -615,20 +624,9 @@ class EpisodeService(
 
     fun countArticles(episodeId: Long): Int = episodeArticleRepository.findByEpisodeId(episodeId).size
 
-    /**
-     * Score-stage facts for the cost breakdown. The reported total is only returned when every
-     * linked article carried a provider-reported cost; otherwise the breakdown recomputes the row
-     * from tokens and rates rather than honouring a partial sum.
-     */
-    fun scoreStageSummary(episodeId: Long): ScoreStageSummary {
-        val articles = episodeArticleRepository.findRawArticlesByEpisodeId(episodeId)
-        val reported = articles.mapNotNull { it.llmReportedCostUsd }
-        val allReported = articles.isNotEmpty() && reported.size == articles.size
-        return ScoreStageSummary(
-            calls = countArticles(episodeId),
-            reportedCostCents = if (allReported) reported.sum() * 100 else null
-        )
-    }
+    /** Score-stage facts for the cost breakdown: how many article calls the episode's score stage made. */
+    fun scoreStageSummary(episodeId: Long): ScoreStageSummary =
+        ScoreStageSummary(calls = countArticles(episodeId))
 
     fun findByPodcastId(podcastId: String, status: EpisodeStatus? = null): List<Episode> {
         return if (status != null) {

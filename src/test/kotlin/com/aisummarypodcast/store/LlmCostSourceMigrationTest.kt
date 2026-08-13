@@ -9,9 +9,9 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 
 /**
- * Covers V64: the reported-cost columns on `llm_cache` and `articles` and the cost source on
- * `episodes`. Rows written without the new values (the shape of every row that existed before the
- * migration) must keep null in them and keep their existing costs readable.
+ * Covers V64: the reported-cost columns on `llm_cache`, `articles` and `episodes`, plus the cost
+ * source on `episodes`. Rows written without the new values (the shape of every row that existed
+ * before the migration) must keep null in them and keep their existing costs readable.
  */
 @SpringBootTest
 class LlmCostSourceMigrationTest {
@@ -52,6 +52,40 @@ class LlmCostSourceMigrationTest {
         val loadedLegacy = episodeRepository.findById(legacy.id!!).orElseThrow()
         assertNull(loadedLegacy.llmCostSource)
         assertEquals(3, loadedLegacy.scoreCostCents)
+    }
+
+    @Test
+    fun `per-stage reported cost cents round-trip and are null when nothing was reported`() {
+        val reported = episodeRepository.save(
+            Episode(
+                podcastId = "p1", generatedAt = "2026-08-13T00:00:00Z", scriptText = "",
+                scoreCostCents = 3, dedupCostCents = 5, composeCostCents = 10, recapCostCents = 1,
+                llmCostSource = LlmCostSource.API,
+                scoreReportedCostCents = 0.0076,
+                dedupReportedCostCents = 4.62,
+                composeReportedCostCents = 9.81,
+                recapReportedCostCents = 0.5
+            )
+        )
+        val silent = episodeRepository.save(
+            Episode(
+                podcastId = "p1", generatedAt = "2026-08-13T00:00:00Z", scriptText = "",
+                scoreCostCents = 3, llmCostSource = LlmCostSource.TABLE
+            )
+        )
+
+        val loadedReported = episodeRepository.findById(reported.id!!).orElseThrow()
+        assertEquals(0.0076, loadedReported.scoreReportedCostCents)
+        assertEquals(4.62, loadedReported.dedupReportedCostCents)
+        assertEquals(9.81, loadedReported.composeReportedCostCents)
+        assertEquals(0.5, loadedReported.recapReportedCostCents)
+
+        val loadedSilent = episodeRepository.findById(silent.id!!).orElseThrow()
+        assertNull(loadedSilent.scoreReportedCostCents)
+        assertNull(loadedSilent.dedupReportedCostCents)
+        assertNull(loadedSilent.composeReportedCostCents)
+        assertNull(loadedSilent.recapReportedCostCents)
+        assertEquals(3, loadedSilent.scoreCostCents)
     }
 
     @Test

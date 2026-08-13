@@ -25,14 +25,9 @@ data class UpcomingContent(
     val effectiveArticleCount: Long
 )
 
-/**
- * Score-stage facts for an episode's cost breakdown: how many article calls it made and, when
- * every one of them carried a provider-reported cost, their total in fractional cents. The total
- * is null as soon as one article reported nothing, so a partial sum is never presented as complete.
- */
+/** Score-stage facts for an episode's cost breakdown: how many article calls it made. */
 data class ScoreStageSummary(
-    val calls: Int,
-    val reportedCostCents: Double?
+    val calls: Int
 )
 
 data class LinkedArticlesResult(

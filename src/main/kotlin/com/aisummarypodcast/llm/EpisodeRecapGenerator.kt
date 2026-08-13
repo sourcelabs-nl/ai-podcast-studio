@@ -14,6 +14,7 @@ data class RecapResult(
     val usage: TokenUsage,
     val costCents: Int?,
     val costSource: LlmCostSource,
+    val reportedCostCents: Double? = null,
     val coveredTopics: List<String> = emptyList()
 )
 
@@ -49,6 +50,7 @@ class EpisodeRecapGenerator(
                 usage = usage,
                 costCents = resolvedCost.costCents?.roundToInt(),
                 costSource = resolvedCost.source,
+                reportedCostCents = resolvedCost.reportedCostCents,
                 coveredTopics = extraction.coveredTopics
             )
         }

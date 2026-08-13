@@ -68,7 +68,6 @@ class EpisodeController(
         val scoreStage = episodeService.scoreStageSummary(episodeId)
         return ResponseEntity.ok(episode.toResponse(
             scoreCalls = scoreStage.calls,
-            scoreReportedCostCents = scoreStage.reportedCostCents,
             costFor = stageCostFn
         ))
     }

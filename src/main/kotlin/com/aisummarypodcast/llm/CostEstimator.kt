@@ -8,7 +8,23 @@ import kotlin.math.roundToInt
 data class ResolvedLlmCost(
     val costCents: Double?,
     val source: LlmCostSource
-)
+) {
+    /**
+     * The value to persist as the stage's reported cost, or null when nothing was reported and the
+     * stage should fall back to recomputing from tokens and the configured rates.
+     *
+     * A [LlmCostSource.MIXED] stage counts as reported: its total is mostly provider-reported and
+     * the remainder is a rate estimate for the calls that reported nothing, which is still closer
+     * to the actual charge than recomputing the whole stage from rates. The episode's
+     * `llm_cost_source` already marks such a total MIXED, so the partial nature stays visible.
+     */
+    val reportedCostCents: Double?
+        get() = if (source in REPORTED_SOURCES) costCents else null
+
+    private companion object {
+        val REPORTED_SOURCES = setOf(LlmCostSource.API, LlmCostSource.API_CACHED, LlmCostSource.MIXED)
+    }
+}
 
 /** One call's contribution to a multi-call stage total (the score stage runs one call per article). */
 data class LlmCallCost(
