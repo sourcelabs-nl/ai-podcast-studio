@@ -39,6 +39,10 @@ app:
   episodes:
     directory: ./data/test-data
     retention-days: 365
+  preview-audio:
+    directory: ./data/test-data/preview-audio
+    retention-minutes: 120
+    sweep-cron: "0 */15 * * * *"
   source:
     max-article-age-days: 90
   feed:

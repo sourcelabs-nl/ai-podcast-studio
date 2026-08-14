@@ -62,7 +62,7 @@ class InworldTtsProvider(
 
     override fun scriptGuidelines(style: PodcastStyle, pronunciations: Map<String, String>): String {
         val styleSpecific = when (style) {
-            PodcastStyle.CASUAL, PodcastStyle.DIALOGUE, PodcastStyle.INTERVIEW -> CASUAL_ADDITION
+            PodcastStyle.CASUAL, PodcastStyle.DEEP_DIVE, PodcastStyle.DIALOGUE, PodcastStyle.INTERVIEW -> CASUAL_ADDITION
             PodcastStyle.EXECUTIVE_SUMMARY, PodcastStyle.NEWS_BRIEFING -> FORMAL_ADDITION
             else -> ""
         }
@@ -109,7 +109,7 @@ class InworldTtsProvider(
         val chunks = prepareChunks(request.script, modelId)
         log.info("Generating Inworld TTS audio for {} chunks in parallel (voice: {}, model: {}, options: {})", chunks.size, voiceId, modelId, options)
 
-        val audioChunks = synthesizeAll(request.userId, chunks.map { ChunkWork(voiceId, it) }, modelId, options)
+        val audioChunks = synthesizeAll(request, chunks.map { ChunkWork(voiceId, it) }, modelId, options)
 
         return TtsResult(
             audioChunks = audioChunks.audio,
@@ -138,7 +138,7 @@ class InworldTtsProvider(
 
         log.info("Generating Inworld dialogue: {} total chunks in parallel, model: {}, options: {}", allChunks.size, modelId, options)
 
-        val audioChunks = synthesizeAll(request.userId, allChunks, modelId, options)
+        val audioChunks = synthesizeAll(request, allChunks, modelId, options)
 
         return TtsResult(
             audioChunks = audioChunks.audio,
@@ -154,10 +154,12 @@ class InworldTtsProvider(
      * generation starts — so context costs no parallelism.
      */
     private suspend fun synthesizeAll(
-        userId: String, work: List<ChunkWork>, modelId: String, options: InworldSynthesisOptions
+        request: TtsRequest, work: List<ChunkWork>, modelId: String, options: InworldSynthesisOptions
     ): SynthesisOutput {
         val texts = work.map { it.text }
         val totalCharacters = AtomicInteger(0)
+        // Chunks finish out of order, so progress counts completions rather than the chunk index.
+        val completed = AtomicInteger(0)
         val semaphore = Semaphore(MAX_CONCURRENCY)
         val audio = withContext(Dispatchers.IO) {
             work.mapIndexed { index, chunk ->
@@ -165,8 +167,9 @@ class InworldTtsProvider(
                     semaphore.withPermit {
                         log.info("Generating Inworld TTS chunk {}/{} ({} chars)", index + 1, work.size, chunk.text.length)
                         val chunkOptions = options.copy(previousRequests = contextWindow(texts.subList(0, index)))
-                        val response = synthesizeWithRetry(userId, chunk.voiceId, chunk.text, modelId, chunkOptions)
+                        val response = synthesizeWithRetry(request.userId, chunk.voiceId, chunk.text, modelId, chunkOptions)
                         totalCharacters.addAndGet(response.processedCharactersCount)
+                        request.progress?.onChunkCompleted(completed.incrementAndGet(), work.size)
                         Base64.getDecoder().decode(response.audioContent)
                     }
                 }

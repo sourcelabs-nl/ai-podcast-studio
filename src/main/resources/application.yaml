@@ -145,6 +145,12 @@ app:
   episodes:
     directory: ./data
     retention-days: 365
+  # Audio generated from a script preview. It belongs to no episode, so it is kept outside the
+  # episode store and swept once it is older than retention-minutes.
+  preview-audio:
+    directory: ./data/preview-audio
+    retention-minutes: 120
+    sweep-cron: "0 */15 * * * *"
   backup:
     enabled: true
     cron: "0 0 2 * * *"

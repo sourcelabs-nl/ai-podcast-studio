@@ -1,20 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, ExternalLink, Loader2 } from "lucide-react";
+import { AudioLines, ChevronDown, ChevronRight, ExternalLink, Loader2, Volume2, X } from "lucide-react";
 import { CronExpressionParser } from "cron-parser";
 import { useUser } from "@/lib/user-context";
-import type { EpisodeArticle, Podcast, PreviewResponse, UpcomingArticlesResponse } from "@/lib/types";
+import type { EpisodeArticle, Podcast, PreviewAudioEstimate, PreviewResponse, UpcomingArticlesResponse } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ScriptContent } from "@/components/script-viewer";
 import { useTabParam } from "@/hooks/use-tab-param";
 
 const WORDS_PER_MINUTE = 150;
 const TABS = ["articles", "script"] as const;
+
+function formatCents(costCents: number | null): string {
+  if (costCents === null) return "an unknown amount";
+  return `$${(costCents / 100).toFixed(2)}`;
+}
 
 function getSourceDisplayName(source: EpisodeArticle["source"]): string {
   if (source.label) return source.label;
@@ -94,7 +109,14 @@ export default function UpcomingPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewStage, setPreviewStage] = useState<string | null>(null);
   const [generateLoading, setGenerateLoading] = useState(false);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [fullAudioLoading, setFullAudioLoading] = useState(false);
+  const [fullAudioProgress, setFullAudioProgress] = useState<string | null>(null);
+  const [audioEstimate, setAudioEstimate] = useState<PreviewAudioEstimate | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A sample plays from a blob URL, which stays allocated until it is explicitly revoked.
+  const blobUrlRef = useRef<string | null>(null);
   const [currentTab, setTab] = useTabParam("articles", TABS);
 
   useEffect(() => {
@@ -115,6 +137,10 @@ export default function UpcomingPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [selectedUser, params.podcastId]);
+
+  useEffect(() => () => {
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+  }, []);
 
   async function handlePreview() {
     if (!selectedUser) return;
@@ -199,6 +225,126 @@ export default function UpcomingPage() {
       setError("Failed to generate preview");
       setPreviewLoading(false);
       setPreviewStage(null);
+    }
+  }
+
+  function showAudio(url: string, isBlob: boolean) {
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    blobUrlRef.current = isBlob ? url : null;
+    setAudioUrl(url);
+  }
+
+  const previewAudioBase = selectedUser
+    ? `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/preview/audio`
+    : null;
+
+  async function handlePlaySample() {
+    if (!previewAudioBase || !preview) return;
+    setSampleLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${previewAudioBase}/sample`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scriptText: preview.scriptText }),
+      });
+      if (!res.ok) {
+        setError("Failed to generate the audio sample");
+        return;
+      }
+      showAudio(URL.createObjectURL(await res.blob()), true);
+    } catch {
+      setError("Failed to generate the audio sample");
+    } finally {
+      setSampleLoading(false);
+    }
+  }
+
+  async function handleEstimateFullAudio() {
+    if (!previewAudioBase || !preview) return;
+    setError(null);
+    try {
+      const res = await fetch(`${previewAudioBase}/estimate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scriptText: preview.scriptText }),
+      });
+      if (!res.ok) {
+        setError("Failed to estimate the audio cost");
+        return;
+      }
+      setAudioEstimate(await res.json());
+    } catch {
+      setError("Failed to estimate the audio cost");
+    }
+  }
+
+  async function handleGenerateFullAudio() {
+    if (!previewAudioBase || !preview) return;
+    setFullAudioLoading(true);
+    setFullAudioProgress(null);
+    setError(null);
+    try {
+      const res = await fetch(previewAudioBase, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ scriptText: preview.scriptText }),
+      });
+      if (!res.ok) {
+        setError("Failed to start audio generation");
+        setFullAudioLoading(false);
+        return;
+      }
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setError("Failed to read the audio stream");
+        setFullAudioLoading(false);
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      // Kept across reads: an SSE event arrives as "event: <name>" followed by "data: <json>",
+      // and a chunk boundary can fall between the two lines. Resetting per read would drop the
+      // name and with it every event that happened to be split.
+      let eventName = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            const dataStr = line.slice(5).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (eventName === "progress" && data.stage === "synthesizing") {
+                setFullAudioProgress(`Synthesizing ${data.chunk}/${data.total}`);
+              } else if (eventName === "result") {
+                showAudio(`${previewAudioBase}/${data.audioId}`, false);
+                setFullAudioLoading(false);
+                setFullAudioProgress(null);
+              } else if (eventName === "error") {
+                setError(data.message || "Audio generation failed");
+                setFullAudioLoading(false);
+                setFullAudioProgress(null);
+              }
+            } catch {
+              // ignore non-JSON data lines
+            }
+            eventName = "";
+          }
+        }
+      }
+      setFullAudioLoading(false);
+      setFullAudioProgress(null);
+    } catch {
+      setError("Failed to generate the audio");
+      setFullAudioLoading(false);
+      setFullAudioProgress(null);
     }
   }
 
@@ -369,9 +515,27 @@ export default function UpcomingPage() {
           <div className="mt-4">
             {preview ? (
               <div>
-                <p className="mb-4 text-sm text-muted-foreground">
-                  {preview.articleIds.length} article{preview.articleIds.length !== 1 ? "s" : ""} &middot; {wordCount.toLocaleString()} words &middot; ~{estimatedMinutes} min
-                </p>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    {preview.articleIds.length} article{preview.articleIds.length !== 1 ? "s" : ""} &middot; {wordCount.toLocaleString()} words &middot; ~{estimatedMinutes} min
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {fullAudioProgress && (
+                      <span className="text-sm text-muted-foreground">{fullAudioProgress}</span>
+                    )}
+                    <Button size="sm" onClick={handlePlaySample} disabled={sampleLoading || fullAudioLoading}>
+                      {sampleLoading ? <Loader2 className="size-4 animate-spin" /> : <Volume2 className="size-4" />}
+                      Play Sample
+                    </Button>
+                    <Button size="sm" onClick={handleEstimateFullAudio} disabled={sampleLoading || fullAudioLoading}>
+                      {fullAudioLoading ? <Loader2 className="size-4 animate-spin" /> : <AudioLines className="size-4" />}
+                      Generate Full Audio
+                    </Button>
+                  </div>
+                </div>
+                {audioUrl && (
+                  <audio key={audioUrl} controls autoPlay src={audioUrl} className="mb-4 w-full" />
+                )}
                 <ScriptContent
                   scriptText={preview.scriptText}
                   style={preview.style}
@@ -398,6 +562,35 @@ export default function UpcomingPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={audioEstimate !== null} onOpenChange={(open) => { if (!open) setAudioEstimate(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Generate full audio?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This synthesises the whole script: {audioEstimate?.characters.toLocaleString()} characters,
+              costing about {formatCents(audioEstimate?.costCents ?? null)}. It takes a few minutes and
+              creates no episode.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel size="sm">
+              <X className="size-4" />
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              size="sm"
+              onClick={() => {
+                setAudioEstimate(null);
+                handleGenerateFullAudio();
+              }}
+            >
+              <AudioLines className="size-4" />
+              Generate Full Audio
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

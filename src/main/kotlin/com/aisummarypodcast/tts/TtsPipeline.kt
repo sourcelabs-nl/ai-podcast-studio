@@ -85,17 +85,8 @@ class TtsPipeline(
         return updated
     }
 
-    private suspend fun callProvider(script: String, podcast: Podcast): TtsResult {
-        val provider = ttsProviderFactory.resolve(podcast)
-        val request = TtsRequest(
-            script = TtsScriptSanitizer.sanitize(script),
-            ttsVoices = podcast.ttsVoices ?: mapOf("default" to "nova"),
-            ttsSettings = podcast.ttsSettings ?: emptyMap(),
-            language = podcast.language,
-            userId = podcast.userId
-        )
-        return provider.generate(request)
-    }
+    private suspend fun callProvider(script: String, podcast: Podcast): TtsResult =
+        ttsProviderFactory.resolve(podcast).generate(TtsRequest.forPodcast(podcast, script))
 
     private suspend fun generateAudioFile(ttsResult: TtsResult, podcast: Podcast): AudioOutput = withContext(Dispatchers.IO) {
         val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")

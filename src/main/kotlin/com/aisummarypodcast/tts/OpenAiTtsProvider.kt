@@ -46,6 +46,7 @@ class OpenAiTtsProvider(
             chunks.mapIndexed { index, chunk ->
                 log.info("Generating TTS chunk {}/{} ({} chars)", index + 1, chunks.size, chunk.length)
                 val response = speechModel.call(TextToSpeechPrompt(chunk, options))
+                request.progress?.onChunkCompleted(index + 1, chunks.size)
                 response.result.output
             }
         }

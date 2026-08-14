@@ -17,7 +17,19 @@ data class AppProperties(
     val episode: EpisodeProperties = EpisodeProperties(),
     val research: ResearchProperties = ResearchProperties(),
     val compose: ComposeProperties = ComposeProperties(),
-    val backup: BackupProperties = BackupProperties()
+    val backup: BackupProperties = BackupProperties(),
+    val previewAudio: PreviewAudioProperties = PreviewAudioProperties()
+)
+
+/**
+ * Audio generated from a script preview. It belongs to no episode, so it lives outside the episode
+ * store in [directory] and is deleted by a sweep once it is older than [retentionMinutes]. The
+ * sweep runs on [sweepCron].
+ */
+data class PreviewAudioProperties(
+    val directory: String = "./data/preview-audio",
+    val retentionMinutes: Long = 120,
+    val sweepCron: String = "0 */15 * * * *"
 )
 
 /**
