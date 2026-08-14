@@ -139,13 +139,16 @@ export default function UpcomingPage() {
       }
       const decoder = new TextDecoder();
       let buffer = "";
+      // Kept across reads: an SSE event arrives as "event: <name>" followed by "data: <json>",
+      // and a chunk boundary can fall between the two lines. Resetting per read would drop the
+      // name and with it every event that happened to be split.
+      let eventName = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
-        let eventName = "";
         for (const line of lines) {
           if (line.startsWith("event:")) {
             eventName = line.slice(6).trim();
@@ -155,11 +158,18 @@ export default function UpcomingPage() {
             try {
               const data = JSON.parse(dataStr);
               if (eventName === "progress") {
-                const { stage, articleCount, postCount } = data;
+                const { stage, articleCount, postCount, scoredCount } = data;
                 if (stage === "aggregating") {
                   setPreviewStage(`Aggregating ${postCount ?? ""} posts...`);
                 } else if (stage === "scoring") {
-                  setPreviewStage(`Scoring ${articleCount ?? ""} articles...`);
+                  // Scoring re-emits per article, so show progress rather than a static count.
+                  setPreviewStage(
+                    scoredCount != null && articleCount != null
+                      ? `Scoring articles... ${scoredCount}/${articleCount}`
+                      : `Scoring ${articleCount ?? ""} articles...`
+                  );
+                } else if (stage === "deduplicating") {
+                  setPreviewStage(`Deduplicating ${articleCount ?? ""} articles...`);
                 } else if (stage === "composing") {
                   setPreviewStage(`Composing script from ${articleCount ?? ""} articles...`);
                 }

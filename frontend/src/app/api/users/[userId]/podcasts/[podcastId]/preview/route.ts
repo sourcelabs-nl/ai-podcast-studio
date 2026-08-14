@@ -1,3 +1,7 @@
+// The preview stream runs for minutes and its value is the live progress, so the response must
+// never be cached or collected before it is forwarded.
+export const dynamic = "force-dynamic";
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ userId: string; podcastId: string }> }
@@ -21,6 +25,9 @@ export async function GET(
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      // Tells any reverse proxy in front of the app to forward each event as it arrives instead
+      // of buffering the stream, which would batch progress updates into one late burst.
+      "X-Accel-Buffering": "no",
     },
   });
 }
