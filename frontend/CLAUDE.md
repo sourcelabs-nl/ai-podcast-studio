@@ -13,6 +13,11 @@ The frontend uses Next.js (App Router), shadcn/ui, and Tailwind CSS v4.
 - **Nested tabs:** Do not nest Radix `Tabs` components (shadcn Tabs). Inner tabs conflict with outer tabs context. Use state-based tab switching with styled buttons for sub-tabs inside a card.
 - **API proxy:** `next.config.ts` rewrites `/api/**` to `http://localhost:8085/**`. Update the port if the backend port changes. The dashboard always proxies the backend rather than calling it directly, so the backend never has to be exposed. The rewrite is fine for ordinary request/response calls but must not be used for streams: see Server-Sent Events below.
 
+- **Running:** `npm run dev` (use `/Users/soudmaijer/.nvm/versions/node/v22.16.0/bin/npm` to avoid the stale npm v2 at `~/node_modules/.bin/npm`). Prefer `./start.sh` and `./stop.sh` from the project root, which manage the backend and the frontend together.
+- **Identifying the running dev server:** `npm run dev` spawns `next dev`, which spawns the `next-server` process that actually binds the port, so a recorded PID is a wrapper and does not tell you whether the frontend is serving. Use `lsof -nP -iTCP:3005 -sTCP:LISTEN`. This matters more than it sounds: an orphaned `next-server` keeps serving the old code while a restart reports success and dies on `EADDRINUSE`, so a change that is merged and "restarted" may not be the change in the browser. `stop.sh` and `start.sh` resolve services by port for this reason.
+- **Config changes need a restart:** `next.config.ts` is picked up by a dev server restart. A hot reload of page code does not re-read it.
+- **Root symlinks:** `node_modules` and `tsconfig.json` in the project root are symlinks to their `frontend/` counterparts. These exist so that IDE language servers (TypeScript, ESLint) can resolve modules and provide diagnostics when files are opened from the project root, rather than only when opened from `frontend/`.
+
 ## Server-Sent Events
 
 Three backend endpoints stream SSE: the preview pipeline, the preview audio synthesis, and the user event stream. Every one of them is proxied through a route handler under `frontend/src/app/api/`, and all of them share `frontend/src/lib/sse-proxy.ts`. Add new streams to that helper rather than writing a fourth proxy.
@@ -34,7 +39,3 @@ curl -sN --max-time 40 -H "Accept: text/event-stream" http://localhost:3005/api/
 ```
 
 Events must appear spread through the window. If every line lands at the moment the connection closes, it is still buffered. A single short request proves nothing, because a sparse heartbeat can be missed by timing alone.
-- **Running:** `npm run dev` (use `/Users/soudmaijer/.nvm/versions/node/v22.16.0/bin/npm` to avoid the stale npm v2 at `~/node_modules/.bin/npm`). Prefer `./start.sh` and `./stop.sh` from the project root, which manage the backend and the frontend together.
-- **Identifying the running dev server:** `npm run dev` spawns `next dev`, which spawns the `next-server` process that actually binds the port, so a recorded PID is a wrapper and does not tell you whether the frontend is serving. Use `lsof -nP -iTCP:3005 -sTCP:LISTEN`. This matters more than it sounds: an orphaned `next-server` keeps serving the old code while a restart reports success and dies on `EADDRINUSE`, so a change that is merged and "restarted" may not be the change in the browser. `stop.sh` and `start.sh` resolve services by port for this reason.
-- **Config changes need a restart:** `next.config.ts` is picked up by a dev server restart. A hot reload of page code does not re-read it.
-- **Root symlinks:** `node_modules` and `tsconfig.json` in the project root are symlinks to their `frontend/` counterparts. These exist so that IDE language servers (TypeScript, ESLint) can resolve modules and provide diagnostics when files are opened from the project root, rather than only when opened from `frontend/`.
