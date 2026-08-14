@@ -198,7 +198,7 @@ Sending context SHALL NOT reduce parallelism: because the whole script is chunke
 - **THEN** all 5 chunks are still dispatched concurrently
 
 ### Requirement: Inworld steering instructions with per-chunk re-emission
-Inworld steering instructions are supported on `inworld-tts-2` only. A steering instruction is a bracketed free-form English tag that is not one of the documented sound names, for example `[warm and conversational with an easy pace]`. An instruction stays in force until it is changed or cleared with `[reset]`, but only within a single request.
+Inworld steering instructions SHALL be sent only on `inworld-tts-2`, the only model that supports them. A steering instruction is a bracketed free-form English tag that is not one of the documented sound names, for example `[warm and conversational with an easy pace]`. An instruction stays in force until it is changed or cleared with `[reset]`, but only within a single request.
 
 Because the provider splits a turn into multiple requests, the provider SHALL track the active instruction across the chunks of a turn and SHALL prepend it to the head of any subsequent chunk that does not already begin with an instruction, so the direction is not silently lost at a splice point. `[reset]` SHALL clear the active instruction. Sound tags SHALL NOT change the active instruction. Tracking SHALL restart at the beginning of each dialogue turn, so a direction given to one speaker does not carry into another speaker's voice.
 

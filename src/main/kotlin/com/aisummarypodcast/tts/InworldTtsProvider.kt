@@ -62,7 +62,7 @@ class InworldTtsProvider(
 
     override fun scriptGuidelines(style: PodcastStyle, pronunciations: Map<String, String>): String {
         val styleSpecific = when (style) {
-            PodcastStyle.CASUAL, PodcastStyle.DIALOGUE -> CASUAL_ADDITION
+            PodcastStyle.CASUAL, PodcastStyle.DIALOGUE, PodcastStyle.INTERVIEW -> CASUAL_ADDITION
             PodcastStyle.EXECUTIVE_SUMMARY, PodcastStyle.NEWS_BRIEFING -> FORMAL_ADDITION
             else -> ""
         }

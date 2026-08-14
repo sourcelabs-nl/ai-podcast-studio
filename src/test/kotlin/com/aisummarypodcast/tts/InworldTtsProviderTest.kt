@@ -513,6 +513,13 @@ class InworldTtsProviderTest {
     }
 
     @Test
+    fun `interview style guidelines include filler words`() {
+        val guidelines = provider.scriptGuidelines(PodcastStyle.INTERVIEW)
+        assertTrue(guidelines.contains("filler words"))
+        assertFalse(guidelines.contains("Avoid filler words"))
+    }
+
+    @Test
     fun `executive summary guidelines suppress filler words`() {
         val guidelines = provider.scriptGuidelines(PodcastStyle.EXECUTIVE_SUMMARY)
         assertTrue(guidelines.contains("Avoid filler words"))
