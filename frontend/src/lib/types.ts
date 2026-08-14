@@ -152,6 +152,11 @@ export interface PreviewResponse {
   articleIds: number[];
 }
 
+export interface PreviewAudioEstimate {
+  characters: number;
+  costCents: number | null;
+}
+
 export interface EpisodePublication {
   id: number;
   episodeId: number;

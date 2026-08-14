@@ -45,6 +45,7 @@ class ElevenLabsDialogueTtsProvider(
             batches.mapIndexed { index, batch ->
                 log.info("Generating dialogue batch {}/{} ({} turns, {} chars)", index + 1, batches.size, batch.size, batch.sumOf { it.text.length })
                 apiClient.textToDialogue(request.userId, batch, settings)
+                    .also { request.progress?.onChunkCompleted(index + 1, batches.size) }
             }
         }
         val totalCharacters = turns.sumOf { it.text.length }

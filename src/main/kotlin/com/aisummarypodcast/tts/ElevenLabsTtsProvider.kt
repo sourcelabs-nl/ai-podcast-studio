@@ -32,6 +32,7 @@ class ElevenLabsTtsProvider(
             chunks.mapIndexed { index, chunk ->
                 log.info("Generating ElevenLabs TTS chunk {}/{} ({} chars)", index + 1, chunks.size, chunk.length)
                 apiClient.textToSpeech(request.userId, voiceId, chunk, voiceSettings)
+                    .also { request.progress?.onChunkCompleted(index + 1, chunks.size) }
             }
         }
 
