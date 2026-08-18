@@ -125,6 +125,32 @@ class InworldScriptPostProcessorTest {
     }
 
     @Test
+    fun `stripLeadingInstruction removes a leading delivery instruction`() {
+        assertEquals(
+            "Picture someone sitting at home with a laptop.",
+            InworldScriptPostProcessor.stripLeadingInstruction("[with quiet awe] Picture someone sitting at home with a laptop.")
+        )
+    }
+
+    @Test
+    fun `stripLeadingInstruction keeps instructions that are not leading`() {
+        val input = "Picture this. [brightening] And then it shipped."
+        assertEquals(input, InworldScriptPostProcessor.stripLeadingInstruction(input))
+    }
+
+    @Test
+    fun `stripLeadingInstruction keeps a leading sound tag`() {
+        val input = "[laugh] I can't believe it."
+        assertEquals(input, InworldScriptPostProcessor.stripLeadingInstruction(input))
+    }
+
+    @Test
+    fun `stripLeadingInstruction leaves untagged text untouched`() {
+        val input = "Welcome to the show."
+        assertEquals(input, InworldScriptPostProcessor.stripLeadingInstruction(input))
+    }
+
+    @Test
     fun `applies all transformations together`() {
         val input = "## Intro\n**Welcome** to the show! 🎉 [excitedly] Let's begin."
         val result = InworldScriptPostProcessor.process(input)

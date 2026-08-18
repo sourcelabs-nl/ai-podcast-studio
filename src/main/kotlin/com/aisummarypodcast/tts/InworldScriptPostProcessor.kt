@@ -14,6 +14,9 @@ object InworldScriptPostProcessor {
     /** Any bracketed tag left after markdown links have been resolved. */
     internal val BRACKETED_TAG = Regex("\\[([^\\[\\]]*)]")
 
+    /** A bracketed tag occupying the very first characters of the text. */
+    private val LEADING_INSTRUCTION = Regex("^\\[([^\\[\\]]*)] ?")
+
     /** A steering instruction is free-form English prose, so only letters and light punctuation. */
     private val INSTRUCTION_CONTENT = Regex("[A-Za-z][A-Za-z ,'-]*")
 
@@ -66,5 +69,17 @@ object InworldScriptPostProcessor {
     fun isSteeringInstruction(tag: String): Boolean {
         val content = tag.trim()
         return normalizeSoundName(content) == null && INSTRUCTION_CONTENT.matches(content)
+    }
+
+    /**
+     * Removes a delivery instruction from the very start of [text], leaving a leading sound tag such
+     * as `[laugh]` in place. Applied to the first synthesis request of a script, which has no
+     * `synthesisContext` to anchor its delivery: the engine over-commits to an unanchored cue, so a
+     * mood like `[with quiet awe]` turns the cold open into a hushed bedtime story.
+     */
+    fun stripLeadingInstruction(text: String): String {
+        val trimmed = text.trimStart()
+        val match = LEADING_INSTRUCTION.find(trimmed) ?: return text
+        return if (isSteeringInstruction(match.groupValues[1])) trimmed.removeRange(match.range) else text
     }
 }
