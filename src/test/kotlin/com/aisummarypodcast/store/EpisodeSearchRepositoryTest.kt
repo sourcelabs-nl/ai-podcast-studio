@@ -152,13 +152,50 @@ class EpisodeSearchRepositoryTest {
     }
 
     @Test
-    fun `wildcard characters are matched literally`() {
+    fun `pattern metacharacters are matched literally`() {
         val plain = episode(script = "no special characters here")
-        val literal = episode(script = "a 50% improvement")
+        val percent = episode(script = "a 50% improvement")
+        val star = episode(script = "rated 5 * today")
 
-        assertTrue(search("%").episodeIds.contains(literal))
+        assertTrue(search("%").episodeIds.contains(percent))
         assertFalse(search("%").episodeIds.contains(plain))
+        assertTrue(search("*").episodeIds.contains(star))
+        assertFalse(search("*").episodeIds.contains(plain), "a literal * must not behave as a wildcard")
         assertTrue(search("_").episodeIds.isEmpty())
+    }
+
+    @Test
+    fun `matches whole words only`() {
+        val java = episode(script = "we compared Java and Go")
+        val javascript = episode(script = "we compared JavaScript and Go")
+
+        val hits = search("java").episodeIds
+        assertTrue(hits.contains(java))
+        assertFalse(hits.contains(javascript), "'java' must not match inside 'JavaScript'")
+    }
+
+    @Test
+    fun `a digit does not end a word`() {
+        // Model names run straight into their version, so a digit has to count as a boundary.
+        val id = episode()
+        article(id, title = "Qwen3.8-27B beats the frontier", topic = null)
+
+        assertEquals(listOf(id), search("qwen").episodeIds)
+    }
+
+    @Test
+    fun `a term at the very start or end of the text matches`() {
+        val start = episode(script = "Kotlin opens this script")
+        val end = episode(script = "this script ends with Kotlin")
+
+        assertEquals(setOf(start, end), search("kotlin").episodeIds.toSet())
+    }
+
+    @Test
+    fun `punctuation around a term does not prevent a match`() {
+        val id = episode(script = "the winner, (Kotlin), again.")
+
+        assertEquals(listOf(id), search("kotlin").episodeIds)
     }
 
     @Test

@@ -39,6 +39,8 @@ A covered article SHALL match on its `title`, its `summary`, or its `body`. All 
 
 A query SHALL be split on whitespace into terms, and an episode matches only when EVERY term matches at least one of the fields above. The terms need not match the same field, and need not be adjacent in any field.
 
+A term SHALL match whole words only: the characters immediately before and after an occurrence must not be letters. Substring matching is not acceptable here, because "Java" then matches "JavaScript", which on a real archive accounted for the majority of that query's hits. Digits SHALL NOT count as word characters for this purpose, so "qwen" still matches "Qwen3.8", where a model name runs straight into its version. A term at the very start or end of a field SHALL match, and adjacent punctuation SHALL NOT prevent a match. Characters that the matching engine treats as pattern metacharacters SHALL be matched literally, so a query containing one cannot behave as a wildcard.
+
 #### Scenario: Match on a topic label
 - **WHEN** an episode has a covered story with topic `Recall trap in retriever configuration for code repair` and the query is `retriever`
 - **THEN** the episode matches
@@ -67,9 +69,21 @@ A query SHALL be split on whitespace into terms, and an episode matches only whe
 - **WHEN** the query is `qwen benchmark`, one covered topic contains `Qwen` and the script text contains `benchmark`
 - **THEN** the episode matches
 
-#### Scenario: Wildcard characters are matched literally
-- **WHEN** the query is `%`
-- **THEN** only episodes whose searchable text actually contains a percent sign match, rather than every episode
+#### Scenario: Pattern metacharacters are matched literally
+- **WHEN** the query is `*`
+- **THEN** only episodes whose searchable text actually contains an asterisk match, rather than every episode
+
+#### Scenario: A term does not match inside a longer word
+- **WHEN** the query is `java` and an episode mentions only `JavaScript`
+- **THEN** the episode does NOT match, while a query of `javascript` does find it
+
+#### Scenario: A digit does not end a word
+- **WHEN** the query is `qwen` and a covered topic reads `Qwen3.8-27B model release`
+- **THEN** the episode matches, because the digit following the term is treated as a boundary
+
+#### Scenario: A term at the edge of a field matches
+- **WHEN** the term is the first or last word of the script
+- **THEN** the episode matches
 
 #### Scenario: Match on an article summary or body
 - **WHEN** the term appears only in a covered article's summary or body, and not in its title or topic

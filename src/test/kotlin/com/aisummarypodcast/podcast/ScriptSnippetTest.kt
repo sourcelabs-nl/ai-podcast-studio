@@ -65,6 +65,27 @@ class ScriptSnippetTest {
     }
 
     @Test
+    fun `does not match inside a longer word`() {
+        assertNull(ScriptSnippet.firstMatch(listOf("JavaScript everywhere"), listOf("java")))
+    }
+
+    @Test
+    fun `points at the whole-word occurrence rather than an earlier partial one`() {
+        val snippet = ScriptSnippet.firstMatch(
+            listOf("First we covered JavaScript, and later Java itself."),
+            listOf("java")
+        )!!
+        // The evidence must be the real Java mention, not the JavaScript one that precedes it
+        assertTrue(snippet.contains("Java itself"), snippet)
+    }
+
+    @Test
+    fun `a digit does not end a word`() {
+        val snippet = ScriptSnippet.firstMatch(listOf("The Qwen3.8 release landed."), listOf("qwen"))
+        assertEquals("The Qwen3.8 release landed.", snippet)
+    }
+
+    @Test
     fun `earliest term wins when several match`() {
         val snippet = ScriptSnippet.firstMatch(listOf("Kotlin first, then Java."), listOf("java", "kotlin"))
         assertEquals("Kotlin first, then Java.", snippet)
