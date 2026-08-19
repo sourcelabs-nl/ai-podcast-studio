@@ -40,5 +40,7 @@ data class LinkedArticlesResult(
 /** An episode returned by a search, paired with the topics and titles that matched the query. */
 data class EpisodeSearchHit(
     val episode: Episode,
-    val matches: EpisodeMatchDetails
+    val matches: EpisodeMatchDetails,
+    /** The spoken text around the keyword, when the script (or recap, or notes) mentions it. */
+    val scriptContext: String? = null
 )

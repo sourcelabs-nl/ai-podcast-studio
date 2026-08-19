@@ -75,6 +75,8 @@ export interface EpisodeMatches {
   /** The hit came only from the script, recap, or show notes, not from a covered story. */
   scriptOnly: boolean;
   hasMore: boolean;
+  /** The spoken text around the keyword, when the episode's own text mentions it. */
+  scriptContext?: string;
 }
 
 export interface LlmStageCost {

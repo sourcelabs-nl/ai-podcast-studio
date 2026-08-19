@@ -60,12 +60,20 @@ class EpisodeSearchRepositoryTest {
     }
 
     /** Links an article to an episode. A null [topicOrder] means it was gathered but never covered. */
-    private fun article(episodeId: Long, title: String, topic: String?, topicOrder: Int? = 1) {
+    private fun article(
+        episodeId: Long,
+        title: String,
+        topic: String?,
+        topicOrder: Int? = 1,
+        summary: String? = null,
+        body: String = "body"
+    ) {
         val saved = articleRepository.save(
             Article(
                 sourceId = "s1",
                 title = title,
-                body = "body",
+                body = body,
+                summary = summary,
                 url = "https://example.com/${System.nanoTime()}",
                 contentHash = "h-${System.nanoTime()}"
             )
@@ -154,14 +162,40 @@ class EpisodeSearchRepositoryTest {
     }
 
     @Test
-    fun `only the headline portion of a long title matches`() {
+    fun `matches on an article summary`() {
         val id = episode()
-        // Sources such as X store a whole post as the title; a term buried past the headline
-        // window should not make the episode match, since the row could not show why it did.
+        article(id, title = "A headline with no keyword", topic = "Unrelated topic", summary = "the summary mentions Java")
+
+        assertEquals(listOf(id), search("java").episodeIds)
+    }
+
+    @Test
+    fun `matches on an article body`() {
+        val id = episode()
+        article(id, title = "A headline with no keyword", topic = "Unrelated topic", body = "deep in the body: Kotlin")
+
+        assertEquals(listOf(id), search("kotlin").episodeIds)
+    }
+
+    @Test
+    fun `an article matching only in its text is still reported`() {
+        val id = episode()
+        article(id, title = "A headline with no keyword", topic = "Unrelated topic", summary = "the summary mentions Java")
+
+        val details = episodeSearchRepository.findMatchDetails(listOf(id), listOf("java"), 5).getValue(id)
+
+        assertEquals(listOf("A headline with no keyword"), details.articleTitles)
+        assertTrue(details.topics.isEmpty())
+    }
+
+    @Test
+    fun `a term anywhere in a long pasted title matches`() {
+        val id = episode()
+        // Sources such as X store a whole post as the title, so the term can sit far into it.
         article(id, title = "A headline about agents. " + "filler ".repeat(200) + "buriedterm", topic = null)
 
         assertEquals(listOf(id), search("headline").episodeIds)
-        assertTrue(search("buriedterm").episodeIds.isEmpty())
+        assertEquals(listOf(id), search("buriedterm").episodeIds)
     }
 
     @Test

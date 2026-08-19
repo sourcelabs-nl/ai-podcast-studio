@@ -35,7 +35,7 @@ A query term SHALL match case-insensitively as a substring of any of the followi
 
 Article and topic matching SHALL be restricted to stories that were covered in the episode, identified by `episode_articles.topic_order IS NOT NULL`. Articles that were gathered and scored for the episode but never composed into the script SHALL NOT be searched, so an episode only matches on content a listener would have heard.
 
-Only the first 300 characters of `articles.title` SHALL participate in matching. Some sources store an entire post as the article title, so matching the whole field turns the search into a full-text scan of pasted bodies and returns episodes on a word buried thousands of characters in, which the result row cannot show. Bounding the match to the headline keeps every reported hit attributable to text the row displays.
+A covered article SHALL match on its `title`, its `summary`, or its `body`. All three are required: an article's subject frequently appears only in its text, so matching the headline alone reports an episode as "mentioned in the script only" when its source material plainly discusses the term. An article matching only in its text SHALL still be reported by its title, which is the only label a list row can show.
 
 A query SHALL be split on whitespace into terms, and an episode matches only when EVERY term matches at least one of the fields above. The terms need not match the same field, and need not be adjacent in any field.
 
@@ -71,9 +71,9 @@ A query SHALL be split on whitespace into terms, and an episode matches only whe
 - **WHEN** the query is `%`
 - **THEN** only episodes whose searchable text actually contains a percent sign match, rather than every episode
 
-#### Scenario: A term past the headline window does not match
-- **WHEN** a covered article's title is a long pasted post whose only occurrence of the term is beyond the first 300 characters
-- **THEN** the episode does NOT match on that article
+#### Scenario: Match on an article summary or body
+- **WHEN** the term appears only in a covered article's summary or body, and not in its title or topic
+- **THEN** the episode matches, and that article is reported by its title rather than the episode being called script-only
 
 ### Requirement: Search results report why each episode matched
 When `q` is applied, each returned episode SHALL carry a `matches` object describing the hit, so the caller can show why the episode was returned without issuing a follow-up request per result. The object SHALL contain:
@@ -81,6 +81,9 @@ When `q` is applied, each returned episode SHALL carry a `matches` object descri
 - `articleTitles`: the titles of the episode's covered articles that matched the query
 - `scriptOnly`: true when the episode matched but neither `topics` nor `articleTitles` has any entry, meaning the hit came only from `script_text`, `recap`, or `show_notes`
 - `hasMore`: true when the episode matched more topics or titles than the response carries
+- `scriptContext`: the text around the earliest term occurrence in the episode's `script_text`, `recap`, or `show_notes`, or absent when none of them mention it
+
+`scriptContext` SHALL be taken from the first of `script_text`, `recap`, `show_notes` that contains a term, so the spoken script wins over a recap repeating it. Speaker tags such as `<expert>` SHALL be removed and whitespace collapsed, since they are not spoken words. The snippet SHALL keep bounded context on either side of the term, SHALL be elided with an ellipsis where it was cut, and SHALL NOT begin or end mid-word. It SHALL be provided whether or not topics or articles also matched, because seeing the sentence is useful even when the match is otherwise attributable.
 
 A topic or title SHALL be listed when it contains ANY query term, not all of them. The episode as a whole has already been gated on every term, so requiring each individual label to contain all of them would hide the very topic that explains a multi-term match.
 
@@ -92,7 +95,15 @@ Each list SHALL be capped at 5 entries to bound the response size, with `hasMore
 
 #### Scenario: Script-only match reported
 - **WHEN** an episode matches only through its script text
-- **THEN** `matches.topics` and `matches.articleTitles` are both empty and `matches.scriptOnly` is true
+- **THEN** `matches.topics` and `matches.articleTitles` are both empty, `matches.scriptOnly` is true, and `matches.scriptContext` carries the surrounding spoken text
+
+#### Scenario: Script context accompanies an attributable match
+- **WHEN** an episode matches on a covered topic AND its script also mentions the term
+- **THEN** `matches.scriptOnly` is false and `matches.scriptContext` is still present
+
+#### Scenario: No script context when only an article matched
+- **WHEN** the term appears in a covered article but nowhere in the episode's script, recap, or show notes
+- **THEN** `matches.scriptContext` is absent
 
 #### Scenario: Match lists are capped
 - **WHEN** an episode matches on 9 covered topics

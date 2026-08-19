@@ -83,18 +83,18 @@ class EpisodeSearchRepositoryImpl(
         // Any term hitting either column makes the row worth showing; ALL-terms gating happened
         // at the episode level, so a per-row AND here would hide the topic that explains the match.
         val topicMatches = terms.indices.joinToString(" OR ") { "LOWER(COALESCE(ea.topic, '')) LIKE :t$it ESCAPE '\\'" }
-        val titleMatches = terms.indices.joinToString(" OR ") { "LOWER(SUBSTR(a.title, 1, $TITLE_MATCH_CHARS)) LIKE :t$it ESCAPE '\\'" }
+        val articleMatches = terms.indices.joinToString(" OR ") { ARTICLE_TEXT_MATCH.replace("?", "$it") }
 
         val rows = jdbcClient.sql(
             """
             SELECT ea.episode_id, ea.topic, a.title,
                    ($topicMatches) AS topic_hit,
-                   ($titleMatches) AS title_hit
+                   ($articleMatches) AS article_hit
             FROM episode_articles ea
             JOIN articles a ON a.id = ea.article_id
             WHERE ea.episode_id IN (:episodeIds)
               AND ea.topic_order IS NOT NULL
-              AND (($topicMatches) OR ($titleMatches))
+              AND (($topicMatches) OR ($articleMatches))
             ORDER BY ea.episode_id, ea.topic_order
             """.trimIndent()
         )
@@ -106,7 +106,7 @@ class EpisodeSearchRepositoryImpl(
                     topic = rs.getString("topic"),
                     title = rs.getString("title"),
                     topicHit = rs.getBoolean("topic_hit"),
-                    titleHit = rs.getBoolean("title_hit")
+                    articleHit = rs.getBoolean("article_hit")
                 )
             }
             .list()
@@ -114,7 +114,7 @@ class EpisodeSearchRepositoryImpl(
         return rows.groupBy { it.episodeId }.mapValues { (_, episodeRows) ->
             EpisodeMatchDetails(
                 topics = episodeRows.filter { it.topicHit }.mapNotNull { it.topic }.distinct().take(limitPerEpisode),
-                articleTitles = episodeRows.filter { it.titleHit }.map { it.title }.distinct().take(limitPerEpisode)
+                articleTitles = episodeRows.filter { it.articleHit }.map { it.title }.distinct().take(limitPerEpisode)
             )
         }
     }
@@ -141,7 +141,7 @@ class EpisodeSearchRepositoryImpl(
                 JOIN articles a ON a.id = ea.article_id
                 WHERE ea.episode_id = e.id
                   AND ea.topic_order IS NOT NULL
-                  AND (LOWER(COALESCE(ea.topic, '')) LIKE :t$index ESCAPE '\' OR LOWER(SUBSTR(a.title, 1, $TITLE_MATCH_CHARS)) LIKE :t$index ESCAPE '\')
+                  AND (LOWER(COALESCE(ea.topic, '')) LIKE :t$index ESCAPE '\' OR ${ARTICLE_TEXT_MATCH.replace("?", "$index")})
             )
         )
     """.trimIndent()
@@ -161,17 +161,20 @@ class EpisodeSearchRepositoryImpl(
         val topic: String?,
         val title: String,
         val topicHit: Boolean,
-        val titleHit: Boolean
+        val articleHit: Boolean
     )
 
     companion object {
         /**
-         * How much of `articles.title` participates in matching. Some sources (X posts especially)
-         * store an entire post as the title, so an unbounded match turns this into a full-text
-         * search over pasted bodies and surfaces episodes on a word buried thousands of characters
-         * in. Matching the headline keeps a hit attributable to what the row can actually show.
+         * A covered article matches on its headline, its LLM-written summary, or its body. All three
+         * are needed: an article's subject often appears only in the text, so matching the headline
+         * alone reports "mentioned in the script only" for an episode whose source material plainly
+         * discusses the term. `?` is a placeholder for the term index, filled in by the caller.
          */
-        internal const val TITLE_MATCH_CHARS = 300
+        private const val ARTICLE_TEXT_MATCH =
+            "LOWER(a.title) LIKE :t? ESCAPE '\\' " +
+                "OR LOWER(COALESCE(a.summary, '')) LIKE :t? ESCAPE '\\' " +
+                "OR LOWER(a.body) LIKE :t? ESCAPE '\\'"
 
         /**
          * Wraps a term for a substring match, escaping the characters `LIKE` would otherwise treat

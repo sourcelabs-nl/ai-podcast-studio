@@ -136,7 +136,8 @@ internal fun EpisodeSearchHit.toResponse(): EpisodeResponse {
             topics = topics,
             articleTitles = titles,
             scriptOnly = topics.isEmpty() && titles.isEmpty(),
-            hasMore = hasMore
+            hasMore = hasMore,
+            scriptContext = scriptContext
         )
     )
 }
