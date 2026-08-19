@@ -398,39 +398,44 @@ export default function EpisodesPage() {
       </Link>
 
       <Tabs value={currentTab} onValueChange={(v) => setTab(v as typeof TABS[number])}>
-        <TabsList>
-          <TabsTrigger value="episodes">Episodes</TabsTrigger>
-          <TabsTrigger value="publications">Publications</TabsTrigger>
-          <TabsTrigger value="sources">Sources</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between gap-3">
+          <TabsList>
+            <TabsTrigger value="episodes">Episodes</TabsTrigger>
+            <TabsTrigger value="publications">Publications</TabsTrigger>
+            <TabsTrigger value="sources">Sources</TabsTrigger>
+          </TabsList>
+          {/* Search filters the episode list only, so it appears only while that tab is active. */}
+          {currentTab === "episodes" && (
+            <div className="flex items-center gap-3">
+              {search && (
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  {episodesTotal} {episodesTotal === 1 ? "episode" : "episodes"} match
+                </span>
+              )}
+              <div className="relative w-72">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
+                  placeholder="Search topics, headlines, script..."
+                  className="pl-8 pr-8"
+                />
+                {searchDraft && (
+                  <button
+                    type="button"
+                    title="Clear search"
+                    onClick={() => setSearchDraft("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <TabsContent value="episodes">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="relative w-full max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                value={searchDraft}
-                onChange={(e) => setSearchDraft(e.target.value)}
-                placeholder="Search topics, headlines, script..."
-                className="pl-8 pr-8"
-              />
-              {searchDraft && (
-                <button
-                  type="button"
-                  title="Clear search"
-                  onClick={() => setSearchDraft("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-4" />
-                </button>
-              )}
-            </div>
-            {search && (
-              <span className="text-sm text-muted-foreground">
-                {episodesTotal} {episodesTotal === 1 ? "episode" : "episodes"} match
-              </span>
-            )}
-          </div>
           {episodes.length === 0 ? (
             <p className="text-muted-foreground">
               {search ? `No episodes match "${search}".` : "No episodes found."}
