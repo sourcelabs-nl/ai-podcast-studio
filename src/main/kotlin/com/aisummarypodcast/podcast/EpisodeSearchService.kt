@@ -38,7 +38,17 @@ class EpisodeSearchService(
 
         // Re-order by the id list: findAllById gives no ordering guarantee, and the sort is the query's.
         val hits = page.episodeIds.mapNotNull { id ->
-            byId[id]?.let { EpisodeSearchHit(it, details[id] ?: EMPTY_MATCH) }
+            byId[id]?.let { episode ->
+                EpisodeSearchHit(
+                    episode = episode,
+                    matches = details[id] ?: EMPTY_MATCH,
+                    // Computed here rather than in SQL: the episode text is already loaded.
+                    scriptContext = ScriptSnippet.firstMatch(
+                        listOf(episode.scriptText, episode.recap, episode.showNotes),
+                        terms
+                    )
+                )
+            }
         }
         return PageImpl(hits, pageable, page.total)
     }
