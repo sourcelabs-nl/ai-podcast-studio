@@ -12,6 +12,7 @@ import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.ai.chat.messages.AssistantMessage
@@ -22,6 +23,8 @@ import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.model.Generation
 import org.springframework.ai.chat.prompt.Prompt
 import org.springframework.ai.openai.OpenAiChatOptions
+import org.springframework.jdbc.UncategorizedSQLException
+import java.sql.SQLException
 
 class CachingChatModelTest {
 
@@ -156,6 +159,42 @@ class CachingChatModelTest {
 
         assertEquals("", result.result!!.output.text)
         verify(exactly = 0) { llmCacheRepository.save(any<LlmCache>()) }
+    }
+
+    @Test
+    fun `losing a concurrent insert race still returns the response`() {
+        // Two concurrent identical prompts (duplicate/syndicated articles during parallel scoring)
+        // both miss the cache and both insert the same (prompt_hash, model) key. The loser hits the
+        // UNIQUE constraint, which SQLite surfaces as an uncategorized SQLException with code 19.
+        val prompt = Prompt("Summarize this article", OpenAiChatOptions.builder().model("test-model").build())
+        val expectedResponse = ChatResponse(listOf(Generation(AssistantMessage("A summary"))))
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns null
+        every { delegate.call(prompt) } returns expectedResponse
+        every { llmCacheRepository.save(any<LlmCache>()) } throws UncategorizedSQLException(
+            "INSERT INTO llm_cache",
+            "insert",
+            SQLException("A UNIQUE constraint failed", null, 19)
+        )
+
+        val result = cachingChatModel.call(prompt)
+
+        assertEquals("A summary", result.result!!.output.text)
+    }
+
+    @Test
+    fun `an unrelated database failure on the cache write is not swallowed`() {
+        val prompt = Prompt("Summarize this article", OpenAiChatOptions.builder().model("test-model").build())
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns null
+        every { delegate.call(prompt) } returns ChatResponse(listOf(Generation(AssistantMessage("A summary"))))
+        every { llmCacheRepository.save(any<LlmCache>()) } throws UncategorizedSQLException(
+            "INSERT INTO llm_cache",
+            "insert",
+            SQLException("database or disk is full", null, 13)
+        )
+
+        assertThrows(UncategorizedSQLException::class.java) { cachingChatModel.call(prompt) }
     }
 
     @Test

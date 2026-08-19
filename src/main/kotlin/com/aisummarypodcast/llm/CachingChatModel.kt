@@ -12,9 +12,14 @@ import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.model.Generation
 import org.springframework.ai.chat.prompt.ChatOptions
 import org.springframework.ai.chat.prompt.Prompt
+import org.springframework.core.NestedExceptionUtils
 import reactor.core.publisher.Flux
 import java.security.MessageDigest
+import java.sql.SQLException
 import java.time.Instant
+
+/** SQLite's generic constraint-failure code (`SQLITE_CONSTRAINT`). */
+private const val SQLITE_CONSTRAINT_ERROR_CODE = 19
 
 /**
  * Wraps the underlying [ChatModel] with a SQLite-backed cache. Safe under Spring AI
@@ -54,7 +59,7 @@ class CachingChatModel(
             // failure, turning a transient model hiccup into a permanently stuck episode.
             if (!responseText.isNullOrBlank()) {
                 val usage = response.metadata?.usage
-                llmCacheRepository.save(
+                store(
                     LlmCache(
                         promptHash = promptHash,
                         model = model,
@@ -65,7 +70,6 @@ class CachingChatModel(
                         reportedCostUsd = TokenUsage.fromChatResponse(response).reportedCostUsd
                     )
                 )
-                log.debug("LLM cache miss — stored for model={} hash={}", model, promptHash.take(12))
             }
         }
 
@@ -82,6 +86,37 @@ class CachingChatModel(
     // OpenAiChatModel fails to cast them to OpenAiChatOptions. Delegate so the provider type
     // (OpenAiChatOptions) is preserved through the merge.
     override fun getOptions(): ChatOptions = delegate.options
+
+    /**
+     * Stores a cache entry, treating a lost insert race as success. Stages that fan out (article
+     * scoring runs several calls concurrently) can issue byte-identical prompts — duplicate or
+     * syndicated articles — so two callers both miss the cache and both insert the same
+     * `(prompt_hash, model)` key. The loser hits the UNIQUE constraint, but the row it wanted is
+     * already there, so the write is simply redundant and must not fail the LLM call.
+     */
+    private fun store(entry: LlmCache) {
+        try {
+            llmCacheRepository.save(entry)
+            log.debug("LLM cache miss — stored for model={} hash={}", entry.model, entry.promptHash.take(12))
+        } catch (e: RuntimeException) {
+            if (!isUniqueConstraintViolation(e)) throw e
+            log.debug(
+                "LLM cache entry for model={} hash={} was already written by a concurrent call",
+                entry.model, entry.promptHash.take(12)
+            )
+        }
+    }
+
+    /**
+     * SQLite's exception translator leaves constraint failures uncategorized (they arrive as
+     * `UncategorizedSQLException`, not `DataIntegrityViolationException`), so the SQLite error code
+     * is inspected directly. Code 19 covers every constraint kind, and `UNIQUE (prompt_hash, model)`
+     * is the only one an `llm_cache` insert can break.
+     */
+    private fun isUniqueConstraintViolation(e: RuntimeException): Boolean {
+        val cause = NestedExceptionUtils.getMostSpecificCause(e)
+        return cause is SQLException && cause.errorCode == SQLITE_CONSTRAINT_ERROR_CODE
+    }
 
     private fun userPromptText(prompt: Prompt): String =
         prompt.instructions
