@@ -304,10 +304,45 @@ class InworldTtsProviderTest {
         provider.generate(request("[warm and conversational] " + sentences.joinToString("")))
 
         assertEquals(3, calls.size)
+        // The opening chunk is synthesized without context, so it is left unsteered
+        val (opening, rest) = calls.keys.partition { it.startsWith("A") }
+        assertEquals(1, opening.size)
         assertTrue(
-            calls.keys.all { it.startsWith("[warm and conversational] ") },
-            "Every chunk should carry the active instruction: ${calls.keys.map { it.take(30) }}"
+            rest.all { it.startsWith("[warm and conversational] ") },
+            "Every later chunk should carry the active instruction: ${rest.map { it.take(30) }}"
         )
+    }
+
+    @Test
+    fun `drops a delivery instruction from the opening chunk of a monologue`() = runTest {
+        val calls = recordCalls()
+
+        provider.generate(request("[with quiet awe] Picture someone with a laptop."))
+
+        assertEquals(setOf("Picture someone with a laptop."), calls.keys)
+    }
+
+    @Test
+    fun `drops a delivery instruction from the first dialogue turn only`() = runTest {
+        val calls = recordCalls()
+
+        provider.generate(
+            request(
+                "<host>[with quiet awe] Big news!</host><cohost>[excited and fast] Tell me more.</cohost>",
+                ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2")
+            )
+        )
+
+        assertEquals(setOf("Big news!", "[excited and fast] Tell me more."), calls.keys)
+    }
+
+    @Test
+    fun `keeps a sound tag on the opening of the script`() = runTest {
+        val calls = recordCalls()
+
+        provider.generate(request("[laugh] Welcome back."))
+
+        assertEquals(setOf("[laugh] Welcome back."), calls.keys)
     }
 
     @Test
@@ -327,12 +362,12 @@ class InworldTtsProviderTest {
 
         provider.generate(
             request(
-                "<host>[excited and fast] Big news!</host><cohost>Tell me more.</cohost>",
+                "<host>Welcome back.</host><cohost>[excited and fast] Big news!</cohost><host>Tell me more.</host>",
                 ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2")
             )
         )
 
-        assertEquals(setOf("[excited and fast] Big news!", "Tell me more."), calls.keys)
+        assertEquals(setOf("Welcome back.", "[excited and fast] Big news!", "Tell me more."), calls.keys)
     }
 
     // --- Parallel generation tests ---
@@ -564,6 +599,17 @@ class InworldTtsProviderTest {
             val guidelines = provider.scriptGuidelines(style)
             assertTrue(guidelines.contains("[warm and conversational with an easy pace]"), "Missing steering example for $style")
             assertTrue(guidelines.contains("[reset]"), "Missing reset instruction for $style")
+        }
+    }
+
+    @Test
+    fun `all styles forbid a delivery direction on the first turn`() {
+        for (style in PodcastStyle.entries) {
+            val guidelines = provider.scriptGuidelines(style)
+            assertTrue(
+                guidelines.contains("NEVER put a delivery direction on the script's very first turn"),
+                "Missing first-turn steering ban for $style"
+            )
         }
     }
 

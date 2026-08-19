@@ -46,6 +46,7 @@ class InworldTtsProvider(
             |- Pacing: use ellipsis (...) for trailing pauses, exclamation marks for excitement
             |- Deliberate pauses: for a beat between segments use an SSML break tag such as <break time="1s" />. Use at most a handful per script (the engine honours 20 per request, each at most 10 seconds), and do not put one at a paragraph break, where the pause already exists
             |- Delivery direction: you may open a speaker turn or a new segment with ONE short English instruction in square brackets, e.g. [warm and conversational with an easy pace]. Put it at the very start, use at most one per turn, keep it consistent with what is being said, and write [reset] to return to neutral delivery
+            |- NEVER put a delivery direction on the script's very first turn. The opening is synthesized with no preceding audio to anchor it, so the engine over-commits to the cue and a mood like [with quiet awe] makes the cold open sound like a hushed bedtime story. Let the opening words carry the tone themselves
             |Text formatting rules:
             |- Write all numbers, dates, currencies, and symbols in fully spoken form (e.g. "twenty twenty-six" not "2026", "five thousand dollars" not "$5,000", "ten percent" not "10%")
             |- Acronyms: expand an acronym on first use, then use the short form. Write the short form as a word when it is pronounceable (NASA, GPT) and spell it out letter by letter when it is not (A-P-I, L-L-M) — automatic normalization does not cover domain acronyms
@@ -106,7 +107,7 @@ class InworldTtsProvider(
         val voiceId = request.ttsVoices["default"]
             ?: throw IllegalStateException("Inworld TTS requires a 'default' voice in ttsVoices")
 
-        val chunks = prepareChunks(request.script, modelId)
+        val chunks = prepareChunks(request.script, modelId, isScriptOpening = true)
         log.info("Generating Inworld TTS audio for {} chunks in parallel (voice: {}, model: {}, options: {})", chunks.size, voiceId, modelId, options)
 
         val audioChunks = synthesizeAll(request, chunks.map { ChunkWork(voiceId, it) }, modelId, options)
@@ -131,7 +132,7 @@ class InworldTtsProvider(
                 ?: throw IllegalStateException(
                     "No voice configured for role '${turn.role}'. Available roles: ${request.ttsVoices.keys.joinToString()}"
                 )
-            val turnChunks = prepareChunks(turn.text, modelId)
+            val turnChunks = prepareChunks(turn.text, modelId, isScriptOpening = index == 0)
             log.info("Inworld dialogue turn {}/{} (role: {}, {} chunks, {} chars)", index + 1, turns.size, turn.role, turnChunks.size, turn.text.length)
             turnChunks.map { chunk -> ChunkWork(voiceId, chunk) }
         }
@@ -178,12 +179,23 @@ class InworldTtsProvider(
         return SynthesisOutput(audio, totalCharacters.get())
     }
 
-    /** Post-processes, chunks, and keeps any steering instruction alive across the chunk splices. */
-    private fun prepareChunks(text: String, modelId: String): List<String> {
+    /**
+     * Post-processes, chunks, and keeps any steering instruction alive across the chunk splices.
+     *
+     * @param isScriptOpening true for the monologue script or the first dialogue turn, whose first
+     *   chunk is the one request synthesized with no preceding audio as context. A delivery
+     *   instruction lands unanchored there and dominates the read, so it is dropped from that chunk
+     *   alone — re-emission has already carried it onto the chunks that follow.
+     */
+    private fun prepareChunks(text: String, modelId: String, isScriptOpening: Boolean): List<String> {
         val supportsSteering = InworldSteering.supportsSteering(modelId)
         val processed = InworldScriptPostProcessor.process(text, retainSteeringInstructions = supportsSteering)
         val chunks = TextChunker.chunk(processed, maxChunkSize)
-        return if (supportsSteering) InworldSteering.reemitInstructions(chunks) else chunks
+        val steered = if (supportsSteering) InworldSteering.reemitInstructions(chunks) else chunks
+        if (!isScriptOpening || steered.isEmpty()) return steered
+        return steered.mapIndexed { index, chunk ->
+            if (index == 0) InworldScriptPostProcessor.stripLeadingInstruction(chunk) else chunk
+        }
     }
 
     /** The most recent preceding texts that fit within both bounds, oldest first. */
