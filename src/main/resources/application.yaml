@@ -89,6 +89,11 @@ app:
         type: llm
         input-cost-per-mtok: 1.00
         output-cost-per-mtok: 4.00
+      # Z.ai is the only provider serving GLM-5.3, so its list price is the routed price.
+      "[z-ai/glm-5.3]":
+        type: llm
+        input-cost-per-mtok: 1.40
+        output-cost-per-mtok: 4.40
     openai:
       "[tts-1-hd]":
         type: tts
