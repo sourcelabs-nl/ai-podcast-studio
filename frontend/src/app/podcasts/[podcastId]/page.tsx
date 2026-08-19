@@ -725,7 +725,9 @@ export default function EpisodesPage() {
                       onClick={() => router.push(`/podcasts/${params.podcastId}/episodes/${episode.id}`)}
                     >
                       <TableCell />
-                      <TableCell colSpan={7} className="pt-0 pb-3">
+                      {/* max-w-0 keeps the cell from growing to fit its content, which is what lets
+                          the labels inside truncate instead of widening the whole table. */}
+                      <TableCell colSpan={7} className="pt-0 pb-3 max-w-0 overflow-hidden">
                         <EpisodeMatchDetails matches={episode.matches} />
                       </TableCell>
                     </TableRow>

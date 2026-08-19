@@ -89,7 +89,8 @@ class EpisodeControllerTest {
             .andExpect(jsonPath("$.items[0].matches.topics[0]").value("Retriever config"))
             .andExpect(jsonPath("$.items[0].matches.articleTitles[0]").value("A headline"))
             .andExpect(jsonPath("$.items[0].matches.scriptOnly").value(false))
-            .andExpect(jsonPath("$.items[0].matches.hasMore").value(false))
+            .andExpect(jsonPath("$.items[0].matches.topicTotal").value(1))
+            .andExpect(jsonPath("$.items[0].matches.articleTotal").value(1))
 
         verify(exactly = 0) { episodeService.findByPodcastIdPaged(any(), any(), any()) }
     }
@@ -140,19 +141,19 @@ class EpisodeControllerTest {
     }
 
     @Test
-    fun `match lists are capped and flagged in the response`() {
+    fun `match lists are capped while the total counts every match`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         val topics = (1..9).map { "Topic $it" }
         every { episodeSearchService.search(podcastId, emptyList(), "topic", any()) } returns
             org.springframework.data.domain.PageImpl(
-                listOf(EpisodeSearchHit(generatedEpisode, EpisodeMatchDetails(topics, emptyList())))
+                listOf(EpisodeSearchHit(generatedEpisode, EpisodeMatchDetails(topics, emptyList(), topicTotal = topics.size)))
             )
 
         mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?q=topic"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.items[0].matches.topics.length()").value(EpisodeSearchService.MAX_MATCHES_PER_EPISODE))
-            .andExpect(jsonPath("$.items[0].matches.hasMore").value(true))
+            .andExpect(jsonPath("$.items[0].matches.topicTotal").value(9))
     }
 
     @Test

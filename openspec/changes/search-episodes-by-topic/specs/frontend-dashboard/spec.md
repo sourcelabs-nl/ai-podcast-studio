@@ -38,21 +38,35 @@ When a search is active, the page SHALL show how many episodes matched, and SHAL
 ### Requirement: Episode rows show why they matched a search
 When a search is active, each episode row SHALL display the match details returned by the endpoint, so the user can see why the episode was returned without opening it.
 
-Matching topic labels SHALL be displayed under the row. Matching article titles SHALL be displayed when there are no matching topics, or alongside them, so a hit is always attributable to something concrete. An episode whose `matches.scriptOnly` is true SHALL be labelled as having matched only in the script text, visually distinct from a covered-story match, because a passing mention in dialogue is weaker evidence than a story the episode was built around. When the endpoint caps a match list, the row SHALL indicate that more matches exist rather than silently showing only the first few.
+Match details SHALL occupy at most two compact lines per episode, because an episode can match many topics and articles at once and rendering them all makes the result list unreadable.
+
+Matching topic labels SHALL be displayed as chips, each truncated to a bounded width with the full label available on hover, and the count of any topics beyond those shown SHALL be summarised rather than listed. Matching articles SHALL be summarised as a single count chip with the titles available on hover, not rendered inline: article titles are long and numerous, and listing them was what made the list messy.
+
+Every label SHALL truncate rather than widen its row. The episode table SHALL NOT become wider than the page because of a long match label.
+
+An episode whose `matches.scriptOnly` is true SHALL be labelled as having matched only in the script text, because a passing mention in dialogue is weaker evidence than a story the episode was built around. `matches.scriptContext` SHALL be shown on its own line, quoted and truncated to one line, with the full text on hover.
 
 Match details SHALL NOT be rendered when no search is active, leaving the row exactly as it is today.
 
 #### Scenario: Topic match shown on the row
 - **WHEN** an episode matched on two covered topics
-- **THEN** both topic labels are displayed under that episode's row
+- **THEN** both topic labels are displayed as chips under that episode's row
 
 #### Scenario: Script-only match labelled
 - **WHEN** an episode's `matches.scriptOnly` is true
 - **THEN** the row indicates the match came only from the script text, distinct from a topic match
 
-#### Scenario: Capped match list indicated
-- **WHEN** an episode's match list was capped by the endpoint
-- **THEN** the row indicates that further matches exist
+#### Scenario: Extra topics summarised rather than listed
+- **WHEN** an episode's `topicTotal` exceeds the labels carried in `topics`
+- **THEN** the row shows the displayed chips followed by a count of the remaining topics
+
+#### Scenario: Articles summarised as a count
+- **WHEN** an episode matched four articles
+- **THEN** the row shows a single chip reading "4 articles" with the titles available on hover, rather than four title chips
+
+#### Scenario: A long label does not widen the table
+- **WHEN** a matching label is longer than the space available
+- **THEN** it is truncated within its chip and the table stays within the page width
 
 #### Scenario: No match details without a search
 - **WHEN** no search is active

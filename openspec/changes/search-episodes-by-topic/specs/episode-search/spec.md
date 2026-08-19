@@ -94,14 +94,14 @@ When `q` is applied, each returned episode SHALL carry a `matches` object descri
 - `topics`: the distinct topic labels of the episode's covered stories that matched the query
 - `articleTitles`: the titles of the episode's covered articles that matched the query
 - `scriptOnly`: true when the episode matched but neither `topics` nor `articleTitles` has any entry, meaning the hit came only from `script_text`, `recap`, or `show_notes`
-- `hasMore`: true when the episode matched more topics or titles than the response carries
+- `topicTotal` and `articleTotal`: how many topics and articles matched in total, counting those beyond the labels carried
 - `scriptContext`: the text around the earliest term occurrence in the episode's `script_text`, `recap`, or `show_notes`, or absent when none of them mention it
 
 `scriptContext` SHALL be taken from the first of `script_text`, `recap`, `show_notes` that contains a term, so the spoken script wins over a recap repeating it. Speaker tags such as `<expert>` SHALL be removed and whitespace collapsed, since they are not spoken words. The snippet SHALL keep bounded context on either side of the term, SHALL be elided with an ellipsis where it was cut, and SHALL NOT begin or end mid-word. It SHALL be provided whether or not topics or articles also matched, because seeing the sentence is useful even when the match is otherwise attributable.
 
 A topic or title SHALL be listed when it contains ANY query term, not all of them. The episode as a whole has already been gated on every term, so requiring each individual label to contain all of them would hide the very topic that explains a multi-term match.
 
-Each list SHALL be capped at 5 entries to bound the response size, with `hasMore` reporting that the episode matched beyond the cap. Each label SHALL have its whitespace collapsed and SHALL be truncated to 120 characters with a trailing ellipsis, because an article title can run to thousands of characters and the caller renders these inline. When `q` is not applied, the `matches` object SHALL be absent, leaving the existing response shape unchanged.
+Each list SHALL be capped at 3 entries to bound the response size, while the totals count every match so the caller can summarise the remainder rather than implying the episode matched only what it shows. Each label SHALL have its whitespace collapsed and SHALL be truncated to 80 characters with a trailing ellipsis, because an article title can run to thousands of characters and the caller renders these on one line. When `q` is not applied, the `matches` object SHALL be absent, leaving the existing response shape unchanged.
 
 #### Scenario: Topic match reported
 - **WHEN** an episode matches on two covered topics
@@ -119,9 +119,9 @@ Each list SHALL be capped at 5 entries to bound the response size, with `hasMore
 - **WHEN** the term appears in a covered article but nowhere in the episode's script, recap, or show notes
 - **THEN** `matches.scriptContext` is absent
 
-#### Scenario: Match lists are capped
+#### Scenario: Match lists are capped while the total is exact
 - **WHEN** an episode matches on 9 covered topics
-- **THEN** `matches.topics` contains 5 entries and `matches.hasMore` is true
+- **THEN** `matches.topics` contains 3 entries and `matches.topicTotal` is 9
 
 #### Scenario: A long label is truncated
 - **WHEN** a matching article title is 3000 characters long

@@ -7,8 +7,17 @@ import org.springframework.stereotype.Repository
 /** A page of episode ids matching a search, newest first, with the total across all pages. */
 data class EpisodeSearchPage(val episodeIds: List<Long>, val total: Long)
 
-/** Why one episode matched: the covered topics and article titles that contain a query term. */
-data class EpisodeMatchDetails(val topics: List<String>, val articleTitles: List<String>)
+/**
+ * Why one episode matched: the covered topics and article titles containing a query term. The lists
+ * are capped for display while the totals count every match, so a row can summarise the remainder
+ * instead of implying it found only what it shows.
+ */
+data class EpisodeMatchDetails(
+    val topics: List<String>,
+    val articleTitles: List<String>,
+    val topicTotal: Int = topics.size,
+    val articleTotal: Int = articleTitles.size
+)
 
 interface EpisodeSearchRepository {
 
@@ -112,9 +121,13 @@ class EpisodeSearchRepositoryImpl(
             .list()
 
         return rows.groupBy { it.episodeId }.mapValues { (_, episodeRows) ->
+            val topics = episodeRows.filter { it.topicHit }.mapNotNull { it.topic }.distinct()
+            val titles = episodeRows.filter { it.articleHit }.map { it.title }.distinct()
             EpisodeMatchDetails(
-                topics = episodeRows.filter { it.topicHit }.mapNotNull { it.topic }.distinct().take(limitPerEpisode),
-                articleTitles = episodeRows.filter { it.articleHit }.map { it.title }.distinct().take(limitPerEpisode)
+                topics = topics.take(limitPerEpisode),
+                articleTitles = titles.take(limitPerEpisode),
+                topicTotal = topics.size,
+                articleTotal = titles.size
             )
         }
     }
