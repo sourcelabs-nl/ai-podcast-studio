@@ -44,6 +44,8 @@ Each line SHALL open with plain language naming what was found and where, quotin
 
 Match details SHALL be visually attached to the episode they describe: the row separator SHALL fall after the details rather than between the episode row and its details, and there SHALL be vertical space between the episode row and the details beneath it.
 
+The details SHALL be presented as a subtly tinted panel with a border slightly darker than the table's own separators, so they read as commentary attached to the episode rather than as another row of table data. The tint SHALL work in both light and dark themes.
+
 Matching topic labels SHALL be displayed as chips, each truncated to a bounded width with the full label available on hover, and the count of any topics beyond those shown SHALL be summarised rather than listed. Matching articles SHALL be summarised as a single count chip with the titles available on hover, not rendered inline: article titles are long and numerous, and listing them was what made the list messy.
 
 Every label SHALL truncate rather than widen its row. The episode table SHALL NOT become wider than the page because of a long match label.
