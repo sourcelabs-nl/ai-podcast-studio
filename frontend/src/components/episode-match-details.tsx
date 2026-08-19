@@ -26,7 +26,9 @@ export function EpisodeMatchDetails({
   const quoted = `"${query.trim()}"`;
 
   return (
-    <div className="flex flex-col gap-1.5 min-w-0">
+    // A tinted panel with a slightly darker border than the table's own, so the explanation reads as
+    // attached commentary on the episode above rather than as another row of table data.
+    <div className="flex flex-col gap-1.5 min-w-0 rounded-md border border-muted-foreground/20 bg-muted/40 px-3 py-2">
       {hasLabels && (
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-xs text-muted-foreground whitespace-nowrap">Found {quoted} in</span>
