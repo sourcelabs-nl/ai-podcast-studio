@@ -49,6 +49,9 @@ const TABS = ["episodes", "publications", "sources"] as const;
 /** Long enough that typing a word does not fire a query per keystroke, short enough to feel live. */
 const SEARCH_DEBOUNCE_MS = 300;
 
+/** Matches `EpisodeSearchService.MIN_QUERY_LENGTH`; shorter fragments are ignored by the backend. */
+const MIN_SEARCH_TERM_LENGTH = 2;
+
 const STATUSES = [
   "GENERATING",
   "GENERATING_AUDIO",
@@ -119,6 +122,12 @@ export default function EpisodesPage() {
   })();
   const statusFilter = useMemo(() => new Set(searchParams.getAll("status")), [searchParams]);
   const search = searchParams.get("q") ?? "";
+  // Mirrors the backend's term split (whitespace, minimum two characters) so the words highlighted
+  // in a row are exactly the words the search matched on.
+  const searchTerms = useMemo(
+    () => search.trim().split(/\s+/).filter((term) => term.length >= MIN_SEARCH_TERM_LENGTH),
+    [search]
+  );
 
   const updateQuery = useCallback((patch: Record<string, string | string[] | null>) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -435,7 +444,7 @@ export default function EpisodesPage() {
           )}
         </div>
 
-        <TabsContent value="episodes">
+        <TabsContent value="episodes" className="mt-4">
           {episodes.length === 0 ? (
             <p className="text-muted-foreground">
               {search ? `No episodes match "${search}".` : "No episodes found."}
@@ -728,7 +737,7 @@ export default function EpisodesPage() {
                       {/* max-w-0 keeps the cell from growing to fit its content, which is what lets
                           the labels inside truncate instead of widening the whole table. */}
                       <TableCell colSpan={7} className="pt-0 pb-3 max-w-0 overflow-hidden">
-                        <EpisodeMatchDetails matches={episode.matches} />
+                        <EpisodeMatchDetails matches={episode.matches} terms={searchTerms} />
                       </TableCell>
                     </TableRow>
                   )}

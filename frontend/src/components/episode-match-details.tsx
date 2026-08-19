@@ -1,5 +1,6 @@
 import { Hash, Newspaper, Quote } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { highlightTerms } from "@/lib/highlight";
 import type { EpisodeMatches } from "@/lib/types";
 
 /**
@@ -10,7 +11,7 @@ import type { EpisodeMatches } from "@/lib/types";
  * the result list unreadable. Every chip truncates, which needs `min-w-0` on the label inside the
  * badge's flex box, otherwise the badge grows to fit and pushes the table wider than the page.
  */
-export function EpisodeMatchDetails({ matches }: { matches: EpisodeMatches }) {
+export function EpisodeMatchDetails({ matches, terms }: { matches: EpisodeMatches; terms: string[] }) {
   const extraTopics = matches.topicTotal - matches.topics.length;
 
   return (
@@ -25,7 +26,7 @@ export function EpisodeMatchDetails({ matches }: { matches: EpisodeMatches }) {
               title={topic}
             >
               <Hash className="size-3 shrink-0" />
-              <span className="truncate min-w-0">{topic}</span>
+              <span className="truncate min-w-0">{highlightTerms(topic, terms)}</span>
             </Badge>
           ))}
           {extraTopics > 0 && (
@@ -49,7 +50,7 @@ export function EpisodeMatchDetails({ matches }: { matches: EpisodeMatches }) {
         <div className="flex items-start gap-1.5 min-w-0 text-xs text-muted-foreground">
           <Quote className="size-3 mt-0.5 shrink-0" />
           <span className="truncate min-w-0 italic" title={matches.scriptContext}>
-            {matches.scriptContext}
+            {highlightTerms(matches.scriptContext, terms)}
           </span>
         </div>
       )}

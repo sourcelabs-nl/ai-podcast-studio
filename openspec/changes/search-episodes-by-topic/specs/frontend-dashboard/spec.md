@@ -46,6 +46,10 @@ Every label SHALL truncate rather than widen its row. The episode table SHALL NO
 
 An episode whose `matches.scriptOnly` is true SHALL be labelled as having matched only in the script text, because a passing mention in dialogue is weaker evidence than a story the episode was built around. `matches.scriptContext` SHALL be shown on its own line, quoted and truncated to one line, with the full text on hover.
 
+Every occurrence of a search term SHALL be emboldened wherever a match label or the script context is displayed, so the word that caused the match is findable at a glance in otherwise muted text. Highlighting SHALL use the same whole-word rule as the query (a letter ends a word, a digit does not), so it never emboldens a fragment the search did not match on: a search for "java" SHALL NOT embolden part of "JavaScript", while a search for "qwen" SHALL embolden the "Qwen" in "Qwen3.8".
+
+The results SHALL be separated from the tab and search row by vertical space, rather than sitting directly beneath it.
+
 Match details SHALL NOT be rendered when no search is active, leaving the row exactly as it is today.
 
 #### Scenario: Topic match shown on the row
@@ -67,6 +71,14 @@ Match details SHALL NOT be rendered when no search is active, leaving the row ex
 #### Scenario: A long label does not widen the table
 - **WHEN** a matching label is longer than the space available
 - **THEN** it is truncated within its chip and the table stays within the page width
+
+#### Scenario: The search term is emboldened in the context line
+- **WHEN** an episode's script context contains the search term
+- **THEN** that term is rendered bold within the quoted line
+
+#### Scenario: Highlighting does not embolden a partial word
+- **WHEN** the query is `java` and a displayed line contains `JavaScript`
+- **THEN** no part of `JavaScript` is emboldened
 
 #### Scenario: No match details without a search
 - **WHEN** no search is active
