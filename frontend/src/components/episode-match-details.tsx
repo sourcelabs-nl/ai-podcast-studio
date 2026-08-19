@@ -1,23 +1,35 @@
-import { Hash, Newspaper, Quote } from "lucide-react";
+import { Hash, Newspaper } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { highlightTerms } from "@/lib/highlight";
 import type { EpisodeMatches } from "@/lib/types";
 
 /**
- * Explains why an episode came back from a search, in one line per episode.
+ * Explains why an episode came back from a search, in at most two compact lines.
  *
- * Topics are the high-signal labels, so they get the chips. Article titles are long and there can be
- * many, so they collapse to a count with the titles on hover: rendering them inline was what made
- * the result list unreadable. Every chip truncates, which needs `min-w-0` on the label inside the
+ * Each line opens with plain language naming what was found and where, because a bare row of chips
+ * leaves the reader to infer what they are looking at. Topics are the high-signal labels so they get
+ * the chips; article titles are long and an episode routinely matches a dozen, so they collapse to a
+ * count with the titles on hover. Every chip truncates, which needs `min-w-0` on the label inside the
  * badge's flex box, otherwise the badge grows to fit and pushes the table wider than the page.
  */
-export function EpisodeMatchDetails({ matches, terms }: { matches: EpisodeMatches; terms: string[] }) {
+export function EpisodeMatchDetails({
+  matches,
+  terms,
+  query,
+}: {
+  matches: EpisodeMatches;
+  terms: string[];
+  query: string;
+}) {
   const extraTopics = matches.topicTotal - matches.topics.length;
+  const hasLabels = matches.topicTotal > 0 || matches.articleTotal > 0;
+  const quoted = `"${query.trim()}"`;
 
   return (
-    <div className="flex flex-col gap-1 min-w-0">
-      {(matches.topicTotal > 0 || matches.articleTotal > 0) && (
+    <div className="flex flex-col gap-1.5 min-w-0">
+      {hasLabels && (
         <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Found {quoted} in</span>
           {matches.topics.map((topic) => (
             <Badge
               key={topic}
@@ -47,15 +59,17 @@ export function EpisodeMatchDetails({ matches, terms }: { matches: EpisodeMatche
         </div>
       )}
       {matches.scriptContext && (
-        <div className="flex items-start gap-1.5 min-w-0 text-xs text-muted-foreground">
-          <Quote className="size-3 mt-0.5 shrink-0" />
+        <div className="flex items-baseline gap-1.5 min-w-0 text-xs text-muted-foreground">
+          <span className="whitespace-nowrap">
+            {hasLabels ? "and spoken in the episode:" : `Found ${quoted} only in the script:`}
+          </span>
           <span className="truncate min-w-0 italic" title={matches.scriptContext}>
             {highlightTerms(matches.scriptContext, terms)}
           </span>
         </div>
       )}
-      {matches.scriptOnly && !matches.scriptContext && (
-        <span className="text-xs text-muted-foreground">mentioned in the script only</span>
+      {!hasLabels && !matches.scriptContext && (
+        <span className="text-xs text-muted-foreground">Found {quoted} in this episode</span>
       )}
     </div>
   );
