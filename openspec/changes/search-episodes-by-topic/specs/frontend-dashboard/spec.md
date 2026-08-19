@@ -31,6 +31,10 @@ When a search is active, the page SHALL show how many episodes matched, and SHAL
 - **WHEN** the user clears the search input
 - **THEN** `q` is removed from the URL and the unfiltered episode list is shown
 
+#### Scenario: Clearing takes effect immediately
+- **WHEN** the user clears the search input
+- **THEN** the match count and all match details disappear on the next render, without waiting for the debounce interval or for the URL to update, and the request that restores the unfiltered list is issued at once rather than after the debounce
+
 #### Scenario: No results
 - **WHEN** a search matches no episodes
 - **THEN** an empty state naming the query is displayed instead of the table

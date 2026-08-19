@@ -151,11 +151,18 @@ export default function EpisodesPage() {
   // pause. Re-syncing from the URL keeps back/forward and a reload showing the right value.
   const [searchDraft, setSearchDraft] = useState(search);
   useEffect(() => setSearchDraft(search), [search]);
+  // Drives the search-specific chrome. Taken from the input rather than the URL because
+  // `router.replace` is a soft navigation: the URL trails the keystroke by a round trip, so gating on
+  // it leaves match details on screen after the box has visibly been emptied.
+  const searchActive = searchDraft.trim() !== "";
   useEffect(() => {
     if (searchDraft === search) return;
+    const cleared = searchDraft.trim() === "";
+    // Clearing is deliberate and unambiguous, so it applies at once. Debouncing it leaves the old
+    // results on screen after the box is already empty, which reads as the search not resetting.
     const timer = setTimeout(() => {
-      updateQuery({ q: searchDraft.trim() === "" ? null : searchDraft, page: "0" });
-    }, SEARCH_DEBOUNCE_MS);
+      updateQuery({ q: cleared ? null : searchDraft, page: "0" });
+    }, cleared ? 0 : SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [searchDraft, search, updateQuery]);
 
@@ -416,7 +423,7 @@ export default function EpisodesPage() {
           {/* Search filters the episode list only, so it appears only while that tab is active. */}
           {currentTab === "episodes" && (
             <div className="flex items-center gap-3">
-              {search && (
+              {searchActive && (
                 <span className="text-sm text-muted-foreground whitespace-nowrap">
                   {episodesTotal} {episodesTotal === 1 ? "episode" : "episodes"} match
                 </span>
@@ -494,7 +501,7 @@ export default function EpisodesPage() {
                   <TableRow
                     // Drop the bottom border when match details follow, so the separator lands after
                     // them and they read as belonging to this episode rather than the next one.
-                    className={`cursor-pointer ${episode.matches ? "border-b-0" : ""} ${episode.status === "GENERATING" || episode.status === "GENERATING_AUDIO" ? "bg-primary/5" : ""}`}
+                    className={`cursor-pointer ${searchActive && episode.matches ? "border-b-0" : ""} ${episode.status === "GENERATING" || episode.status === "GENERATING_AUDIO" ? "bg-primary/5" : ""}`}
                     onClick={() => router.push(`/podcasts/${params.podcastId}/episodes/${episode.id}`)}
                   >
                     <TableCell className="text-sm font-medium">{episode.status === "GENERATING" ? "—" : episode.id}</TableCell>
@@ -730,7 +737,10 @@ export default function EpisodesPage() {
                       )}
                     </TableCell>
                   </TableRow>
-                  {episode.matches && (
+                  {/* Gated on the active query, not just the payload: the previous results stay in
+                      state until the refetch lands, and their panels would otherwise linger after
+                      the search box has been cleared. */}
+                  {searchActive && episode.matches && (
                     <TableRow
                       className="cursor-pointer hover:bg-transparent"
                       onClick={() => router.push(`/podcasts/${params.podcastId}/episodes/${episode.id}`)}
