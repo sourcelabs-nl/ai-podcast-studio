@@ -25,9 +25,13 @@ Search does not fit a derived query. It has to reach across `episode_articles` a
 
 Search is a filter on the same collection, and it must combine with the status filter and paging that already live there. A separate `/episodes/search` would duplicate all of that validation and give the frontend two code paths that return the same shape. The frontend change stays small: `q` joins the query string next to `status` and `page`.
 
-**`LIKE` over FTS5.**
+**`GLOB` over FTS5.**
 
-164 episodes and 4,544 links are small enough that a scan is imperceptible. FTS5 would mean a virtual table, a migration, and triggers to keep the index synchronised with three tables on every write, which is a standing correctness liability for a corpus this size. Revisit when ranking or snippets are wanted, not before.
+164 episodes and 4,544 links are small enough that a scan is imperceptible. FTS5 would mean a virtual table, a migration, and triggers to keep the index synchronised with three tables on every write, which is a standing correctness liability for a corpus this size. Revisit when ranking is wanted, not before.
+
+Matching uses `GLOB` rather than `LIKE` because only its `[^a-z]` character class can express a word boundary, and word boundaries turned out to be essential rather than cosmetic: with substring matching, 12 of the 21 episodes whose script mentioned "java" contained it only inside "JavaScript". The boundary excludes letters but deliberately not digits, so "qwen" still finds "Qwen3.8", where a model name runs into its version. The column is padded with spaces so a term at the very start or end of a field still has a boundary on both sides, and lowered on both sides because `GLOB` is case-sensitive.
+
+`GLOB` has no `ESCAPE` clause, so its four metacharacters are escaped by wrapping each in a bracket expression, which matches it literally. This was verified against SQLite directly rather than assumed, including the awkward `[]]` form for a literal `]`.
 
 **AND across whitespace-separated terms, substring match per term.**
 
@@ -43,7 +47,7 @@ The episode row needs the matching topic labels and article titles, so the query
 
 ## Risks / Trade-offs
 
-- **`LIKE '%term%'` cannot use an index, so every search scans.** → Acceptable and measured: the tables are small, and the query is bounded by one podcast. If the archive grows by an order of magnitude this is the first thing to revisit.
-- **Substring matching hits inside words, so `ai` matches "chain".** → Mitigated in practice by topic labels being descriptive phrases, and by the minimum query length. A word-boundary rule would need a tokenizer, which is the FTS5 upgrade in disguise.
+- **A leading-wildcard `GLOB` cannot use an index, so every search scans.** → Acceptable and measured: the tables are small, and the query is bounded by one podcast. If the archive grows by an order of magnitude this is the first thing to revisit.
+- **Whole-word matching means a query is no longer a prefix search, so "kube" no longer finds "kubernetes".** → Accepted, because the reverse error is worse: a search for a short name silently returning mostly unrelated episodes reads as broken, while a query that needs the whole word is predictable. Digits not counting as boundaries preserves the version-suffix case, which is the common one in this domain.
 - **Script text is the noisiest field and will produce matches on passing mentions.** → Kept deliberately, because it catches things the topic labels miss, but flagged in the response so the UI can label a script-only hit rather than presenting it as a covered story.
 - **Episodes generated before topic labelling existed have no topics.** → They remain searchable through `script_text`, `recap`, and `show_notes`, so they degrade to script-only matches rather than disappearing.

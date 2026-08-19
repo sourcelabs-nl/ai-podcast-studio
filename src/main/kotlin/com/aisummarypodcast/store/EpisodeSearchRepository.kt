@@ -82,8 +82,8 @@ class EpisodeSearchRepositoryImpl(
 
         // Any term hitting either column makes the row worth showing; ALL-terms gating happened
         // at the episode level, so a per-row AND here would hide the topic that explains the match.
-        val topicMatches = terms.indices.joinToString(" OR ") { "LOWER(COALESCE(ea.topic, '')) LIKE :t$it ESCAPE '\\'" }
-        val articleMatches = terms.indices.joinToString(" OR ") { ARTICLE_TEXT_MATCH.replace("?", "$it") }
+        val topicMatches = terms.indices.joinToString(" OR ") { matches("COALESCE(ea.topic, '')", it) }
+        val articleMatches = terms.indices.joinToString(" OR ") { articleTextMatches(it) }
 
         val rows = jdbcClient.sql(
             """
@@ -99,7 +99,7 @@ class EpisodeSearchRepositoryImpl(
             """.trimIndent()
         )
             .param("episodeIds", episodeIds)
-            .params(terms.mapIndexed { index, term -> "t$index" to likePattern(term) }.toMap())
+            .params(terms.mapIndexed { index, term -> "t$index" to wordPattern(term) as Any }.toMap())
             .query { rs, _ ->
                 MatchRow(
                     episodeId = rs.getLong("episode_id"),
@@ -133,18 +133,28 @@ class EpisodeSearchRepositoryImpl(
      */
     private fun termClause(index: Int): String = """
         (
-            LOWER(e.script_text) LIKE :t$index ESCAPE '\'
-            OR LOWER(COALESCE(e.recap, '')) LIKE :t$index ESCAPE '\'
-            OR LOWER(COALESCE(e.show_notes, '')) LIKE :t$index ESCAPE '\'
+            ${matches("e.script_text", index)}
+            OR ${matches("COALESCE(e.recap, '')", index)}
+            OR ${matches("COALESCE(e.show_notes, '')", index)}
             OR EXISTS (
                 SELECT 1 FROM episode_articles ea
                 JOIN articles a ON a.id = ea.article_id
                 WHERE ea.episode_id = e.id
                   AND ea.topic_order IS NOT NULL
-                  AND (LOWER(COALESCE(ea.topic, '')) LIKE :t$index ESCAPE '\' OR ${ARTICLE_TEXT_MATCH.replace("?", "$index")})
+                  AND (${matches("COALESCE(ea.topic, '')", index)} OR ${articleTextMatches(index)})
             )
         )
     """.trimIndent()
+
+    /**
+     * A covered article matches on its headline, its LLM-written summary, or its body. All three are
+     * needed: an article's subject often appears only in the text, so matching the headline alone
+     * reports "mentioned in the script only" for an episode whose source material plainly discusses
+     * the term.
+     */
+    private fun articleTextMatches(index: Int): String =
+        listOf("a.title", "COALESCE(a.summary, '')", "a.body")
+            .joinToString(" OR ") { matches(it, index) }
 
     private fun buildParams(
         podcastId: String,
@@ -153,7 +163,7 @@ class EpisodeSearchRepositoryImpl(
     ): Map<String, Any> = buildMap {
         put("podcastId", podcastId)
         if (statuses.isNotEmpty()) put("statuses", statuses.map { it.name })
-        terms.forEachIndexed { index, term -> put("t$index", likePattern(term)) }
+        terms.forEachIndexed { index, term -> put("t$index", wordPattern(term)) }
     }
 
     private data class MatchRow(
@@ -166,26 +176,32 @@ class EpisodeSearchRepositoryImpl(
 
     companion object {
         /**
-         * A covered article matches on its headline, its LLM-written summary, or its body. All three
-         * are needed: an article's subject often appears only in the text, so matching the headline
-         * alone reports "mentioned in the script only" for an episode whose source material plainly
-         * discusses the term. `?` is a placeholder for the term index, filled in by the caller.
+         * Whole-word match of term [index] against [column].
+         *
+         * `GLOB` rather than `LIKE` because only its `[^a-z]` character class can express a word
+         * boundary, and without one "java" matches "javascript", which on this archive accounted for
+         * most of the hits. Note the boundary excludes letters but not digits, so "qwen" still finds
+         * "Qwen3.8" while "java" no longer finds "JavaScript". The column is padded with spaces so a
+         * term at the very start or end of the text still has a boundary on both sides, and lowered
+         * because `GLOB` is case-sensitive.
          */
-        private const val ARTICLE_TEXT_MATCH =
-            "LOWER(a.title) LIKE :t? ESCAPE '\\' " +
-                "OR LOWER(COALESCE(a.summary, '')) LIKE :t? ESCAPE '\\' " +
-                "OR LOWER(a.body) LIKE :t? ESCAPE '\\'"
+        private fun matches(column: String, index: Int): String =
+            "(' ' || LOWER($column) || ' ') GLOB :t$index"
+
+        /** Wraps a term as a whole-word `GLOB` pattern. */
+        internal fun wordPattern(term: String): String = "*[^a-z]${escapeGlob(term.lowercase())}[^a-z]*"
 
         /**
-         * Wraps a term for a substring match, escaping the characters `LIKE` would otherwise treat
-         * as wildcards. Without this a query containing `%` would match every episode.
+         * Escapes the four characters `GLOB` treats as metacharacters by wrapping each in a bracket
+         * expression, which matches it literally. `GLOB` has no `ESCAPE` clause, so this is the only
+         * way; without it a query containing `*` would match every episode.
          */
-        internal fun likePattern(term: String): String {
-            val escaped = term.lowercase()
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
-            return "%$escaped%"
+        private fun escapeGlob(term: String): String = buildString {
+            for (char in term) when (char) {
+                '*', '?', '[' -> append('[').append(char).append(']')
+                ']' -> append("[]]")
+                else -> append(char)
+            }
         }
     }
 }

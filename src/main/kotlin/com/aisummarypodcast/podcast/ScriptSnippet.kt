@@ -27,8 +27,10 @@ object ScriptSnippet {
         val clean = WHITESPACE.replace(SPEAKER_TAG.replace(text, " "), " ").trim()
         val lower = clean.lowercase()
 
+        // Whole-word, matching how the search itself selected this episode: a substring search here
+        // would point at "JavaScript" as the evidence for a "Java" hit.
         val hit = terms
-            .mapNotNull { term -> lower.indexOf(term.lowercase()).takeIf { it >= 0 }?.let { it to term.length } }
+            .mapNotNull { term -> wordRegex(term).find(lower)?.let { it.range.first to term.length } }
             .minByOrNull { it.first }
             ?: return null
 
@@ -39,6 +41,13 @@ object ScriptSnippet {
         val suffix = if (end < clean.length) "..." else ""
         return prefix + clean.substring(start, end).trim() + suffix
     }
+
+    /**
+     * The term as a whole-word pattern, bounded by non-letters to mirror the search query's `GLOB`
+     * `[^a-z]` boundary: digits do not end a word, so "qwen" still matches "qwen3.8".
+     */
+    private fun wordRegex(term: String): Regex =
+        Regex("(?<![a-z])${Regex.escape(term.lowercase())}(?![a-z])")
 
     /** Moves [from] forward to the next word boundary, so the snippet does not open mid-word. */
     private fun wordStart(text: String, from: Int): Int {
