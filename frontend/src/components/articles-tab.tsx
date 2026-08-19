@@ -84,7 +84,9 @@ function ArticleCard({ article }: { article: EpisodeArticle }) {
 export function ArticlesTab({ userId, podcastId, episodeId, onCountLoaded }: ArticlesTabProps) {
   const [articles, setArticles] = useState<EpisodeArticle[]>([]);
   const [loading, setLoading] = useState(true);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Groups start collapsed: an episode links dozens of articles across many sources, so the tab
+  // opens as a scannable list of sources with counts and the reader expands the one they want.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setLoading(true);
@@ -123,7 +125,7 @@ export function ArticlesTab({ userId, podcastId, episodeId, onCountLoaded }: Art
   );
 
   function toggleGroup(sourceId: string) {
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(sourceId)) {
         next.delete(sourceId);
@@ -137,24 +139,24 @@ export function ArticlesTab({ userId, podcastId, episodeId, onCountLoaded }: Art
   return (
     <div className="space-y-4">
       {sortedGroups.map(([sourceId, group]) => {
-        const isCollapsed = collapsedGroups.has(sourceId);
+        const isExpanded = expandedGroups.has(sourceId);
         return (
           <div key={sourceId}>
             <button
               onClick={() => toggleGroup(sourceId)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-semibold hover:bg-muted"
             >
-              {isCollapsed ? (
-                <ChevronRight className="size-4 shrink-0" />
-              ) : (
+              {isExpanded ? (
                 <ChevronDown className="size-4 shrink-0" />
+              ) : (
+                <ChevronRight className="size-4 shrink-0" />
               )}
               <span>{group.displayName}</span>
               <Badge variant="secondary" className="text-[10px] px-1.5 py-px">
                 {group.articles.length}
               </Badge>
             </button>
-            {!isCollapsed && (
+            {isExpanded && (
               <div className="ml-6 mt-2 space-y-2">
                 {group.articles.map((article) => (
                   <ArticleCard key={article.id} article={article} />
