@@ -109,6 +109,38 @@ internal fun Episode.toResponse(
     costs = buildCosts(scoreCalls, costFor)
 )
 
+/**
+ * Some sources store a whole post as the article title, so a match label can run to thousands of
+ * characters. Cut it to something a list row can show.
+ */
+private const val MAX_MATCH_LABEL_LENGTH = 120
+
+private fun String.ellipsize(): String {
+    val collapsed = replace(Regex("\\s+"), " ").trim()
+    return if (collapsed.length <= MAX_MATCH_LABEL_LENGTH) collapsed
+    else collapsed.take(MAX_MATCH_LABEL_LENGTH).trimEnd() + "..."
+}
+
+/**
+ * Maps a search hit, trimming the match lists to [EpisodeSearchService.MAX_MATCHES_PER_EPISODE].
+ * The repository is asked for one more than the cap, so an over-long list is what reveals that
+ * further matches exist.
+ */
+internal fun EpisodeSearchHit.toResponse(): EpisodeResponse {
+    val cap = EpisodeSearchService.MAX_MATCHES_PER_EPISODE
+    val hasMore = matches.topics.size > cap || matches.articleTitles.size > cap
+    val topics = matches.topics.take(cap).map { it.ellipsize() }
+    val titles = matches.articleTitles.take(cap).map { it.ellipsize() }
+    return episode.toResponse().copy(
+        matches = EpisodeMatchesResponse(
+            topics = topics,
+            articleTitles = titles,
+            scriptOnly = topics.isEmpty() && titles.isEmpty(),
+            hasMore = hasMore
+        )
+    )
+}
+
 private fun Episode.buildCosts(
     scoreCalls: Int,
     costFor: StageCostFn

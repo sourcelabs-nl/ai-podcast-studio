@@ -119,7 +119,21 @@ data class EpisodeResponse(
     val pipelineStage: String?,
     val researchCalls: Int,
     val researchCostCents: Int?,
-    val costs: EpisodeCostsResponse
+    val costs: EpisodeCostsResponse,
+    /** Why this episode matched a search. Null when the request carried no search query. */
+    val matches: EpisodeMatchesResponse? = null
+)
+
+/**
+ * The covered topics and article titles that contain a query term, so the list can show why an
+ * episode was returned. Both lists are capped; [hasMore] says the episode matched beyond them.
+ */
+data class EpisodeMatchesResponse(
+    val topics: List<String>,
+    val articleTitles: List<String>,
+    /** True when the hit came only from the script, recap, or show notes. */
+    val scriptOnly: Boolean,
+    val hasMore: Boolean
 )
 
 data class LlmStageCostResponse(

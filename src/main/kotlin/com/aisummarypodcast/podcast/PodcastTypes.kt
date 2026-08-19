@@ -2,6 +2,7 @@ package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.EpisodeMatchDetails
 import com.aisummarypodcast.store.Post
 import com.aisummarypodcast.store.Source
 
@@ -34,4 +35,10 @@ data class LinkedArticlesResult(
     val articles: List<Article>,
     val topicLabels: List<String>,
     val articleTopics: Map<Long, String>
+)
+
+/** An episode returned by a search, paired with the topics and titles that matched the query. */
+data class EpisodeSearchHit(
+    val episode: Episode,
+    val matches: EpisodeMatchDetails
 )

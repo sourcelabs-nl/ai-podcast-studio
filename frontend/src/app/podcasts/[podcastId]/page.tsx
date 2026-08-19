@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { Fragment, useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import cronstrue from "cronstrue";
 import { CronExpressionParser } from "cron-parser";
-import { BadgeCheck, Check, ChevronDown, ChevronRight, Clock, Headphones, Loader2, RefreshCw, RotateCcw, Settings, Upload, Volume2, X } from "lucide-react";
+import { BadgeCheck, Check, ChevronDown, ChevronRight, Clock, Headphones, Loader2, RefreshCw, RotateCcw, Search, Settings, Upload, Volume2, X } from "lucide-react";
 import { useUser } from "@/lib/user-context";
 import { useEventStream } from "@/lib/event-context";
 import type { Podcast, Episode, EpisodePublication, PagedResponse } from "@/lib/types";
@@ -37,12 +37,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { EpisodeMatchDetails } from "@/components/episode-match-details";
+import { Input } from "@/components/ui/input";
 import { PublishWizard, TARGETS } from "@/components/publish-wizard";
 import { PublicationsTab } from "@/components/publications-tab";
 import { SourcesTab } from "@/components/sources-tab";
 import { useTabParam } from "@/hooks/use-tab-param";
 
 const TABS = ["episodes", "publications", "sources"] as const;
+
+/** Long enough that typing a word does not fire a query per keystroke, short enough to feel live. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 const STATUSES = [
   "GENERATING",
@@ -113,6 +118,7 @@ export default function EpisodesPage() {
     return raw > 0 && raw <= 200 ? raw : DEFAULT_PAGE_SIZE;
   })();
   const statusFilter = useMemo(() => new Set(searchParams.getAll("status")), [searchParams]);
+  const search = searchParams.get("q") ?? "";
 
   const updateQuery = useCallback((patch: Record<string, string | string[] | null>) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -131,6 +137,18 @@ export default function EpisodesPage() {
     updateQuery({ status: Array.from(next), page: "0" });
   };
   const clearStatuses = () => updateQuery({ status: null, page: "0" });
+
+  // The input is local so typing stays responsive; the URL (and so the fetch) follows after a
+  // pause. Re-syncing from the URL keeps back/forward and a reload showing the right value.
+  const [searchDraft, setSearchDraft] = useState(search);
+  useEffect(() => setSearchDraft(search), [search]);
+  useEffect(() => {
+    if (searchDraft === search) return;
+    const timer = setTimeout(() => {
+      updateQuery({ q: searchDraft.trim() === "" ? null : searchDraft, page: "0" });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchDraft, search, updateQuery]);
 
   const publishedDates = useMemo(() => {
     const dates = new Set<string>();
@@ -184,8 +202,9 @@ export default function EpisodesPage() {
     qs.set("page", String(page));
     qs.set("pageSize", String(pageSize));
     statusFilter.forEach((s) => qs.append("status", s));
+    if (search) qs.set("q", search);
     return qs.toString();
-  }, [page, pageSize, statusFilter]);
+  }, [page, pageSize, statusFilter, search]);
 
   const fetchEpisodes = useCallback(() => {
     if (!selectedUser) return;
@@ -386,8 +405,36 @@ export default function EpisodesPage() {
         </TabsList>
 
         <TabsContent value="episodes">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="relative w-full max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                value={searchDraft}
+                onChange={(e) => setSearchDraft(e.target.value)}
+                placeholder="Search topics, headlines, script..."
+                className="pl-8 pr-8"
+              />
+              {searchDraft && (
+                <button
+                  type="button"
+                  title="Clear search"
+                  onClick={() => setSearchDraft("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+            {search && (
+              <span className="text-sm text-muted-foreground">
+                {episodesTotal} {episodesTotal === 1 ? "episode" : "episodes"} match
+              </span>
+            )}
+          </div>
           {episodes.length === 0 ? (
-            <p className="text-muted-foreground">No episodes found.</p>
+            <p className="text-muted-foreground">
+              {search ? `No episodes match "${search}".` : "No episodes found."}
+            </p>
           ) : (
             <>
             <Table>
@@ -429,8 +476,8 @@ export default function EpisodesPage() {
               </TableHeader>
               <TableBody>
                 {episodes.map((episode) => (
+                  <Fragment key={episode.id}>
                   <TableRow
-                    key={episode.id}
                     className={`cursor-pointer ${episode.status === "GENERATING" || episode.status === "GENERATING_AUDIO" ? "bg-primary/5" : ""}`}
                     onClick={() => router.push(`/podcasts/${params.podcastId}/episodes/${episode.id}`)}
                   >
@@ -667,6 +714,18 @@ export default function EpisodesPage() {
                       )}
                     </TableCell>
                   </TableRow>
+                  {episode.matches && (
+                    <TableRow
+                      className="cursor-pointer hover:bg-transparent"
+                      onClick={() => router.push(`/podcasts/${params.podcastId}/episodes/${episode.id}`)}
+                    >
+                      <TableCell />
+                      <TableCell colSpan={7} className="pt-0 pb-3">
+                        <EpisodeMatchDetails matches={episode.matches} />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
