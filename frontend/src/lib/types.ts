@@ -65,6 +65,16 @@ export interface Episode {
   researchCalls?: number;
   researchCostCents?: number;
   costs?: EpisodeCosts;
+  /** Why this episode matched a search. Absent when the request carried no search query. */
+  matches?: EpisodeMatches;
+}
+
+export interface EpisodeMatches {
+  topics: string[];
+  articleTitles: string[];
+  /** The hit came only from the script, recap, or show notes, not from a covered story. */
+  scriptOnly: boolean;
+  hasMore: boolean;
 }
 
 export interface LlmStageCost {

@@ -2,6 +2,7 @@ package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.EpisodeMatchDetails
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.User
@@ -38,6 +39,9 @@ class EpisodeControllerTest {
     private lateinit var episodeService: EpisodeService
 
     @MockkBean(relaxed = true)
+    private lateinit var episodeSearchService: EpisodeSearchService
+
+    @MockkBean(relaxed = true)
     private lateinit var appProperties: AppProperties
 
     private val userId = "user-1"
@@ -68,6 +72,87 @@ class EpisodeControllerTest {
             .andExpect(jsonPath("$.items.length()").value(2))
             .andExpect(jsonPath("$.total").value(2))
             .andExpect(jsonPath("$.page").value(0))
+    }
+
+    @Test
+    fun `list episodes with a search query delegates to the search service`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeSearchService.search(podcastId, emptyList(), "retriever", any()) } returns
+            org.springframework.data.domain.PageImpl(
+                listOf(EpisodeSearchHit(generatedEpisode, EpisodeMatchDetails(listOf("Retriever config"), listOf("A headline"))))
+            )
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?q=retriever"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.items.length()").value(1))
+            .andExpect(jsonPath("$.items[0].matches.topics[0]").value("Retriever config"))
+            .andExpect(jsonPath("$.items[0].matches.articleTitles[0]").value("A headline"))
+            .andExpect(jsonPath("$.items[0].matches.scriptOnly").value(false))
+            .andExpect(jsonPath("$.items[0].matches.hasMore").value(false))
+
+        verify(exactly = 0) { episodeService.findByPodcastIdPaged(any(), any(), any()) }
+    }
+
+    @Test
+    fun `search combines with the status filter`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every {
+            episodeSearchService.search(podcastId, listOf(EpisodeStatus.GENERATED), "retriever", any())
+        } returns org.springframework.data.domain.PageImpl(
+            listOf(EpisodeSearchHit(generatedEpisode, EpisodeMatchDetails(emptyList(), emptyList())))
+        )
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?q=retriever&status=GENERATED"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.items[0].matches.scriptOnly").value(true))
+    }
+
+    @Test
+    fun `a blank query falls through to the plain listing`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findByPodcastIdPaged(podcastId, emptyList(), any()) } returns
+            org.springframework.data.domain.PageImpl(listOf(pendingEpisode))
+
+        // Passed via param() rather than in the URL: MockMvc does not percent-decode the query
+        // string, so "?q=%20" would arrive as the literal three-character value.
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes").param("q", "   "))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.items[0].matches").doesNotExist())
+
+        verify(exactly = 0) { episodeSearchService.search(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a single-character query falls through to the plain listing`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findByPodcastIdPaged(podcastId, emptyList(), any()) } returns
+            org.springframework.data.domain.PageImpl(listOf(pendingEpisode))
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?q=a"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.items[0].matches").doesNotExist())
+
+        verify(exactly = 0) { episodeSearchService.search(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `match lists are capped and flagged in the response`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        val topics = (1..9).map { "Topic $it" }
+        every { episodeSearchService.search(podcastId, emptyList(), "topic", any()) } returns
+            org.springframework.data.domain.PageImpl(
+                listOf(EpisodeSearchHit(generatedEpisode, EpisodeMatchDetails(topics, emptyList())))
+            )
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes?q=topic"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.items[0].matches.topics.length()").value(EpisodeSearchService.MAX_MATCHES_PER_EPISODE))
+            .andExpect(jsonPath("$.items[0].matches.hasMore").value(true))
     }
 
     @Test

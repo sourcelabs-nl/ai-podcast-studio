@@ -20,6 +20,7 @@ class EpisodeController(
     private val podcastService: PodcastService,
     private val userService: UserService,
     private val episodeService: EpisodeService,
+    private val episodeSearchService: EpisodeSearchService,
     private val appProperties: AppProperties
 ) {
 
@@ -30,6 +31,7 @@ class EpisodeController(
         @PathVariable userId: String,
         @PathVariable podcastId: String,
         @RequestParam(required = false) status: List<String>?,
+        @RequestParam(required = false) q: String?,
         @RequestParam(required = false, defaultValue = "0") page: Int,
         @RequestParam(required = false, defaultValue = "20") pageSize: Int
     ): ResponseEntity<Any> {
@@ -47,6 +49,12 @@ class EpisodeController(
         }
 
         val pageable = PageRequest.of(page, pageSize, Sort.by(Sort.Direction.DESC, "generatedAt", "id"))
+        // A query too short to search falls through to the plain listing rather than erroring,
+        // so the list stays usable while the user is still typing.
+        if (EpisodeSearchService.isSearchable(q)) {
+            val hits = episodeSearchService.search(podcastId, statuses, q!!, pageable)
+            return ResponseEntity.ok(hits.toResponse { it.toResponse() })
+        }
         val result = episodeService.findByPodcastIdPaged(podcastId, statuses, pageable)
         return ResponseEntity.ok(result.toResponse { it.toResponse() })
     }
