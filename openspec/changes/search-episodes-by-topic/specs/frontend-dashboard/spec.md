@@ -40,6 +40,10 @@ When a search is active, each episode row SHALL display the match details return
 
 Match details SHALL occupy at most two compact lines per episode, because an episode can match many topics and articles at once and rendering them all makes the result list unreadable.
 
+Each line SHALL open with plain language naming what was found and where, quoting the user's query (for example `Found "Context Hub" in`), rather than presenting chips with no explanation of what the reader is looking at. When the only mention is in the episode's own text, the wording SHALL say so explicitly.
+
+Match details SHALL be visually attached to the episode they describe: the row separator SHALL fall after the details rather than between the episode row and its details, and there SHALL be vertical space between the episode row and the details beneath it.
+
 Matching topic labels SHALL be displayed as chips, each truncated to a bounded width with the full label available on hover, and the count of any topics beyond those shown SHALL be summarised rather than listed. Matching articles SHALL be summarised as a single count chip with the titles available on hover, not rendered inline: article titles are long and numerous, and listing them was what made the list messy.
 
 Every label SHALL truncate rather than widen its row. The episode table SHALL NOT become wider than the page because of a long match label.
@@ -71,6 +75,18 @@ Match details SHALL NOT be rendered when no search is active, leaving the row ex
 #### Scenario: A long label does not widen the table
 - **WHEN** a matching label is longer than the space available
 - **THEN** it is truncated within its chip and the table stays within the page width
+
+#### Scenario: Match details name what was found
+- **WHEN** an episode matched a topic while the query was `Context Hub`
+- **THEN** the details line reads `Found "Context Hub" in` ahead of the chips
+
+#### Scenario: A script-only match says so in words
+- **WHEN** an episode matched only through its own text
+- **THEN** the details say the query was found only in the script, ahead of the quoted line
+
+#### Scenario: Details attach to their own episode
+- **WHEN** an episode row is followed by its match details
+- **THEN** no separator is drawn between the two, and the separator falls after the details
 
 #### Scenario: The search term is emboldened in the context line
 - **WHEN** an episode's script context contains the search term

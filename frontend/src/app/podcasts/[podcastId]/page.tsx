@@ -492,7 +492,9 @@ export default function EpisodesPage() {
                 {episodes.map((episode) => (
                   <Fragment key={episode.id}>
                   <TableRow
-                    className={`cursor-pointer ${episode.status === "GENERATING" || episode.status === "GENERATING_AUDIO" ? "bg-primary/5" : ""}`}
+                    // Drop the bottom border when match details follow, so the separator lands after
+                    // them and they read as belonging to this episode rather than the next one.
+                    className={`cursor-pointer ${episode.matches ? "border-b-0" : ""} ${episode.status === "GENERATING" || episode.status === "GENERATING_AUDIO" ? "bg-primary/5" : ""}`}
                     onClick={() => router.push(`/podcasts/${params.podcastId}/episodes/${episode.id}`)}
                   >
                     <TableCell className="text-sm font-medium">{episode.status === "GENERATING" ? "—" : episode.id}</TableCell>
@@ -736,8 +738,8 @@ export default function EpisodesPage() {
                       <TableCell />
                       {/* max-w-0 keeps the cell from growing to fit its content, which is what lets
                           the labels inside truncate instead of widening the whole table. */}
-                      <TableCell colSpan={7} className="pt-0 pb-3 max-w-0 overflow-hidden">
-                        <EpisodeMatchDetails matches={episode.matches} terms={searchTerms} />
+                      <TableCell colSpan={7} className="pt-1.5 pb-3 max-w-0 overflow-hidden">
+                        <EpisodeMatchDetails matches={episode.matches} terms={searchTerms} query={search} />
                       </TableCell>
                     </TableRow>
                   )}
