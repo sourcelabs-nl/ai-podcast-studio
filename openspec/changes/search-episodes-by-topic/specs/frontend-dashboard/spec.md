@@ -1,7 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: Episode search on the podcast detail page
-The episodes tab at `/podcasts/{podcastId}` SHALL display a search input above the episode list, placed so it reads as a filter over the list alongside the existing Status filter.
+The podcast detail page at `/podcasts/{podcastId}` SHALL display a search input right-aligned on the same row as the Episodes / Publications / Sources tab list, so the row carries the tabs on the left and the search on the right.
+
+Because the search filters the episode list only, the input SHALL be rendered only while the Episodes tab is active, rather than sitting above content it does not filter. When a search is active, the match count SHALL appear immediately to the left of the input on that same row.
 
 The input SHALL be URL-synced as the `q` query parameter through the same mechanism as the status filter, so a search is bookmarkable, survives a reload, and is restored when navigating back. Typing SHALL be debounced before the request is issued, so a query is not sent on every keystroke. Changing the search SHALL reset paging to page 0, as changing the status filter already does. The input SHALL offer a way to clear the current search.
 
