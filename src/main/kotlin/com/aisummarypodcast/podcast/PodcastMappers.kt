@@ -111,9 +111,9 @@ internal fun Episode.toResponse(
 
 /**
  * Some sources store a whole post as the article title, so a match label can run to thousands of
- * characters. Cut it to something a list row can show.
+ * characters. Cut it to something a list row can show on one line.
  */
-private const val MAX_MATCH_LABEL_LENGTH = 120
+private const val MAX_MATCH_LABEL_LENGTH = 80
 
 private fun String.ellipsize(): String {
     val collapsed = replace(Regex("\\s+"), " ").trim()
@@ -122,21 +122,18 @@ private fun String.ellipsize(): String {
 }
 
 /**
- * Maps a search hit, trimming the match lists to [EpisodeSearchService.MAX_MATCHES_PER_EPISODE].
- * The repository is asked for one more than the cap, so an over-long list is what reveals that
- * further matches exist.
+ * Maps a search hit. The lists are capped for display while the totals count every match, so the
+ * caller can summarise the remainder rather than implying the episode matched only what it shows.
  */
 internal fun EpisodeSearchHit.toResponse(): EpisodeResponse {
     val cap = EpisodeSearchService.MAX_MATCHES_PER_EPISODE
-    val hasMore = matches.topics.size > cap || matches.articleTitles.size > cap
-    val topics = matches.topics.take(cap).map { it.ellipsize() }
-    val titles = matches.articleTitles.take(cap).map { it.ellipsize() }
     return episode.toResponse().copy(
         matches = EpisodeMatchesResponse(
-            topics = topics,
-            articleTitles = titles,
-            scriptOnly = topics.isEmpty() && titles.isEmpty(),
-            hasMore = hasMore,
+            topics = matches.topics.take(cap).map { it.ellipsize() },
+            articleTitles = matches.articleTitles.take(cap).map { it.ellipsize() },
+            topicTotal = matches.topicTotal,
+            articleTotal = matches.articleTotal,
+            scriptOnly = matches.topicTotal == 0 && matches.articleTotal == 0,
             scriptContext = scriptContext
         )
     )

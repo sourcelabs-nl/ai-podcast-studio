@@ -1,49 +1,60 @@
-import { FileText, Hash, Newspaper } from "lucide-react";
+import { Hash, Newspaper, Quote } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { EpisodeMatches } from "@/lib/types";
 
 /**
- * Explains why an episode came back from a search: the covered topics and articles containing the
- * query, plus the spoken line when the script mentions it. A script-only hit is called out rather
- * than shown as a topic, because a passing mention in dialogue is much weaker evidence than a
- * story the episode was built around.
+ * Explains why an episode came back from a search, in one line per episode.
+ *
+ * Topics are the high-signal labels, so they get the chips. Article titles are long and there can be
+ * many, so they collapse to a count with the titles on hover: rendering them inline was what made
+ * the result list unreadable. Every chip truncates, which needs `min-w-0` on the label inside the
+ * badge's flex box, otherwise the badge grows to fit and pushes the table wider than the page.
  */
 export function EpisodeMatchDetails({ matches }: { matches: EpisodeMatches }) {
-  const hasLabels = matches.topics.length > 0 || matches.articleTitles.length > 0;
+  const extraTopics = matches.topicTotal - matches.topics.length;
 
   return (
-    <div className="flex flex-col gap-1">
-      {hasLabels && (
-        <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-col gap-1 min-w-0">
+      {(matches.topicTotal > 0 || matches.articleTotal > 0) && (
+        <div className="flex items-center gap-1.5 min-w-0">
           {matches.topics.map((topic) => (
-            <Badge key={topic} variant="secondary" className="font-normal max-w-md truncate" title={topic}>
+            <Badge
+              key={topic}
+              variant="secondary"
+              className="font-normal max-w-[22rem] min-w-0"
+              title={topic}
+            >
               <Hash className="size-3 shrink-0" />
-              {topic}
+              <span className="truncate min-w-0">{topic}</span>
             </Badge>
           ))}
-          {matches.articleTitles.map((title) => (
-            <Badge key={title} variant="outline" className="font-normal max-w-md truncate" title={title}>
+          {extraTopics > 0 && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              +{extraTopics} more {extraTopics === 1 ? "topic" : "topics"}
+            </span>
+          )}
+          {matches.articleTotal > 0 && (
+            <Badge
+              variant="outline"
+              className="font-normal whitespace-nowrap"
+              title={matches.articleTitles.join("\n")}
+            >
               <Newspaper className="size-3 shrink-0" />
-              {title}
+              {matches.articleTotal} {matches.articleTotal === 1 ? "article" : "articles"}
             </Badge>
-          ))}
-          {matches.hasMore && <span className="text-xs text-muted-foreground">and more</span>}
+          )}
         </div>
       )}
       {matches.scriptContext && (
-        <span className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <FileText className="size-3 mt-0.5 shrink-0" />
-          <span>
-            {matches.scriptOnly && <span className="mr-1">in the script only:</span>}
-            <span className="italic">{matches.scriptContext}</span>
+        <div className="flex items-start gap-1.5 min-w-0 text-xs text-muted-foreground">
+          <Quote className="size-3 mt-0.5 shrink-0" />
+          <span className="truncate min-w-0 italic" title={matches.scriptContext}>
+            {matches.scriptContext}
           </span>
-        </span>
+        </div>
       )}
-      {!hasLabels && !matches.scriptContext && (
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <FileText className="size-3" />
-          mentioned in the script only
-        </span>
+      {matches.scriptOnly && !matches.scriptContext && (
+        <span className="text-xs text-muted-foreground">mentioned in the script only</span>
       )}
     </div>
   );

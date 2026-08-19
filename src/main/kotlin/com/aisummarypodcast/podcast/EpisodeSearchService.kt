@@ -33,8 +33,7 @@ class EpisodeSearchService(
         if (page.episodeIds.isEmpty()) return PageImpl(emptyList(), pageable, page.total)
 
         val byId = episodeRepository.findAllById(page.episodeIds).associateBy { it.id }
-        // One past the cap: the extra entry is how the response knows to say "and more".
-        val details = episodeSearchRepository.findMatchDetails(page.episodeIds, terms, MAX_MATCHES_PER_EPISODE + 1)
+        val details = episodeSearchRepository.findMatchDetails(page.episodeIds, terms, MAX_MATCHES_PER_EPISODE)
 
         // Re-order by the id list: findAllById gives no ordering guarantee, and the sort is the query's.
         val hits = page.episodeIds.mapNotNull { id ->
@@ -57,8 +56,8 @@ class EpisodeSearchService(
         /** Below this a query is noise (and matches nearly everything), so it is ignored. */
         const val MIN_QUERY_LENGTH = 2
 
-        /** Bounds the match details in the response; the row indicates when more exist. */
-        const val MAX_MATCHES_PER_EPISODE = 5
+        /** Labels carried per kind of match; the totals tell the row how many more there were. */
+        const val MAX_MATCHES_PER_EPISODE = 3
 
         private val EMPTY_MATCH = EpisodeMatchDetails(emptyList(), emptyList())
 

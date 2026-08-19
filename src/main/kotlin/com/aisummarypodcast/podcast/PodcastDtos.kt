@@ -131,9 +131,12 @@ data class EpisodeResponse(
 data class EpisodeMatchesResponse(
     val topics: List<String>,
     val articleTitles: List<String>,
+    /** Every matching topic, including those beyond the ones listed in [topics]. */
+    val topicTotal: Int,
+    /** Every matching article, including those beyond the ones listed in [articleTitles]. */
+    val articleTotal: Int,
     /** True when the hit came only from the script, recap, or show notes. */
     val scriptOnly: Boolean,
-    val hasMore: Boolean,
     /** The spoken text around the keyword, when the episode's own text mentions it. */
     val scriptContext: String? = null
 )
