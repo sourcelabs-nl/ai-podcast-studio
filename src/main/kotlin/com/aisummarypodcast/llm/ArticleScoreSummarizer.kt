@@ -81,7 +81,7 @@ class ArticleScoreSummarizer(
                                     try {
                                         val converter = BeanOutputConverter(ScoreSummarizeResult::class.java, jsonMapper)
                                         val responseEntity = chatClient.prompt()
-                                            .user(prompt)
+                                            .user(promptForAttempt(prompt, attempt))
                                             .options(
                                                 OpenAiChatOptions.builder()
                                                     .model(model)
@@ -140,6 +140,25 @@ class ArticleScoreSummarizer(
             }
         }
     }
+
+    /**
+     * Returns the prompt to send on [attempt], appending a correction from the second attempt on.
+     *
+     * A retry must never send the byte-identical prompt. [CachingChatModel] keys on prompt text, so
+     * a model that answered with prose instead of JSON has that unparseable answer cached: every
+     * retry would replay it from cache and fail identically in milliseconds, and because a failed
+     * article keeps a null `relevanceScore` it is picked up again by every later pipeline run,
+     * leaving it permanently unscorable. Naming the attempt keeps each retry's prompt distinct, so
+     * every attempt is a real call, and telling the model what went wrong makes the retry likelier
+     * to succeed.
+     */
+    internal fun promptForAttempt(prompt: String, attempt: Int): String =
+        if (attempt <= 1) prompt else "$prompt\n\n${jsonOnlyCorrection(attempt)}"
+
+    private fun jsonOnlyCorrection(attempt: Int): String =
+        "Retry $attempt: your previous response could not be parsed as JSON. Respond with the raw " +
+            "JSON object only. Do not include reasoning, commentary, or markdown code fences, and " +
+            "do not write anything before or after the JSON."
 
     internal fun buildPrompt(article: Article, podcast: Podcast): String {
         val isAggregated = article.title.startsWith("Posts from")

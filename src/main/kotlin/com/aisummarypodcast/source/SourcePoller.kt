@@ -7,6 +7,8 @@ import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import com.aisummarypodcast.util.sha256
 import org.slf4j.LoggerFactory
+import org.springframework.dao.OptimisticLockingFailureException
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import java.time.Instant
 import java.time.LocalDateTime
@@ -92,12 +94,14 @@ class SourcePoller(
                 latestTimestamp
             }
 
-            sourceRepository.save(source.copy(
-                lastPolled = Instant.now().toString(),
-                lastSeenId = newLastSeenId,
-                consecutiveFailures = 0,
-                lastFailureType = null
-            ))
+            saveSourceState(source) { current ->
+                current.copy(
+                    lastPolled = Instant.now().toString(),
+                    lastSeenId = newLastSeenId,
+                    consecutiveFailures = 0,
+                    lastFailureType = null
+                )
+            }
             log.info("[Polling] Source {} polled: {} new posts saved", source.url, savedCount)
         } catch (e: Exception) {
             val failure = PollFailure.classify(e)
@@ -107,20 +111,47 @@ class SourcePoller(
             log.error("[Polling] {} failure polling source {} (attempt {}): {}",
                 failureType, source.url, newFailureCount, failure.message, e)
 
-            var updatedSource = source.copy(
-                lastPolled = Instant.now().toString(),
-                consecutiveFailures = newFailureCount,
-                lastFailureType = failureType
-            )
+            saveSourceState(source) { current ->
+                val failureCount = current.consecutiveFailures + 1
+                val updated = current.copy(
+                    lastPolled = Instant.now().toString(),
+                    consecutiveFailures = failureCount,
+                    lastFailureType = failureType
+                )
 
-            val effectiveMaxFailures = source.maxFailures ?: appProperties.source.maxFailures
-            if (failure is PollFailure.Permanent && newFailureCount >= effectiveMaxFailures) {
-                val reason = "Auto-disabled after $newFailureCount consecutive ${failure.message} errors"
-                log.warn("[Polling] Disabling source {}: {}", source.url, reason)
-                updatedSource = updatedSource.copy(enabled = false, disabledReason = reason)
+                val effectiveMaxFailures = current.maxFailures ?: appProperties.source.maxFailures
+                if (failure is PollFailure.Permanent && failureCount >= effectiveMaxFailures) {
+                    val reason = "Auto-disabled after $failureCount consecutive ${failure.message} errors"
+                    log.warn("[Polling] Disabling source {}: {}", source.url, reason)
+                    updated.copy(enabled = false, disabledReason = reason)
+                } else {
+                    updated
+                }
             }
+        }
+    }
 
-            sourceRepository.save(updatedSource)
+    /**
+     * Applies [update] to [source] and persists it, re-reading the row and reapplying [update] once
+     * if a concurrent poll of the same source won the optimistic-lock race.
+     *
+     * A scheduled poll round can overlap a manual one, and the loser's `sources` update then fails
+     * with [OptimisticLockingFailureException]. Left unhandled on the success path that exception is
+     * caught as a *poll* failure, which inflates `consecutiveFailures` and can auto-disable a source
+     * that is perfectly healthy. [update] therefore reads from the row it is given rather than the
+     * stale copy, so the retry counts up from the concurrent writer's value.
+     */
+    private fun saveSourceState(source: Source, update: (Source) -> Source) {
+        try {
+            sourceRepository.save(update(source))
+        } catch (e: OptimisticLockingFailureException) {
+            val current = sourceRepository.findByIdOrNull(source.id)
+            if (current == null) {
+                log.warn("[Polling] Source {} was deleted while polling — discarding poll state", source.url)
+                return
+            }
+            log.debug("[Polling] Retrying state update for source {} after a concurrent poll: {}", source.url, e.message)
+            sourceRepository.save(update(current))
         }
     }
 

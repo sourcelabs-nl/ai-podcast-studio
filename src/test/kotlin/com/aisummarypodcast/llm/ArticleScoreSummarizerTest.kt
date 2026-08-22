@@ -527,4 +527,51 @@ class ArticleScoreSummarizerTest {
         assertTrue(result.isEmpty())
         verify(exactly = 0) { articleRepository.save(any()) }
     }
+
+    @Test
+    fun `promptForAttempt leaves the first attempt untouched`() {
+        assertEquals("Score this", scoreSummarizer.promptForAttempt("Score this", 1))
+    }
+
+    @Test
+    fun `promptForAttempt appends a JSON-only correction from the second attempt on`() {
+        val retried = scoreSummarizer.promptForAttempt("Score this", 2)
+
+        assertTrue(retried.startsWith("Score this"))
+        assertTrue(retried.contains("could not be parsed as JSON"))
+    }
+
+    @Test
+    fun `promptForAttempt gives every attempt a distinct prompt so no retry replays a cached response`() {
+        val prompts = (1..3).map { scoreSummarizer.promptForAttempt("Score this", it) }
+
+        assertEquals(prompts.size, prompts.distinct().size)
+    }
+
+    @Test
+    fun `retries send a different prompt than the failed attempt`() = runTest {
+        val article = Article(
+            id = 1L, sourceId = "s1", title = "Test", body = "Body",
+            url = "https://example.com", contentHash = "h1"
+        )
+
+        val sentPrompts = mutableListOf<String>()
+        val requestSpec = mockk<ChatClient.ChatClientRequestSpec>()
+        every { requestSpec.user(capture(sentPrompts)) } returns requestSpec
+        every { requestSpec.options(any()) } returns requestSpec
+        // Stands in for a cached, unparseable completion: the same prompt always fails the same way.
+        every { requestSpec.call() } throws RuntimeException("Unrecognized token 'We'")
+
+        every { chatClient.prompt() } returns requestSpec
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+
+        val summarizer = ArticleScoreSummarizer(
+            articleRepository, chatClientFactory, jsonMapper,
+            appProperties(ScoringProperties(concurrency = 10, maxRetries = 3))
+        )
+        summarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
+
+        assertEquals(3, sentPrompts.size)
+        assertEquals(3, sentPrompts.distinct().size)
+    }
 }

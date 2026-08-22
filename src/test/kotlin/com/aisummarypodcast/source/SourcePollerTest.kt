@@ -16,10 +16,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Test
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.http.HttpStatusCode
 import org.springframework.web.client.HttpClientErrorException
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.Optional
 
 class SourcePollerTest {
 
@@ -269,5 +271,37 @@ class SourcePollerTest {
         poller.poll(newSource)
 
         verify { postRepository.save(any()) }
+    }
+
+    // --- Concurrent poll of the same source ---
+
+    @Test
+    fun `losing the optimistic lock race retries against the re-read source without counting a failure`() {
+        val recentPost = post(publishedAt = Instant.now().minus(1, ChronoUnit.DAYS).toString())
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } returns listOf(recentPost)
+        // A concurrent poll bumped the row first, so this poll's stale copy fails the version check.
+        every { sourceRepository.save(any()) } throws
+            OptimisticLockingFailureException("stale version") andThenAnswer { firstArg() }
+        every { sourceRepository.findById("s1") } returns Optional.of(source.copy(version = 9))
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(source)
+
+        verify(exactly = 2) { sourceRepository.save(any()) }
+        // A lost race is not a poll failure: the source stays healthy and enabled.
+        verify(exactly = 0) { sourceRepository.save(match { it.consecutiveFailures > 0 || !it.enabled }) }
+    }
+
+    @Test
+    fun `poll state is discarded when the source is deleted mid-poll`() {
+        val recentPost = post(publishedAt = Instant.now().minus(1, ChronoUnit.DAYS).toString())
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } returns listOf(recentPost)
+        every { sourceRepository.save(any()) } throws OptimisticLockingFailureException("row gone")
+        every { sourceRepository.findById("s1") } returns Optional.empty()
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(source)
+
+        verify(exactly = 1) { sourceRepository.save(any()) }
     }
 }

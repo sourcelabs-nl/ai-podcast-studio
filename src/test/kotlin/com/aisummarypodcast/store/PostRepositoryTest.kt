@@ -38,12 +38,14 @@ class PostRepositoryTest {
         sourceId: String = "s1",
         body: String = "Post body",
         contentHash: String = "hash1",
-        createdAt: String = Instant.now().toString()
+        createdAt: String = Instant.now().toString(),
+        publishedAt: String? = null
     ) = Post(
         sourceId = sourceId,
         title = "Test Post",
         body = body,
         url = "https://example.com/post",
+        publishedAt = publishedAt,
         contentHash = contentHash,
         createdAt = createdAt
     )
@@ -125,6 +127,38 @@ class PostRepositoryTest {
         assertEquals("s1", unlinked[0].sourceId)
     }
 
+    @Test
+    fun `findUnlinkedBySourceIds excludes a recently ingested post the feed back-dated past the cutoff`() {
+        // Article cleanup measures age on publishedAt, so a post this old can only ever produce an
+        // article that the next cleanup deletes — re-aggregating it forever burns an LLM call a poll.
+        postRepository.save(
+            post(
+                createdAt = Instant.now().toString(),
+                publishedAt = Instant.now().minus(30, ChronoUnit.DAYS).toString()
+            )
+        )
+
+        val cutoff = Instant.now().minus(7, ChronoUnit.DAYS).toString()
+        val unlinked = postRepository.findUnlinkedBySourceIds(listOf("s1"), cutoff)
+
+        assertEquals(0, unlinked.size)
+    }
+
+    @Test
+    fun `findUnlinkedBySourceIds includes a recently published post ingested long ago`() {
+        postRepository.save(
+            post(
+                createdAt = Instant.now().minus(30, ChronoUnit.DAYS).toString(),
+                publishedAt = Instant.now().minus(1, ChronoUnit.DAYS).toString()
+            )
+        )
+
+        val cutoff = Instant.now().minus(7, ChronoUnit.DAYS).toString()
+        val unlinked = postRepository.findUnlinkedBySourceIds(listOf("s1"), cutoff)
+
+        assertEquals(1, unlinked.size)
+    }
+
     // --- Cleanup ---
 
     @Test
@@ -152,6 +186,36 @@ class PostRepositoryTest {
     @Test
     fun `deleteOldUnlinkedPosts retains recent unlinked posts`() {
         postRepository.save(post(createdAt = Instant.now().minus(2, ChronoUnit.DAYS).toString()))
+
+        val cutoff = Instant.now().minus(7, ChronoUnit.DAYS).toString()
+        postRepository.deleteOldUnlinkedPosts(cutoff)
+
+        assertEquals(1, postRepository.count())
+    }
+
+    @Test
+    fun `deleteOldUnlinkedPosts deletes a recently ingested post the feed back-dated past the cutoff`() {
+        postRepository.save(
+            post(
+                createdAt = Instant.now().toString(),
+                publishedAt = Instant.now().minus(30, ChronoUnit.DAYS).toString()
+            )
+        )
+
+        val cutoff = Instant.now().minus(7, ChronoUnit.DAYS).toString()
+        postRepository.deleteOldUnlinkedPosts(cutoff)
+
+        assertEquals(0, postRepository.count())
+    }
+
+    @Test
+    fun `deleteOldUnlinkedPosts retains a recently published post ingested long ago`() {
+        postRepository.save(
+            post(
+                createdAt = Instant.now().minus(30, ChronoUnit.DAYS).toString(),
+                publishedAt = Instant.now().minus(1, ChronoUnit.DAYS).toString()
+            )
+        )
 
         val cutoff = Instant.now().minus(7, ChronoUnit.DAYS).toString()
         postRepository.deleteOldUnlinkedPosts(cutoff)
