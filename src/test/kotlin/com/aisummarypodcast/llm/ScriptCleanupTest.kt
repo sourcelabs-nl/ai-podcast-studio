@@ -1,6 +1,7 @@
 package com.aisummarypodcast.llm
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ScriptCleanupTest {
@@ -99,5 +100,96 @@ class ScriptCleanupTest {
         val result = stripLeadingMetaCommentary(script)
 
         assertEquals(script, result)
+    }
+
+    // --- Square-bracketed speaker openers ---
+
+    private val interviewRoles = setOf("interviewer", "expert")
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags rewrites a square-bracketed opener`() {
+        val script = "[interviewer]Welcome to the show.</interviewer><expert>Glad to be here.</expert>"
+
+        val result = normalizeSquareBracketSpeakerTags(script, interviewRoles)
+
+        assertEquals("<interviewer>Welcome to the show.</interviewer><expert>Glad to be here.</expert>", result)
+    }
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags rescues an opening turn that strip would otherwise drop`() {
+        // Episode 184's exact failure: the model wrote the whole cold open correctly and closed it
+        // with </interviewer>, but opened it with a square bracket, so the turn was silently deleted.
+        val script = "[interviewer]Eighty five percent. This is the show, it's Friday.</interviewer>" +
+            "<expert>[warm and conversational] And what a week to close out.</expert>" +
+            "<interviewer>That's the show.</interviewer>"
+
+        val stripped = stripOutsideSpeakerTags(normalizeSquareBracketSpeakerTags(script, interviewRoles))
+
+        assertTrue(stripped.startsWith("<interviewer>Eighty five percent."), "opening turn survived: $stripped")
+        assertEquals(3, SPEAKER_TURN_PATTERN.findAll(stripped).count())
+    }
+
+    @Test
+    fun `stripOutsideSpeakerTags without normalization drops the square-bracketed opener`() {
+        val script = "[interviewer]Eighty five percent. This is the show.</interviewer>" +
+            "<expert>And what a week.</expert>"
+
+        val stripped = stripOutsideSpeakerTags(script)
+
+        assertEquals("<expert>And what a week.</expert>", stripped)
+    }
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags leaves delivery cues alone`() {
+        val script = "<expert>[warm and conversational] Hello there.</expert>"
+
+        val result = normalizeSquareBracketSpeakerTags(script, interviewRoles)
+
+        assertEquals(script, result)
+    }
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags ignores a role not configured for this podcast`() {
+        val script = "[narrator]Once upon a time.</narrator><expert>Hi.</expert>"
+
+        val result = normalizeSquareBracketSpeakerTags(script, interviewRoles)
+
+        assertEquals(script, result)
+    }
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags leaves an opener with no closing tag alone`() {
+        val script = "[expert] a stray mention with no close<interviewer>Hi.</interviewer>"
+
+        val result = normalizeSquareBracketSpeakerTags(script, interviewRoles)
+
+        assertEquals(script, result)
+    }
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags does not swallow a later well-formed turn`() {
+        // The closing </expert> here belongs to the well-formed turn, not to the square-bracketed
+        // text, so rewriting the opener would nest one turn inside another.
+        val script = "[expert] unterminated <interviewer>Question?</interviewer><expert>Answer.</expert>"
+
+        val result = normalizeSquareBracketSpeakerTags(script, interviewRoles)
+
+        assertEquals(script, result)
+    }
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags rewrites every mis-typed opener`() {
+        val script = "[interviewer]First.</interviewer><expert>Second.</expert>[interviewer]Third.</interviewer>"
+
+        val result = normalizeSquareBracketSpeakerTags(script, interviewRoles)
+
+        assertEquals(3, SPEAKER_TURN_PATTERN.findAll(result).count())
+    }
+
+    @Test
+    fun `normalizeSquareBracketSpeakerTags returns the script unchanged when no roles are configured`() {
+        val script = "[interviewer]Welcome.</interviewer>"
+
+        assertEquals(script, normalizeSquareBracketSpeakerTags(script, emptySet()))
     }
 }

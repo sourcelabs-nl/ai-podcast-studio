@@ -3,6 +3,7 @@ package com.aisummarypodcast.llm
 import com.aisummarypodcast.podcast.SupportedLanguage
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
+import org.slf4j.LoggerFactory
 import java.net.URI
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -211,7 +212,60 @@ fun buildHandlesBlock(): String =
 fun buildResearchNamesBlock(): String =
     "\n            - RESEARCH NAMES FOR THE EAR: A spoken episode cannot absorb a rapid list of paper codenames and author surnames. Lead with what a piece of research DOES, and voice its codename only when the name itself is the news. Do not stack author attributions like \"X from Smith and colleagues\" on every paper: drop or soften the surnames (at most credit a notable lab or company), and never recite more than one unfamiliar proper name per sentence."
 
+private val log = LoggerFactory.getLogger("com.aisummarypodcast.llm.ComposerUtils")
+
 internal val SPEAKER_TURN_PATTERN = Regex("<(\\w+)>.*?</\\1>", RegexOption.DOT_MATCHES_ALL)
+
+/**
+ * Shared rule banning square brackets as speaker-tag delimiters. Compose prompts are dense with
+ * square-bracketed delivery cues, so the model sometimes carries that habit into a speaker tag.
+ * Included verbatim in the dialogue and interview prompts so the rule lives in one place.
+ */
+fun buildSpeakerTagFormatBlock(roles: Set<String>): String {
+    val example = roles.firstOrNull() ?: "host"
+    return "\n            - SPEAKER TAG DELIMITERS: Speaker tags use angle brackets on BOTH sides. " +
+        "Write <$example>…</$example>, never [$example]…</$example> and never [$example]…[/$example]. " +
+        "Square brackets are reserved for delivery cues inside a turn, so a square-bracketed speaker " +
+        "tag is not recognised as a turn at all and that turn is lost."
+}
+
+/**
+ * Rewrites a square-bracketed speaker opener (`[expert] … </expert>`) into a well-formed
+ * `<expert> … </expert>` turn, for the [roles] this podcast actually uses.
+ *
+ * [SPEAKER_TURN_PATTERN] requires an angle-bracket opener, which makes a turn opened with a square
+ * bracket invisible to every downstream step: [stripOutsideSpeakerTags] reads it as text sitting
+ * before the script and drops it, and [RoleTagValidationAdvisor] never sees a tag to object to, so
+ * nothing warns. Episode 184 lost its entire cold open and introduction to a single mis-typed
+ * bracket, on a turn the model had otherwise written correctly and closed with `</interviewer>`.
+ *
+ * Deliberately narrow. Only [roles] are considered, and an opener is rewritten only when the very
+ * next `<` in the script begins its own closing tag. A speaker turn's body carries no tags, so that
+ * condition identifies the mis-typed opener while leaving a genuine delivery cue such as
+ * `[warm and conversational]` alone and refusing to swallow a later, well-formed turn.
+ */
+fun normalizeSquareBracketSpeakerTags(script: String, roles: Set<String>): String {
+    var result = script
+    for (role in roles) {
+        val opener = "[$role]"
+        val closer = "</$role>"
+        var searchFrom = 0
+        while (true) {
+            val openerAt = result.indexOf(opener, searchFrom)
+            if (openerAt == -1) break
+            val bodyStart = openerAt + opener.length
+            val closerAt = result.indexOf(closer, bodyStart)
+            if (closerAt != -1 && result.indexOf('<', bodyStart) == closerAt) {
+                result = result.replaceRange(openerAt, bodyStart, "<$role>")
+                log.warn("Compose LLM opened a <{}> turn with a square bracket; recovered {} characters", role, closerAt - bodyStart)
+                searchFrom = openerAt + role.length + 2
+            } else {
+                searchFrom = bodyStart
+            }
+        }
+    }
+    return result
+}
 
 /**
  * The set of speaker roles a compose-stage script is allowed to use, derived from the podcast's
@@ -228,11 +282,33 @@ fun resolveSpeakerRoles(podcast: Podcast): Set<String> =
  * forbidding text outside speaker tags. The TTS parser already ignores such text, but it must
  * not be stored in the episode script (it shows in the dashboard and pollutes word counts).
  * Scripts without any speaker tags (briefing style) are returned unchanged.
+ *
+ * Discarding is logged at WARN when what goes is more than the expected scrap of meta-commentary,
+ * because this function is otherwise silent about deleting spoken content. A discarded run that
+ * contains a closing tag means a whole malformed turn was thrown away, which is how episode 184
+ * lost its cold open without a single line in the log.
  */
 fun stripOutsideSpeakerTags(script: String): String {
     val turns = SPEAKER_TURN_PATTERN.findAll(script).toList()
     if (turns.isEmpty()) return script
+    warnIfSubstantial("before", script.substring(0, turns.first().range.first))
+    warnIfSubstantial("after", script.substring(turns.last().range.last + 1))
     return script.substring(turns.first().range.first, turns.last().range.last + 1)
+}
+
+/** Length beyond which discarded text is too long to be the usual "Writing the script now." scrap. */
+private const val EXPECTED_META_COMMENTARY_LENGTH = 200
+
+private fun warnIfSubstantial(position: String, discarded: String) {
+    val trimmed = discarded.trim()
+    if (trimmed.isEmpty()) return
+    if (trimmed.length <= EXPECTED_META_COMMENTARY_LENGTH && !trimmed.contains("</")) return
+    log.warn(
+        "Discarded {} characters of untagged text {} the script{}: '{}'",
+        trimmed.length, position,
+        if (trimmed.contains("</")) " (it contains a closing tag, so a malformed turn was dropped)" else "",
+        trimmed.take(200)
+    )
 }
 
 private val META_PREAMBLE_PATTERN = Regex(

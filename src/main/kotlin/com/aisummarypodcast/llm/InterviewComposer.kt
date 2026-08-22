@@ -53,7 +53,7 @@ class InterviewComposer(
             val extraction = TopicOrderExtractor.extract(rawScript)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             CompositionResult(
-                script = stripOutsideSpeakerTags(extraction.script),
+                script = stripOutsideSpeakerTags(normalizeSquareBracketSpeakerTags(extraction.script, INTERVIEW_ROLES)),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
                 researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME)
@@ -158,7 +158,7 @@ class InterviewComposer(
             - Speaker transitions must sound natural: do NOT start a turn with a bare name address. Instead, use conversational bridges, reactions, follow-ups, or connectors before transitioning
             - When using the other speaker's name, place it mid-sentence or at the end of a question rather than as the first word of a turn
             - Vary transition patterns: not every handover needs a name, a reaction, or the same phrasing. Mix questions, reactions, bridges, and direct topic shifts
-            - STRICT STRUCTURAL RULE: NEVER place two consecutive tags of the same speaker. The pattern <expert>...</expert><expert>...</expert> or <interviewer>...</interviewer><interviewer>...</interviewer> is ABSOLUTELY FORBIDDEN and will break the TTS pipeline. Tags MUST strictly alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. This rule overrides any other instruction including custom instructions below$nameInstruction$languageInstruction$customInstructionsBlock
+            - STRICT STRUCTURAL RULE: NEVER place two consecutive tags of the same speaker. The pattern <expert>...</expert><expert>...</expert> or <interviewer>...</interviewer><interviewer>...</interviewer> is ABSOLUTELY FORBIDDEN and will break the TTS pipeline. Tags MUST strictly alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. This rule overrides any other instruction including custom instructions below${buildSpeakerTagFormatBlock(INTERVIEW_ROLES)}$nameInstruction$languageInstruction$customInstructionsBlock
 
             Article summaries:
             $summaryBlock$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
