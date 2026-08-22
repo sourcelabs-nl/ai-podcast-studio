@@ -18,6 +18,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import io.mockk.verifyOrder
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -217,30 +218,83 @@ class SoundCloudPublisherTest {
     }
 
     @Test
-    fun `update calls updateTrack with show notes description`() = runTest {
+    fun `update replaces the audio by deleting the old track then uploading`() = runTest {
+        // SoundCloud cannot swap a track's audio in place, so a regenerated episode only reaches
+        // listeners as a fresh upload. Updating metadata alone used to report success while the
+        // previous audio stayed live (episode 184).
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.deleteTrack("access-token", 999) } returns Unit
+        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+
+        publisher.update(episode, podcast, "user1", "999")
+
+        verifyOrder {
+            soundCloudClient.deleteTrack("access-token", 999)
+            soundCloudClient.uploadTrack("access-token", any())
+        }
+        verify(exactly = 0) { soundCloudClient.updateTrack(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `update returns the new track id not the replaced one`() = runTest {
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.deleteTrack("access-token", 999) } returns Unit
+        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+
+        val result = publisher.update(episode, podcast, "user1", "999")
+
+        assertEquals("456", result.externalId)
+        assertEquals("https://soundcloud.com/user/tech-news", result.externalUrl)
+    }
+
+    @Test
+    fun `update claims the same canonical permalink for the replacement`() = runTest {
+        // Deleting before uploading frees the permalink, so the replacement keeps the episode's
+        // canonical URL rather than a suffixed variant.
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.deleteTrack("access-token", 999) } returns Unit
+        val requestSlot = slot<TrackUploadRequest>()
+        every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
+
+        publisher.update(episode, podcast, "user1", "999")
+
+        assertEquals("tech-news-2026-02-13", requestSlot.captured.permalink)
+        assertEquals("Tech News - 2026-02-13", requestSlot.captured.title)
+    }
+
+    @Test
+    fun `update carries the show notes description onto the replacement`() = runTest {
         val episodeWithNotes = episode.copy(
             showNotes = "Recap.\n\nSources:\n- Article\n  https://example.com/1"
         )
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
-        val expectedDescription = "Recap.\n\nSources:\n- Article\n  https://example.com/1\n\nFor the full list of sources and show notes: $expectedSourcesUrl"
-        every { soundCloudClient.updateTrack("access-token", 456, description = expectedDescription) } returns trackResponse
+        every { soundCloudClient.deleteTrack("access-token", 456) } returns Unit
+        val requestSlot = slot<TrackUploadRequest>()
+        every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
-        val result = publisher.update(episodeWithNotes, podcast, "user1", "456")
+        publisher.update(episodeWithNotes, podcast, "user1", "456")
 
-        assertEquals("456", result.externalId)
-        assertEquals("https://soundcloud.com/user/tech-news", result.externalUrl)
-        verify { soundCloudClient.updateTrack("access-token", 456, description = expectedDescription) }
+        assertEquals(
+            "Recap.\n\nSources:\n- Article\n  https://example.com/1\n\nFor the full list of sources and show notes: $expectedSourcesUrl",
+            requestSlot.captured.description
+        )
     }
 
     @Test
     fun `update falls back to recap when no show notes`() = runTest {
         val episodeWithRecap = episode.copy(recap = "Short recap")
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
-        every { soundCloudClient.updateTrack("access-token", 456, description = "Short recap\n\nFor the full list of sources and show notes: $expectedSourcesUrl") } returns trackResponse
+        every { soundCloudClient.deleteTrack("access-token", 456) } returns Unit
+        val requestSlot = slot<TrackUploadRequest>()
+        every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
         val result = publisher.update(episodeWithRecap, podcast, "user1", "456")
 
         assertEquals("456", result.externalId)
+        assertEquals(
+            "Short recap\n\nFor the full list of sources and show notes: $expectedSourcesUrl",
+            requestSlot.captured.description
+        )
     }
 
     @Test

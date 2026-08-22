@@ -134,16 +134,38 @@ class SoundCloudPublisher(
         delay(QUOTA_SETTLE_MILLIS)
     }
 
-    override suspend fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult = withContext(Dispatchers.IO) {
+    /**
+     * Replaces the published track by deleting it and uploading the episode's current audio.
+     *
+     * SoundCloud offers no way to swap a track's audio in place: [SoundCloudClient.updateTrack]
+     * carries metadata only. Updating just the description, which is what this used to do, reported
+     * success while leaving the previous audio live, so a regenerated episode never reached
+     * listeners. Episode 184 kept its truncated opening on SoundCloud after both its script and its
+     * audio had been repaired, and the log line claimed the update had worked.
+     *
+     * Deleting before uploading is deliberate on two counts. SoundCloud holds a permalink for as
+     * long as the track exists, so freeing it first lets the replacement claim the same canonical
+     * URL instead of a suffixed variant. It also returns the old track's seconds to the upload
+     * quota, which is why the [QUOTA_SETTLE_MILLIS] pause belongs here and not only in
+     * [freeQuotaIfNeeded]: without it [publish] reads a quota that has not yet registered this
+     * deletion and deletes further, older episodes to make room that already exists.
+     *
+     * A republish is idempotent: [SoundCloudClient.deleteTrack] treats an already-deleted track as
+     * done, so an attempt that deleted the track and then failed to upload can simply be retried.
+     *
+     * Returns the NEW track id; the one passed in is dead once this returns.
+     */
+    override suspend fun update(episode: Episode, podcast: Podcast, userId: String, externalId: String): PublishResult {
         val accessToken = tokenManager.getValidAccessToken(userId)
         val trackId = externalId.toLong()
-        val description = buildDescription(episode, podcast)
-        val response = soundCloudClient.updateTrack(accessToken, trackId, description = description)
-        log.info("Updated SoundCloud track {} description for episode {}", trackId, episode.id)
-        PublishResult(
-            externalId = externalId,
-            externalUrl = response.permalinkUrl
-        )
+
+        withContext(Dispatchers.IO) { soundCloudClient.deleteTrack(accessToken, trackId) }
+        log.info("Deleted SoundCloud track {} to replace episode {}'s audio", trackId, episode.id)
+        delay(QUOTA_SETTLE_MILLIS)
+
+        val result = publish(episode, podcast, userId)
+        log.info("Replaced SoundCloud track {} with {} for episode {}", trackId, result.externalId, episode.id)
+        return result
     }
 
     private fun getPlaylistId(podcastId: String): Long? {

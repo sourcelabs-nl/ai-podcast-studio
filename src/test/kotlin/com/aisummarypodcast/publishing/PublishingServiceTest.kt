@@ -168,6 +168,33 @@ class PublishingServiceTest {
     }
 
     @Test
+    fun `publish persists the new external id when an update changes it`() {
+        // An update is not obliged to keep the same external identity: SoundCloud returns a new
+        // track id because it cannot replace audio in place, and the FTP id follows the audio
+        // filename. Keeping the old id left the row pointing at something that no longer exists.
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        val existing = EpisodePublication(
+            id = 5L,
+            episodeId = 1L,
+            target = "soundcloud",
+            status = PublicationStatus.PUBLISHED,
+            externalId = "sc-123",
+            externalUrl = "https://soundcloud.com/old",
+            createdAt = "2026-02-13T10:00:00Z"
+        )
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns existing
+        coEvery { publisher.update(episode, podcast, "user1", "sc-123") } returns
+            PublishResult("sc-999", "https://soundcloud.com/replacement")
+        every { publicationRepository.save(any()) } answers { firstArg() }
+
+        val result = runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
+
+        assertEquals("sc-999", result.externalId)
+        assertEquals("https://soundcloud.com/replacement", result.externalUrl)
+        verify { publicationRepository.save(match { it.externalId == "sc-999" }) }
+    }
+
+    @Test
     fun `publish throws when update not supported`() {
         every { targetService.get("pod1", "soundcloud") } returns enabledTarget
         val existing = EpisodePublication(

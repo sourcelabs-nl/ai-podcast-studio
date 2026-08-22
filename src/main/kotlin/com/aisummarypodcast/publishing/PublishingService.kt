@@ -140,14 +140,20 @@ class PublishingService(
         return try {
             log.info("Updating episode {} on {} (externalId={})", episode.id, existing.target, existing.externalId)
             val result = publisher.update(episode, podcast, userId, existing.externalId!!)
+            // Persist the id the publisher came back with, not the one we went in with. An update is
+            // not obliged to keep the same external identity: SoundCloud cannot replace a track's
+            // audio in place so it returns a new track id, and the FTP id is derived from the audio
+            // filename so it changes whenever the episode is re-synthesized. Keeping the old id left
+            // the row pointing at a track that no longer exists, or at a superseded MP3 filename.
             val updated = publicationRepository.save(
                 existing.copy(
+                    externalId = result.externalId,
                     externalUrl = result.externalUrl,
                     publishedAt = Instant.now().toString(),
                     errorMessage = null
                 )
             )
-            log.info("Episode {} updated on {} (externalId={})", episode.id, existing.target, existing.externalId)
+            log.info("Episode {} updated on {} (externalId={})", episode.id, existing.target, result.externalId)
             withContext(Dispatchers.IO) { publisher.postPublish(podcast, userId) }
             if (existing.target == SoundCloudPublisher.TARGET_NAME) {
                 try {
