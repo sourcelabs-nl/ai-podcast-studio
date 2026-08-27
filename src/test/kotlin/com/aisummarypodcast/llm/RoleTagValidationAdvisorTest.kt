@@ -92,6 +92,66 @@ class RoleTagValidationAdvisorTest {
     }
 
     @Test
+    fun `untagged script retries and self-corrects`() {
+        val chatModel = mockk<ChatModel>()
+        // Episode 187: a correctly alternating interview with every speaker tag omitted. No tag
+        // means no invalid role, so a wrong-tag-only check read this as valid and TTS threw on it.
+        val untagged = "Picture this. A pull request lands at Bloomberg.\n\nGreat to be here, that did not exaggerate."
+        val valid = "<interviewer>Hi</interviewer><expert>Hello</expert>"
+        val promptSlot = mutableListOf<Prompt>()
+        every { chatModel.call(capture(promptSlot)) } returnsMany listOf(response(untagged), response(valid))
+
+        val result = buildChatClient(chatModel).prompt()
+            .user("Write a script.")
+            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .call()
+            .content()
+
+        assertEquals(valid, result)
+        verify(exactly = 2) { chatModel.call(any<Prompt>()) }
+
+        val retryPromptText = promptSlot[1].instructions.joinToString("\n") { it.text ?: "" }
+        assertTrue(retryPromptText.contains("no speaker tags at all"))
+        assertTrue(retryPromptText.contains("interviewer"))
+        assertTrue(retryPromptText.contains("expert"))
+    }
+
+    @Test
+    fun `square-bracketed opener is not treated as untagged`() {
+        val chatModel = mockk<ChatModel>()
+        // normalizeSquareBracketSpeakerTags recovers this downstream, so retrying would burn a
+        // compose on a script the pipeline can already voice.
+        val bracketed = "[interviewer]Hi there.</interviewer><expert>Hello</expert>"
+        every { chatModel.call(any<Prompt>()) } returns response(bracketed)
+
+        val result = buildChatClient(chatModel).prompt()
+            .user("Write a script.")
+            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .call()
+            .content()
+
+        assertEquals(bracketed, result)
+        verify(exactly = 1) { chatModel.call(any<Prompt>()) }
+    }
+
+    @Test
+    fun `throws after exhausting retries on an untagged script`() {
+        val chatModel = mockk<ChatModel>()
+        every { chatModel.call(any<Prompt>()) } returns response("A plain paragraph with no tags.")
+
+        val ex = assertThrows(IllegalStateException::class.java) {
+            buildChatClient(chatModel).prompt()
+                .user("Write a script.")
+                .advisors(RoleTagValidationAdvisor(allowedRoles, maxRetries = 2))
+                .call()
+                .content()
+        }
+
+        assertTrue(ex.message!!.contains("no speaker tags"))
+        verify(exactly = 3) { chatModel.call(any<Prompt>()) }
+    }
+
+    @Test
     fun `throws after exhausting retries`() {
         val chatModel = mockk<ChatModel>()
         val invalid = "<function_results>leaked tool output</function_results>"

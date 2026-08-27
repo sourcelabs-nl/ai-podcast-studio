@@ -217,13 +217,20 @@ private val log = LoggerFactory.getLogger("com.aisummarypodcast.llm.ComposerUtil
 internal val SPEAKER_TURN_PATTERN = Regex("<(\\w+)>.*?</\\1>", RegexOption.DOT_MATCHES_ALL)
 
 /**
- * Shared rule banning square brackets as speaker-tag delimiters. Compose prompts are dense with
- * square-bracketed delivery cues, so the model sometimes carries that habit into a speaker tag.
- * Included verbatim in the dialogue and interview prompts so the rule lives in one place.
+ * Shared rule on speaker-tag format for multi-speaker scripts, covering both ways the tags go
+ * wrong. The model sometimes carries the prompt's dense square-bracketed delivery cues into a
+ * speaker tag, and it sometimes drops the tags entirely and writes the turns as plain alternating
+ * paragraphs (episode 187), which leaves the script unusable for TTS since every turn is invisible
+ * to the parser. Included verbatim in the dialogue and interview prompts so the rule lives in one
+ * place.
  */
 fun buildSpeakerTagFormatBlock(roles: Set<String>): String {
     val example = roles.firstOrNull() ?: "host"
-    return "\n            - SPEAKER TAG DELIMITERS: Speaker tags use angle brackets on BOTH sides. " +
+    return "\n            - SPEAKER TAGS ARE MANDATORY: EVERY line of spoken text must be wrapped in " +
+        "a speaker tag, including the cold open and the sign-off. The only valid tags are " +
+        "${roles.joinToString { "<$it>…</$it>" }}. A script written as plain alternating paragraphs " +
+        "without tags cannot be voiced at all and is discarded, no matter how good the writing is." +
+        "\n            - SPEAKER TAG DELIMITERS: Speaker tags use angle brackets on BOTH sides. " +
         "Write <$example>…</$example>, never [$example]…</$example> and never [$example]…[/$example]. " +
         "Square brackets are reserved for delivery cues inside a turn, so a square-bracketed speaker " +
         "tag is not recognised as a turn at all and that turn is lost."
