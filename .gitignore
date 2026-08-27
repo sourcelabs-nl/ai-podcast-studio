@@ -65,3 +65,6 @@ blogpost-lsp.md
 
 ### Scratch ###
 tmp/
+
+# Nitter session credentials — a logged-in X session, never commit
+docker/nitter/sessions.jsonl
