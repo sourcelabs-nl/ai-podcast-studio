@@ -28,13 +28,31 @@ class SourcePoller(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun poll(source: Source, userId: String? = null, maxArticleAgeDays: Int? = null, siblingSourceIds: List<String> = emptyList()) {
+    /**
+     * Polls [source] and records the outcome on the source row.
+     *
+     * Returns the classified failure, or null on success. Failures are handled here rather than
+     * thrown, but the classification is still returned so callers (the host circuit breaker) can
+     * distinguish a host that is structurally down from one that is merely slow, without having to
+     * re-read the row.
+     */
+    fun poll(
+        source: Source,
+        userId: String? = null,
+        maxArticleAgeDays: Int? = null,
+        siblingSourceIds: List<String> = emptyList()
+    ): PollFailure? {
         log.info("[Polling] Polling source: {} ({})", source.url, source.type)
 
         try {
+            val effectiveMaxArticleAgeDays = maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
+            val maxAgeCutoff = Instant.now().minus(effectiveMaxArticleAgeDays.toLong(), ChronoUnit.DAYS)
+            val isFirstPoll = source.lastPolled == null
+            val sourceCreatedAt = parseInstant(source.createdAt)
+
             var resolvedXUserId: String? = null
             val rawPosts = when (source.type) {
-                SourceType.RSS -> rssFeedFetcher.fetch(source.url, source.id, source.lastSeenId, source.categoryFilter)
+                SourceType.RSS -> rssFeedFetcher.fetch(source.url, source.id, rssFetchFloor(source, maxAgeCutoff, isFirstPoll, sourceCreatedAt), source.categoryFilter)
                 SourceType.WEBSITE -> listOfNotNull(websiteFetcher.fetch(source.url, source.id))
                 SourceType.TWITTER -> {
                     if (userId == null) {
@@ -51,13 +69,7 @@ class SourcePoller(
 
             var latestTimestamp = source.lastSeenId
             var savedCount = 0
-
-            val effectiveMaxArticleAgeDays = maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
-            val maxAgeCutoff = Instant.now().minus(effectiveMaxArticleAgeDays.toLong(), ChronoUnit.DAYS)
             val now = Instant.now().toString()
-
-            val isFirstPoll = source.lastPolled == null
-            val sourceCreatedAt = parseInstant(source.createdAt)
 
             for (post in rawPosts) {
                 if (post.publishedAt != null && parseInstant(post.publishedAt).isBefore(maxAgeCutoff)) {
@@ -103,9 +115,10 @@ class SourcePoller(
                 )
             }
             log.info("[Polling] Source {} polled: {} new posts saved", source.url, savedCount)
+            return null
         } catch (e: Exception) {
             val failure = PollFailure.classify(e)
-            val failureType = if (failure is PollFailure.Permanent) "permanent" else "transient"
+            val failureType = failure.label
             val newFailureCount = source.consecutiveFailures + 1
 
             log.error("[Polling] {} failure polling source {} (attempt {}): {}",
@@ -128,6 +141,7 @@ class SourcePoller(
                     updated
                 }
             }
+            return failure
         }
     }
 
@@ -154,6 +168,30 @@ class SourcePoller(
             sourceRepository.save(update(current))
         }
     }
+
+    /**
+     * The earliest publish time worth fetching from an RSS source: the latest of the source's
+     * `lastSeenId`, the max-article-age cutoff, and (on a first poll) the source's creation time.
+     *
+     * These bounds are applied again in the save loop below, but they must also reach the fetcher.
+     * [RssFeedFetcher] deep-fetches each surviving entry's full article text, so a bound applied
+     * only afterwards means every historical entry is crawled and then discarded. Adding
+     * `openai.com/news/rss.xml` (1153 entries) that way ran for over 12 minutes and never
+     * completed, because the whole archive was deep-fetched to keep nothing.
+     *
+     * Returned as the `lastSeenId` argument rather than a new parameter because it is the same
+     * concept the fetcher already applies there: entries at or before this instant are skipped.
+     */
+    private fun rssFetchFloor(
+        source: Source,
+        maxAgeCutoff: Instant,
+        isFirstPoll: Boolean,
+        sourceCreatedAt: Instant
+    ): String = listOfNotNull(
+        source.lastSeenId?.let { parseInstant(it) },
+        maxAgeCutoff,
+        sourceCreatedAt.takeIf { isFirstPoll }
+    ).max().toString()
 
     private fun parseInstant(text: String): Instant =
         try {

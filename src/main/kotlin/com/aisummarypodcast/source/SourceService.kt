@@ -19,7 +19,8 @@ class SourceService(
     private val articleRepository: ArticleRepository,
     private val postRepository: PostRepository,
     private val rssFeedFetcher: RssFeedFetcher,
-    private val websiteFetcher: WebsiteFetcher
+    private val websiteFetcher: WebsiteFetcher,
+    private val sourceHostBreaker: SourceHostBreaker
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -33,6 +34,23 @@ class SourceService(
         val cutoff = Instant.now().minus(maxArticleAgeDays.toLong(), ChronoUnit.DAYS).toString()
         articleRepository.deleteOldUnprocessedArticles(cutoff)
         postRepository.deleteOldUnlinkedPosts(cutoff)
+    }
+
+    /**
+     * Clears the failure state of [sources], used when a host's circuit breaker closes because a
+     * poll of one of its sources succeeded.
+     *
+     * Without this the breaker would close while every other source on the host still sat on its
+     * own accumulated backoff (up to a day), so a recovered host would trickle back over days
+     * instead of resuming at its normal interval. All the writes happen together so the host
+     * either recovers as a unit or not at all.
+     */
+    @Transactional
+    fun resetFailureState(sources: List<Source>) {
+        sources.filter { it.consecutiveFailures > 0 || it.lastFailureType != null }
+            .forEach { source ->
+                sourceRepository.save(source.copy(consecutiveFailures = 0, lastFailureType = null))
+            }
     }
 
     fun create(podcastId: String, type: SourceType, url: String, config: SourceConfig = SourceConfig()): Source {
@@ -65,7 +83,10 @@ class SourceService(
 
     private fun validateRssUrl(url: String, categoryFilter: String?) {
         try {
-            val posts = rssFeedFetcher.fetch(url, "validation", null, categoryFilter)
+            // deepFetch = false: validation only needs the feed to parse and yield an item. With it
+            // on, every entry's linked article is crawled on the request thread, so validating a
+            // large archive (openai.com/news/rss.xml carries 1153 entries) never returns.
+            val posts = rssFeedFetcher.fetch(url, "validation", null, categoryFilter, deepFetch = false)
             if (posts.isEmpty()) {
                 throw IllegalArgumentException("RSS feed at $url returned no items")
             }
@@ -115,6 +136,26 @@ class SourceService(
 
     fun getArticleCounts(sourceIds: List<String>, relevanceThreshold: Int): Map<String, SourceArticleCounts> {
         return articleRepository.getArticleCountsBySourceIds(sourceIds, relevanceThreshold)
+    }
+
+    /**
+     * Host circuit breaker state for each of [sources], keyed by source id.
+     *
+     * The sibling count spans every enabled source sharing a host, not just those of one podcast,
+     * matching the breaker itself: one breaker per host, shared by all its sources regardless of
+     * which podcast points at it.
+     */
+    fun getHostBreakerStates(sources: List<Source>): Map<String, HostBreakerState> {
+        val enabledByHost = sourceRepository.findAll()
+            .filter { it.enabled }
+            .groupBy { extractSourceHost(it.url) }
+
+        return sources.associate { source ->
+            val host = extractSourceHost(source.url)
+            val siblings = enabledByHost[host].orEmpty()
+            val open = host != null && sourceHostBreaker.isOpen(host)
+            source.id to HostBreakerState(host, siblings.size, open)
+        }
     }
 
     fun getPostCounts(sourceIds: List<String>): Map<String, Int> {

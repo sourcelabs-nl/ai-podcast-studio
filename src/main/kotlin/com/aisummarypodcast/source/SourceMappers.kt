@@ -22,3 +22,9 @@ internal fun Source.toResponse() = SourceResponse(
     consecutiveFailures = consecutiveFailures, lastFailureType = lastFailureType,
     disabledReason = disabledReason
 )
+
+internal fun SourceResponse.withBreakerState(state: HostBreakerState?) = copy(
+    host = state?.host,
+    hostSourceCount = state?.sourceCount ?: 0,
+    hostBreakerOpen = state?.open ?: false
+)

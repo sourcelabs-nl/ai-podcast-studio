@@ -124,6 +124,9 @@ export interface Source {
   articleCount: number;
   relevantArticleCount: number;
   postCount: number;
+  host: string | null;
+  hostSourceCount: number;
+  hostBreakerOpen: boolean;
 }
 
 export interface ArticleSource {

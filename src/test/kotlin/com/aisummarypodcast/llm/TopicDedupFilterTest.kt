@@ -1,6 +1,7 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.store.Article
+import com.aisummarypodcast.testRetryRegistry
 import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -10,7 +11,7 @@ import tools.jackson.databind.json.JsonMapper
 
 class TopicDedupFilterTest {
 
-    private val filter = TopicDedupFilter(mockk(), JsonMapper.builder().build())
+    private val filter = TopicDedupFilter(mockk(), JsonMapper.builder().build(), testRetryRegistry())
 
     private fun article(id: Long, title: String, summary: String = "Summary of $title") = Article(
         id = id,
@@ -78,6 +79,93 @@ class TopicDedupFilterTest {
         assertTrue(prompt.contains("NEW"))
         assertTrue(prompt.contains("selectedArticleIds"))
         assertTrue(prompt.contains("max 3 per cluster"))
+    }
+
+    @Test
+    fun `selectArticles keeps an article selected by two clusters only once`() {
+        val candidates = listOf(article(1, "Vercel fx"), article(2, "Linear agent data"))
+        val clusters = listOf(
+            DedupCluster(topic = "agent tooling", status = "NEW", selectedArticleIds = listOf(1, 2)),
+            DedupCluster(
+                topic = "coding agents",
+                status = "CONTINUATION",
+                previousContext = "Covered last week",
+                selectedArticleIds = listOf(1)
+            )
+        )
+
+        val selection = filter.selectArticles(clusters, candidates)
+
+        assertEquals(listOf(1L, 2L), selection.articles.map { it.article.id })
+        assertEquals(1, selection.duplicateSelections)
+    }
+
+    @Test
+    fun `selectArticles annotates a repeated article from its first cluster`() {
+        val candidates = listOf(article(1, "Vercel fx"))
+        val clusters = listOf(
+            DedupCluster(topic = "agent tooling", status = "NEW", selectedArticleIds = listOf(1)),
+            DedupCluster(
+                topic = "coding agents",
+                status = "CONTINUATION",
+                previousContext = "Covered last week",
+                selectedArticleIds = listOf(1)
+            )
+        )
+
+        val selection = filter.selectArticles(clusters, candidates)
+
+        val only = selection.articles.single()
+        assertEquals("agent tooling", only.topic)
+        assertNull(only.followUpContext)
+    }
+
+    @Test
+    fun `selectArticles never returns more articles than candidates`() {
+        val candidates = (1L..3L).map { article(it, "Article $it") }
+        // A degenerating response: 40 clusters each naming every candidate.
+        val clusters = (1..40).map {
+            DedupCluster(topic = "topic $it", status = "NEW", selectedArticleIds = listOf(1, 2, 3))
+        }
+
+        val selection = filter.selectArticles(clusters, candidates)
+
+        assertEquals(3, selection.articles.size)
+        assertEquals(117, selection.duplicateSelections)
+    }
+
+    @Test
+    fun `selectArticles leaves a response without duplicates unchanged`() {
+        val candidates = listOf(article(1, "One"), article(2, "Two"), article(3, "Three"))
+        val clusters = listOf(
+            DedupCluster(topic = "first", status = "NEW", selectedArticleIds = listOf(2, 1)),
+            DedupCluster(
+                topic = "second",
+                status = "CONTINUATION",
+                previousContext = "Earlier coverage",
+                selectedArticleIds = listOf(3)
+            )
+        )
+
+        val selection = filter.selectArticles(clusters, candidates)
+
+        assertEquals(listOf(2L, 1L, 3L), selection.articles.map { it.article.id })
+        assertEquals(listOf("first", "first", "second"), selection.articles.map { it.topic })
+        assertEquals("Earlier coverage", selection.articles.last().followUpContext)
+        assertEquals(0, selection.duplicateSelections)
+    }
+
+    @Test
+    fun `selectArticles ignores ids that are not candidates`() {
+        val candidates = listOf(article(1, "One"))
+        val clusters = listOf(
+            DedupCluster(topic = "hallucinated", status = "NEW", selectedArticleIds = listOf(1, 99))
+        )
+
+        val selection = filter.selectArticles(clusters, candidates)
+
+        assertEquals(listOf(1L), selection.articles.map { it.article.id })
+        assertEquals(0, selection.duplicateSelections)
     }
 
     @Test

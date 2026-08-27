@@ -1,6 +1,8 @@
 package com.aisummarypodcast.tts
 
 import com.aisummarypodcast.store.PodcastStyle
+import io.github.resilience4j.kotlin.retry.executeSuspendFunction
+import io.github.resilience4j.retry.RetryRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -20,7 +22,8 @@ private data class SynthesisOutput(val audio: List<ByteArray>, val characters: I
 
 @Component
 class InworldTtsProvider(
-    private val apiClient: InworldApiClient
+    private val apiClient: InworldApiClient,
+    private val retryRegistry: RetryRegistry
 ) : TtsProvider {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -31,9 +34,7 @@ class InworldTtsProvider(
     companion object {
         const val DEFAULT_MODEL = "inworld-tts-2"
         private const val DEFAULT_TEMPERATURE = 0.8
-        private const val MAX_RETRY_ATTEMPTS = 3
         private const val MAX_CONCURRENCY = 5
-        private val RETRY_DELAYS_MS = longArrayOf(1000, 2000, 4000)
 
         /** Bounds on `synthesisContext.previousRequests`: enough for continuity, small enough to stay cheap. */
         private const val MAX_CONTEXT_REQUESTS = 3
@@ -210,33 +211,17 @@ class InworldTtsProvider(
         return window.toList()
     }
 
+    /**
+     * Synthesises one chunk, retrying the transient Inworld faults listed under
+     * `resilience4j.retry.instances.inworld-tts.retry-exceptions`: rate limits, I/O failures
+     * (connection reset, timeout) and upstream 5xx. Anything else fails immediately.
+     */
     private suspend fun synthesizeWithRetry(
         userId: String, voiceId: String, text: String, modelId: String, options: InworldSynthesisOptions
-    ): InworldSpeechResponse {
-        for (attempt in 0 until MAX_RETRY_ATTEMPTS) {
-            try {
-                return apiClient.synthesizeSpeech(userId, voiceId, text, modelId, options)
-            } catch (e: InworldRateLimitException) {
-                if (attempt == MAX_RETRY_ATTEMPTS - 1) throw e
-                val delayMs = RETRY_DELAYS_MS[attempt]
-                log.warn("Inworld rate limited (attempt {}/{}), retrying in {}ms", attempt + 1, MAX_RETRY_ATTEMPTS, delayMs)
-                delay(delayMs)
-            } catch (e: ResourceAccessException) {
-                // Transient I/O failure (connection reset, timeout) — retry on a fresh connection
-                if (attempt == MAX_RETRY_ATTEMPTS - 1) throw e
-                val delayMs = RETRY_DELAYS_MS[attempt]
-                log.warn("Inworld I/O error '{}' (attempt {}/{}), retrying in {}ms", e.message, attempt + 1, MAX_RETRY_ATTEMPTS, delayMs)
-                delay(delayMs)
-            } catch (e: InworldTransientException) {
-                // Transient server-side failure (HTTP 5xx, e.g. a brief 503 upstream outage) — retry
-                if (attempt == MAX_RETRY_ATTEMPTS - 1) throw e
-                val delayMs = RETRY_DELAYS_MS[attempt]
-                log.warn("Inworld transient error '{}' (attempt {}/{}), retrying in {}ms", e.message, attempt + 1, MAX_RETRY_ATTEMPTS, delayMs)
-                delay(delayMs)
-            }
+    ): InworldSpeechResponse =
+        retryRegistry.retry("inworld-tts").executeSuspendFunction {
+            apiClient.synthesizeSpeech(userId, voiceId, text, modelId, options)
         }
-        throw IllegalStateException("Unreachable")
-    }
 
     private fun inferStyle(request: TtsRequest): PodcastStyle? {
         // If ttsVoices has roles other than "default", it's a dialogue/interview style

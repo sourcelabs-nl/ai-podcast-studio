@@ -6,11 +6,19 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
-sealed class PollFailure(val message: String) {
-    class Transient(message: String) : PollFailure(message)
-    class Permanent(message: String) : PollFailure(message)
+/**
+ * A classified poll failure. [label] is the value persisted to `Source.lastFailureType`, defined
+ * here so producers (the poller) and consumers (the host circuit breaker) share one definition
+ * rather than each repeating the string.
+ */
+sealed class PollFailure(val message: String, val label: String) {
+    class Transient(message: String) : PollFailure(message, TRANSIENT)
+    class Permanent(message: String) : PollFailure(message, PERMANENT)
 
     companion object {
+        const val PERMANENT = "permanent"
+        const val TRANSIENT = "transient"
+
         fun classify(exception: Exception): PollFailure {
             return when (exception) {
                 is HttpClientErrorException -> classifyClientError(exception)

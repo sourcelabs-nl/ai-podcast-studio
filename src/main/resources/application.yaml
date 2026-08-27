@@ -130,7 +130,6 @@ app:
     max-cost-cents: 200
     scoring:
       concurrency: 10
-      max-retries: 3
     dedup:
       # Cap on historical articles (most recent first) embedded in the dedup prompt for topic recall.
       max-historical-articles: 120
@@ -165,6 +164,7 @@ app:
     max-article-age-days: 90
     # If the last poll round is older than this (or none yet), generation runs a catch-up poll first.
     stale-round-threshold-minutes: 10
+    # Host-level circuit breaker settings live under resilience4j.circuitbreaker below.
   feed:
     base-url: http://localhost:8085
     title: AI Summary Podcast
@@ -177,6 +177,52 @@ app:
   soundcloud:
     client-id: ${APP_SOUNDCLOUD_CLIENT_ID:}
     client-secret: ${APP_SOUNDCLOUD_CLIENT_SECRET:}
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      # One breaker per source host, shared by all that host's sources. Because they share it, the
+      # window fills inside a single poll round rather than over days. Only permanent failures
+      # (403/404/410/401/DNS) count as failures; transient ones are ignored entirely, since
+      # per-source exponential backoff already handles a merely-slow host.
+      source-host:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 3
+        minimum-number-of-calls: 3
+        failure-rate-threshold: 100
+        # A dead host is retried once a day, matching the per-source backoff ceiling.
+        wait-duration-in-open-state: 24h
+        # The single half-open call is the canary that probes for recovery.
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.aisummarypodcast.source.PollFailureException$Permanent
+        # Ignored, not merely unrecorded: an unrecorded exception counts as a success and could
+        # close the breaker on a host that never actually answered.
+        ignore-exceptions:
+          - com.aisummarypodcast.source.PollFailureException$Transient
+        register-health-indicator: true
+  retry:
+    configs:
+      # Retries around external LLM/TTS APIs: transient upstream faults and malformed responses.
+      external-api:
+        max-attempts: 3
+        wait-duration: 1s
+        exponential-backoff-multiplier: 2
+        enable-exponential-backoff: true
+    instances:
+      article-scoring:
+        base-config: external-api
+      topic-dedup:
+        base-config: external-api
+      # Only genuinely transient Inworld faults are retried: a rate limit, an I/O failure
+      # (connection reset, timeout) or an upstream 5xx. A rejected request fails immediately.
+      inworld-tts:
+        base-config: external-api
+        retry-exceptions:
+          - com.aisummarypodcast.tts.InworldRateLimitException
+          - com.aisummarypodcast.tts.InworldTransientException
+          - org.springframework.web.client.ResourceAccessException
 
 logging:
   file:

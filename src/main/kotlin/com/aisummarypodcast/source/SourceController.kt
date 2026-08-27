@@ -46,6 +46,7 @@ class SourceController(
         val sourceIds = sources.map { it.id }
         val articleCounts = sourceService.getArticleCounts(sourceIds, podcast.relevanceThreshold)
         val postCounts = sourceService.getPostCounts(sourceIds)
+        val breakerStates = sourceService.getHostBreakerStates(sources)
 
         return ResponseEntity.ok(sources.map { source ->
             val c = articleCounts[source.id]
@@ -53,7 +54,7 @@ class SourceController(
                 articleCount = c?.total ?: 0,
                 relevantArticleCount = c?.relevant ?: 0,
                 postCount = postCounts[source.id] ?: 0
-            )
+            ).withBreakerState(breakerStates[source.id])
         })
     }
 

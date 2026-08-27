@@ -12,6 +12,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
+import io.github.resilience4j.kotlin.retry.executeSuspendFunction
+import io.github.resilience4j.retry.RetryRegistry
 import kotlinx.coroutines.sync.withPermit
 import org.slf4j.LoggerFactory
 import org.springframework.ai.converter.BeanOutputConverter
@@ -32,6 +34,7 @@ class ArticleScoreSummarizer(
     private val articleRepository: ArticleRepository,
     private val chatClientFactory: ChatClientFactory,
     private val jsonMapper: JsonMapper,
+    private val retryRegistry: RetryRegistry,
     appProperties: AppProperties
 ) {
     private val scoringProperties: ScoringProperties = appProperties.llm.scoring
@@ -60,7 +63,7 @@ class ArticleScoreSummarizer(
         val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef)
         val model = filterModelDef.model
         val semaphore = Semaphore(scoringProperties.concurrency)
-        val maxRetries = scoringProperties.maxRetries
+        val retry = retryRegistry.retry("article-scoring")
 
         val total = articles.size
         val completed = AtomicInteger(0)
@@ -76,55 +79,49 @@ class ArticleScoreSummarizer(
                             try {
                                 val prompt = buildPrompt(article, podcast)
 
-                                var lastException: Exception? = null
-                                for (attempt in 1..maxRetries) {
-                                    try {
-                                        val converter = BeanOutputConverter(ScoreSummarizeResult::class.java, jsonMapper)
-                                        val responseEntity = chatClient.prompt()
-                                            .user(promptForAttempt(prompt, attempt))
-                                            .options(
-                                                OpenAiChatOptions.builder()
-                                                    .model(model)
-                                                    .temperature(0.3)
-                                            )
-                                            .call()
-                                            .responseEntity(converter)
-
-                                        val result = responseEntity.entity()
-                                        val usage = TokenUsage.fromChatResponse(responseEntity.response())
-                                        // Prefer the provider's own charge over the configured rates; the reported
-                                        // value is also persisted so the score stage can be aggregated correctly.
-                                        val costCents = CostEstimator.resolveLlmCost(usage, filterModelDef.cost).costCents?.roundToInt()
-
-                                        val score = result?.relevanceScore ?: 0
-                                        val summary = result?.summary?.takeIf { it.isNotBlank() }
-                                        val subtopic = normalizeSubtopic(result?.subtopic, podcast)
-
-                                        val updated = article.copy(
-                                            relevanceScore = score,
-                                            summary = summary,
-                                            subtopic = subtopic,
-                                            llmInputTokens = (article.llmInputTokens ?: 0) + usage.inputTokens,
-                                            llmOutputTokens = (article.llmOutputTokens ?: 0) + usage.outputTokens,
-                                            llmCostCents = CostEstimator.addNullableCosts(article.llmCostCents, costCents),
-                                            llmReportedCostUsd = CostEstimator.addNullableReportedCosts(
-                                                article.llmReportedCostUsd, usage.reportedCostUsd
-                                            )
+                                // Resilience4j owns the attempt count and backoff. The attempt number
+                                // is still tracked here because each retry escalates the prompt with a
+                                // "raw JSON only" correction, which the retry API does not expose.
+                                var attempt = 0
+                                retry.executeSuspendFunction {
+                                    attempt++
+                                    val converter = BeanOutputConverter(ScoreSummarizeResult::class.java, jsonMapper)
+                                    val responseEntity = chatClient.prompt()
+                                        .user(promptForAttempt(prompt, attempt))
+                                        .options(
+                                            OpenAiChatOptions.builder()
+                                                .model(model)
+                                                .temperature(0.3)
                                         )
-                                        articleRepository.save(updated)
+                                        .call()
+                                        .responseEntity(converter)
 
-                                        log.info("[LLM] Article '{}' scored {} — summary: {} chars (source: {})", article.title, score, summary?.length ?: 0, sourceLabel ?: article.sourceId)
-                                        return@withPermit updated
-                                    } catch (e: Exception) {
-                                        lastException = e
-                                        if (attempt < maxRetries) {
-                                            val backoffMs = 1000L * (1 shl (attempt - 1))
-                                            log.warn("[LLM] Retry {}/{} for article '{}' (source: {}): {}", attempt, maxRetries, article.title, sourceLabel ?: article.sourceId, e.message)
-                                            delay(backoffMs)
-                                        }
-                                    }
+                                    val result = responseEntity.entity()
+                                    val usage = TokenUsage.fromChatResponse(responseEntity.response())
+                                    // Prefer the provider's own charge over the configured rates; the reported
+                                    // value is also persisted so the score stage can be aggregated correctly.
+                                    val costCents = CostEstimator.resolveLlmCost(usage, filterModelDef.cost).costCents?.roundToInt()
+
+                                    val score = result?.relevanceScore ?: 0
+                                    val summary = result?.summary?.takeIf { it.isNotBlank() }
+                                    val subtopic = normalizeSubtopic(result?.subtopic, podcast)
+
+                                    val updated = article.copy(
+                                        relevanceScore = score,
+                                        summary = summary,
+                                        subtopic = subtopic,
+                                        llmInputTokens = (article.llmInputTokens ?: 0) + usage.inputTokens,
+                                        llmOutputTokens = (article.llmOutputTokens ?: 0) + usage.outputTokens,
+                                        llmCostCents = CostEstimator.addNullableCosts(article.llmCostCents, costCents),
+                                        llmReportedCostUsd = CostEstimator.addNullableReportedCosts(
+                                            article.llmReportedCostUsd, usage.reportedCostUsd
+                                        )
+                                    )
+                                    articleRepository.save(updated)
+
+                                    log.info("[LLM] Article '{}' scored {} — summary: {} chars (source: {})", article.title, score, summary?.length ?: 0, sourceLabel ?: article.sourceId)
+                                    updated
                                 }
-                                throw lastException!!
                             } catch (e: Exception) {
                                 log.error("[LLM] Error scoring/summarizing article '{}' (source: {}): {}", article.title, sourceLabels[article.sourceId] ?: article.sourceId, e.message, e)
                                 null

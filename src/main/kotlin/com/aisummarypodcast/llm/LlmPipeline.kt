@@ -244,10 +244,11 @@ class LlmPipeline(
         // scoring and dedup; composing all of them in one LLM call risks the compose timeout and
         // dilutes the episode. Cap here (as well as in compose) so the follow-up annotations, topic
         // labels, token totals, and episode-article links below all derive from the same capped set.
-        val composeArticles = capForCompose(dedupResult.filteredArticles)
-        if (composeArticles.size < dedupResult.filteredArticles.size) {
+        val distinctArticles = distinctForCompose(dedupResult.filteredArticles, podcast)
+        val composeArticles = capForCompose(distinctArticles)
+        if (composeArticles.size < distinctArticles.size) {
             log.info("[LLM] Compose article cap applied for podcast '{}' ({}): {} → {} articles (top by relevance)",
-                podcast.name, podcast.id, dedupResult.filteredArticles.size, composeArticles.size)
+                podcast.name, podcast.id, distinctArticles.size, composeArticles.size)
         }
 
         val followUpAnnotations = buildFollowUpAnnotations(composeArticles)
@@ -296,6 +297,20 @@ class LlmPipeline(
     private fun capForCompose(articles: List<FilteredArticle>): List<FilteredArticle> =
         articles.sortedByDescending { it.article.relevanceScore ?: 0 }.take(appProperties.compose.maxArticles)
 
+    /**
+     * Drops repeated articles before the compose cap is applied. A repeat would otherwise consume a
+     * slot of the cap, so a response that lists the same few articles many times can crowd out every
+     * other topic and leave the composer with a fraction of the material it reports having.
+     */
+    private fun distinctForCompose(articles: List<FilteredArticle>, podcast: Podcast): List<FilteredArticle> {
+        val distinct = articles.distinctBy { it.article.id }
+        if (distinct.size < articles.size) {
+            log.warn("[LLM] Dropped {} repeated article(s) for podcast '{}' ({}) — composing {} distinct",
+                articles.size - distinct.size, podcast.name, podcast.id, distinct.size)
+        }
+        return distinct
+    }
+
     suspend fun compose(
         filteredArticles: List<FilteredArticle>,
         podcast: Podcast,
@@ -304,12 +319,14 @@ class LlmPipeline(
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): ComposeStageResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
-        // Enforce the compose cap at this shared chokepoint so every entry path is bounded — including
-        // retry-from-compose, which reloads previously persisted articles and skips dedup entirely.
-        val composeArticles = capForCompose(filteredArticles)
-        if (composeArticles.size < filteredArticles.size) {
+        // Enforce distinctness and the compose cap at this shared chokepoint so every entry path is
+        // bounded — including retry-from-compose, which reloads previously persisted articles and
+        // skips dedup entirely.
+        val distinctArticles = distinctForCompose(filteredArticles, podcast)
+        val composeArticles = capForCompose(distinctArticles)
+        if (composeArticles.size < distinctArticles.size) {
             log.info("[LLM] Compose article cap applied for podcast '{}' ({}): {} → {} articles (top by relevance)",
-                podcast.name, podcast.id, filteredArticles.size, composeArticles.size)
+                podcast.name, podcast.id, distinctArticles.size, composeArticles.size)
         }
         val toCompose = composeArticles.map { it.article }
         onProgress("composing", mapOf("articleCount" to toCompose.size))

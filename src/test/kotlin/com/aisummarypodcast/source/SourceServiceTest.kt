@@ -1,5 +1,14 @@
 package com.aisummarypodcast.source
 
+import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.openBreakerFor
+import com.aisummarypodcast.testCircuitBreakerRegistry
+import com.aisummarypodcast.config.BriefingProperties
+import com.aisummarypodcast.config.EncryptionProperties
+import com.aisummarypodcast.config.EpisodesProperties
+import com.aisummarypodcast.config.FeedProperties
+import com.aisummarypodcast.config.LlmProperties
+import com.aisummarypodcast.config.SourceProperties
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Post
 import com.aisummarypodcast.store.PostRepository
@@ -11,6 +20,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -29,8 +39,62 @@ class SourceServiceTest {
     private val postRepository = mockk<PostRepository>()
     private val rssFeedFetcher = mockk<RssFeedFetcher>()
     private val websiteFetcher = mockk<WebsiteFetcher>()
+    private val appProperties = AppProperties(
+        llm = LlmProperties(),
+        briefing = BriefingProperties(),
+        episodes = EpisodesProperties(),
+        feed = FeedProperties(),
+        encryption = EncryptionProperties(masterKey = "test-key"),
+        source = SourceProperties()
+    )
+    private val circuitBreakerRegistry = testCircuitBreakerRegistry()
+    private val sourceHostBreaker = SourceHostBreaker(circuitBreakerRegistry)
 
-    private val service = SourceService(sourceRepository, articleRepository, postRepository, rssFeedFetcher, websiteFetcher)
+    private val service = SourceService(
+        sourceRepository, articleRepository, postRepository, rssFeedFetcher, websiteFetcher, sourceHostBreaker
+    )
+
+    private fun source(id: String, url: String, failures: Int = 0, failureType: String? = null) = Source(
+        id = id, podcastId = "p1", type = SourceType.RSS, url = url,
+        consecutiveFailures = failures, lastFailureType = failureType
+    )
+
+    @Test
+    fun `resetFailureState clears counters only for sources that have failures`() {
+        val saved = mutableListOf<Source>()
+        every { sourceRepository.save(any()) } answers { saved.add(firstArg()); firstArg() }
+        val failing = source("s1", "https://nitter.net/a/rss", failures = 8, failureType = "permanent")
+        val healthy = source("s2", "https://nitter.net/b/rss")
+
+        service.resetFailureState(listOf(failing, healthy))
+
+        assertEquals(listOf("s1"), saved.map { it.id })
+        assertEquals(0, saved.single().consecutiveFailures)
+        assertNull(saved.single().lastFailureType)
+    }
+
+    @Test
+    fun `getHostBreakerStates reports an open breaker for a structurally down host`() {
+        val dead = (1..3).map { source("s$it", "https://nitter.net/$it/rss", failures = 5, failureType = "permanent") }
+        every { sourceRepository.findAll() } returns dead
+        circuitBreakerRegistry.openBreakerFor("nitter.net")
+
+        val states = service.getHostBreakerStates(dead)
+
+        assertTrue(states.getValue("s1").open)
+        assertEquals("nitter.net", states.getValue("s1").host)
+        assertEquals(3, states.getValue("s1").sourceCount)
+    }
+
+    @Test
+    fun `getHostBreakerStates reports a closed breaker for a healthy host`() {
+        val healthy = (1..3).map { source("s$it", "https://example.com/$it/rss") }
+        every { sourceRepository.findAll() } returns healthy
+
+        val states = service.getHostBreakerStates(healthy)
+
+        assertFalse(states.getValue("s1").open)
+    }
 
     @Test
     fun `cleanupOldArticlesAndPosts deletes both with a cutoff computed from maxArticleAgeDays`() {
@@ -120,14 +184,14 @@ class SourceServiceTest {
 
     @Test
     fun `validateUrl passes for RSS source with items`() {
-        every { rssFeedFetcher.fetch("https://example.com/feed", "validation", null, null) } returns listOf(post())
+        every { rssFeedFetcher.fetch("https://example.com/feed", "validation", null, null, deepFetch = false) } returns listOf(post())
 
         service.validateUrl(SourceType.RSS, "https://example.com/feed")
     }
 
     @Test
     fun `validateUrl throws for RSS source with no items`() {
-        every { rssFeedFetcher.fetch("https://example.com/feed", "validation", null, null) } returns emptyList()
+        every { rssFeedFetcher.fetch("https://example.com/feed", "validation", null, null, deepFetch = false) } returns emptyList()
 
         val ex = assertThrows<IllegalArgumentException> {
             service.validateUrl(SourceType.RSS, "https://example.com/feed")
@@ -137,7 +201,7 @@ class SourceServiceTest {
 
     @Test
     fun `validateUrl throws for RSS source with fetch error`() {
-        every { rssFeedFetcher.fetch("https://bad.com/feed", "validation", null, null) } throws RuntimeException("Connection refused")
+        every { rssFeedFetcher.fetch("https://bad.com/feed", "validation", null, null, deepFetch = false) } throws RuntimeException("Connection refused")
 
         val ex = assertThrows<IllegalArgumentException> {
             service.validateUrl(SourceType.RSS, "https://bad.com/feed")
@@ -147,7 +211,7 @@ class SourceServiceTest {
 
     @Test
     fun `validateUrl throws for RSS source with invalid XML`() {
-        every { rssFeedFetcher.fetch("https://bad.com/html", "validation", null, null) } throws RuntimeException("Content is not allowed in prolog")
+        every { rssFeedFetcher.fetch("https://bad.com/html", "validation", null, null, deepFetch = false) } throws RuntimeException("Content is not allowed in prolog")
 
         val ex = assertThrows<IllegalArgumentException> {
             service.validateUrl(SourceType.RSS, "https://bad.com/html")
@@ -180,7 +244,7 @@ class SourceServiceTest {
 
     @Test
     fun `validateUrl passes category filter to RSS fetcher`() {
-        every { rssFeedFetcher.fetch("https://example.com/feed", "validation", null, "tech") } returns listOf(post())
+        every { rssFeedFetcher.fetch("https://example.com/feed", "validation", null, "tech", deepFetch = false) } returns listOf(post())
 
         service.validateUrl(SourceType.RSS, "https://example.com/feed", "tech")
     }

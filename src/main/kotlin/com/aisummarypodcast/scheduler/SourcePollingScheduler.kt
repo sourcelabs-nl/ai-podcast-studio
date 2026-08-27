@@ -2,6 +2,9 @@ package com.aisummarypodcast.scheduler
 
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
+import com.aisummarypodcast.source.HostPollOutcome
+import com.aisummarypodcast.source.extractSourceHost
+import com.aisummarypodcast.source.SourceHostBreaker
 import com.aisummarypodcast.source.SourcePoller
 import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.SourceRepository
@@ -21,7 +24,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
-import java.net.URI
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.math.min
@@ -34,7 +36,8 @@ class SourcePollingScheduler(
     private val sourceService: SourceService,
     private val appProperties: AppProperties,
     private val podcastService: PodcastService,
-    private val pollDelayResolver: PollDelayResolver
+    private val pollDelayResolver: PollDelayResolver,
+    private val sourceHostBreaker: SourceHostBreaker
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -88,12 +91,15 @@ class SourcePollingScheduler(
 
         val sourcesByPodcast = allSources.groupBy { it.podcastId }
 
-        val hostGroups = dueSources.groupBy { extractHost(it.url) }
+        val hostGroups = dueSources.groupBy { extractSourceHost(it.url) }
+        // Breaker state covers every enabled source of a host, not only those due this round: a host
+        // is down or it is not, regardless of which of its sources happen to be scheduled now.
+        val enabledByHost = allSources.groupBy { extractSourceHost(it.url) }
 
         supervisorScope {
             hostGroups.map { (host, sources) ->
                 async {
-                    pollHostGroup(host, sources, sourcesByPodcast)
+                    pollHostGroup(host, sources, enabledByHost[host] ?: sources, sourcesByPodcast)
                 }
             }.forEach { deferred ->
                 try {
@@ -132,10 +138,10 @@ class SourcePollingScheduler(
         }
         log.info("[Polling] Catch-up poll of {} sources for podcast {}", sources.size, podcastId)
         val sourcesByPodcast = mapOf(podcastId to sources)
-        val hostGroups = sources.groupBy { extractHost(it.url) }
+        val hostGroups = sources.groupBy { extractSourceHost(it.url) }
         supervisorScope {
             hostGroups.map { (host, grouped) ->
-                async { pollHostGroup(host, grouped, sourcesByPodcast) }
+                async { pollHostGroup(host, grouped, grouped, sourcesByPodcast) }
             }.forEach { deferred ->
                 try {
                     deferred.await()
@@ -146,14 +152,49 @@ class SourcePollingScheduler(
         }
     }
 
-    private suspend fun pollHostGroup(host: String?, sources: List<Source>, sourcesByPodcast: Map<String, List<Source>>) {
+    /**
+     * Polls the due [sources] of one host, each through the host's circuit breaker.
+     *
+     * When the breaker is open every call is rejected without a request, except the single half-open
+     * probe Resilience4j permits once `wait-duration-in-open-state` has elapsed. A dead host
+     * therefore costs one request a day rather than one per source per round.
+     *
+     * A poll that succeeds while the breaker is not closed is a recovery, so the rest of the host's
+     * failure state is cleared: without that the breaker would close while every other source still
+     * sat on its own accumulated backoff, and a recovered host would trickle back over days.
+     *
+     * [allHostSources] is every enabled source of this host, which may be wider than [sources],
+     * since recovery has to restore siblings that were not themselves due this round.
+     */
+    private suspend fun pollHostGroup(
+        host: String?,
+        sources: List<Source>,
+        allHostSources: List<Source>,
+        sourcesByPodcast: Map<String, List<Source>>
+    ) {
+        var skipped = 0
+
         for ((index, source) in sources.withIndex()) {
             try {
                 val podcast = podcastService.findById(source.podcastId)
                 val userId = if (source.type == SourceType.TWITTER) podcast?.userId else null
                 val maxArticleAgeDays = podcast?.maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
                 val siblingSourceIds = sourcesByPodcast[source.podcastId]?.map { it.id } ?: listOf(source.id)
-                sourcePoller.poll(source, userId, maxArticleAgeDays, siblingSourceIds)
+
+                val wasTripped = host != null && sourceHostBreaker.isTripped(host)
+                val outcome = sourceHostBreaker.pollThroughBreaker(source) {
+                    sourcePoller.poll(source, userId, maxArticleAgeDays, siblingSourceIds)
+                }
+
+                when (outcome) {
+                    is HostPollOutcome.Skipped -> skipped++
+                    is HostPollOutcome.Polled ->
+                        if (wasTripped && outcome.failure == null) {
+                            log.info("[Polling] Host {} recovered — restoring {} sources to their normal interval",
+                                host, allHostSources.size)
+                            sourceService.resetFailureState(allHostSources.filter { it.id != source.id })
+                        }
+                }
             } catch (e: Exception) {
                 log.error("[Polling] Unexpected error polling source {} in host group {}", source.id, host, e)
             }
@@ -164,6 +205,12 @@ class SourcePollingScheduler(
                     delay(delaySeconds * 1000L)
                 }
             }
+        }
+
+        // One line for the whole host, instead of a failure log per suppressed source.
+        if (skipped > 0) {
+            log.warn("[Polling] Host {} looks structurally down — skipped {} of {} due sources",
+                host, skipped, sources.size)
         }
     }
 
@@ -194,13 +241,6 @@ class SourcePollingScheduler(
         val backoff = source.pollIntervalMinutes.toLong() * (1L shl min(source.consecutiveFailures, 30))
         return min(backoff, maxBackoffMinutes)
     }
-
-    private fun extractHost(url: String): String? =
-        try {
-            URI(url).host
-        } catch (_: Exception) {
-            null
-        }
 
     private fun cleanupOldArticles() {
         sourceService.cleanupOldArticlesAndPosts(appProperties.source.maxArticleAgeDays)

@@ -1,8 +1,9 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.store.Article
+import io.github.resilience4j.kotlin.retry.executeSuspendFunction
+import io.github.resilience4j.retry.RetryRegistry
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.converter.BeanOutputConverter
@@ -48,10 +49,17 @@ data class DedupFilterResult(
     val usage: TokenUsage
 )
 
+/** Articles resolved from the dedup clusters, plus how many repeat selections were discarded. */
+data class DedupSelection(
+    val articles: List<FilteredArticle>,
+    val duplicateSelections: Int
+)
+
 @Component
 class TopicDedupFilter(
     private val chatClientFactory: ChatClientFactory,
-    private val jsonMapper: JsonMapper
+    private val jsonMapper: JsonMapper,
+    private val retryRegistry: RetryRegistry
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -70,72 +78,85 @@ class TopicDedupFilter(
         val chatClient = chatClientFactory.createForModel(userId, modelDef)
         val prompt = buildPrompt(candidates, historicalArticles)
 
-        val maxRetries = 3
+        val retry = retryRegistry.retry("topic-dedup")
         val (result, elapsed) = measureTimedValue {
-            var lastException: Exception? = null
-            for (attempt in 1..maxRetries) {
-                try {
-                    val converter = BeanOutputConverter(DedupResult::class.java, jsonMapper)
-                    val chatResponse = withContext(Dispatchers.IO) {
-                        chatClient.prompt()
-                            .user(prompt)
-                            // maxTokens caps a degenerating response (e.g. a repetition loop emitting
-                            // hundreds of near-duplicate clusters) so it fails in seconds instead of
-                            // streaming for minutes before truncating mid-JSON.
-                            .options(
-                                OpenAiChatOptions.builder()
-                                    .model(modelDef.model)
-                                    .temperature(0.3)
-                                    .maxTokens(DEDUP_MAX_OUTPUT_TOKENS)
-                                    // deepseek-v4-flash reasons by default on OpenRouter; its hidden reasoning
-                                    // tokens count against maxTokens and can consume the whole budget, leaving
-                                    // no room for the actual JSON output. Disable it explicitly.
-                                    .reasoningEffort("none")
-                            )
-                            .call()
-                            .responseEntity(converter)
-                    }
-
-                    val dedupResult = chatResponse.entity()
-                        ?: throw IllegalStateException("Empty response from LLM for topic dedup filter")
-
-                    val usage = TokenUsage.fromChatResponse(chatResponse.response())
-                    return@measureTimedValue Pair(dedupResult, usage)
-                } catch (e: Exception) {
-                    lastException = e
-                    if (attempt < maxRetries) {
-                        val backoffMs = 1000L * (1 shl (attempt - 1))
-                        log.warn("[Dedup] Retry {}/{} for topic dedup filter: {}", attempt, maxRetries, e.message)
-                        delay(backoffMs)
-                    }
+            retry.executeSuspendFunction {
+                val converter = BeanOutputConverter(DedupResult::class.java, jsonMapper)
+                val chatResponse = withContext(Dispatchers.IO) {
+                    chatClient.prompt()
+                        .user(prompt)
+                        // maxTokens caps a degenerating response (e.g. a repetition loop emitting
+                        // hundreds of near-duplicate clusters) so it fails in seconds instead of
+                        // streaming for minutes before truncating mid-JSON.
+                        .options(
+                            OpenAiChatOptions.builder()
+                                .model(modelDef.model)
+                                .temperature(0.3)
+                                .maxTokens(DEDUP_MAX_OUTPUT_TOKENS)
+                                // deepseek-v4-flash reasons by default on OpenRouter; its hidden reasoning
+                                // tokens count against maxTokens and can consume the whole budget, leaving
+                                // no room for the actual JSON output. Disable it explicitly.
+                                .reasoningEffort("none")
+                        )
+                        .call()
+                        .responseEntity(converter)
                 }
+
+                val dedupResult = chatResponse.entity()
+                    ?: throw IllegalStateException("Empty response from LLM for topic dedup filter")
+
+                Pair(dedupResult, TokenUsage.fromChatResponse(chatResponse.response()))
             }
-            throw lastException!!
         }
 
         val (dedupResult, usage) = result
-        val candidateById = candidates.associateBy { it.id!!.toInt() }
-        val filteredArticles = mutableListOf<FilteredArticle>()
+        val selection = selectArticles(dedupResult.clusters, candidates)
 
-        for (cluster in dedupResult.clusters) {
+        if (selection.duplicateSelections > 0) {
+            log.warn("[Dedup] Response selected {} article(s) in more than one cluster — discarded the repeats",
+                selection.duplicateSelections)
+        }
+
+        log.info("[Dedup] Filter complete in {} — {} candidates → {} selected across {} clusters",
+            elapsed, candidates.size, selection.articles.size, dedupResult.clusters.size)
+
+        return DedupFilterResult(selection.articles, usage)
+    }
+
+    /**
+     * Resolves the clusters' selected article ids back to [candidates], annotating each article with
+     * its cluster's topic and (for continuations) its previous context.
+     *
+     * An article is kept only the first time it is selected. A degenerating dedup response can list
+     * the same article across many clusters, which would otherwise return more articles than were
+     * fed in and let the downstream compose cap fill every slot with repeats of the same few.
+     * Clusters arrive in the model's own relevance order, so the first mention carries the
+     * annotation worth keeping.
+     */
+    internal fun selectArticles(clusters: List<DedupCluster>, candidates: List<Article>): DedupSelection {
+        val candidateById = candidates.associateBy { it.id!!.toInt() }
+        val articles = mutableListOf<FilteredArticle>()
+        val seenArticleIds = mutableSetOf<Int>()
+        var duplicateSelections = 0
+
+        for (cluster in clusters) {
             if (cluster.selectedArticleIds.isEmpty()) continue
 
             val followUpContext = if (cluster.status == "CONTINUATION" && cluster.previousContext != null) {
                 cluster.previousContext
             } else null
 
-            for (articleIndex in cluster.selectedArticleIds.filterNotNull()) {
-                val article = candidateById[articleIndex]
-                if (article != null) {
-                    filteredArticles.add(FilteredArticle(article, followUpContext, cluster.topic))
+            for (articleId in cluster.selectedArticleIds.filterNotNull()) {
+                val article = candidateById[articleId] ?: continue
+                if (!seenArticleIds.add(articleId)) {
+                    duplicateSelections++
+                    continue
                 }
+                articles.add(FilteredArticle(article, followUpContext, cluster.topic))
             }
         }
 
-        log.info("[Dedup] Filter complete in {} — {} candidates → {} selected across {} clusters",
-            elapsed, candidates.size, filteredArticles.size, dedupResult.clusters.size)
-
-        return DedupFilterResult(filteredArticles, usage)
+        return DedupSelection(articles, duplicateSelections)
     }
 
     internal fun buildPrompt(candidates: List<Article>, historicalArticles: List<Article>): String {

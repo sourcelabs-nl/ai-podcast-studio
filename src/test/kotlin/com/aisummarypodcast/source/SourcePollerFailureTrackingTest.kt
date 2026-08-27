@@ -74,6 +74,19 @@ class SourcePollerFailureTrackingTest {
         assertTrue(sourceSlot.captured.enabled)
     }
 
+    // A feed served behind a decommissioned host answers 403 forever. It must record as permanent
+    // so auto-disable and the host breaker can act on it, rather than backing off indefinitely.
+    @Test
+    fun `RSS feed returning 403 records a permanent failure`() {
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } throws HttpClientErrorException(HttpStatus.FORBIDDEN)
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(source)
+
+        assertEquals(1, sourceSlot.captured.consecutiveFailures)
+        assertEquals("permanent", sourceSlot.captured.lastFailureType)
+    }
+
     @Test
     fun `continues incrementing from existing failure count`() {
         val sourceWithFailures = source.copy(consecutiveFailures = 3, lastFailureType = "transient")

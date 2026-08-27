@@ -245,10 +245,19 @@ export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
                   {source.pollIntervalMinutes}m
                 </TableCell>
                 <TableCell>
-                  {source.enabled ? (
-                    <Check className="size-4 text-primary" />
-                  ) : (
+                  {!source.enabled ? (
                     <span className="text-sm text-muted-foreground">—</span>
+                  ) : source.hostBreakerOpen ? (
+                    // Enabled, but not actually being polled: the whole host looks down.
+                    <Badge
+                      variant="destructive"
+                      className="text-[11px] px-1.5 py-px"
+                      title={`${source.host} is not responding across all ${source.hostSourceCount} of its sources — polling is paused until it recovers`}
+                    >
+                      host down
+                    </Badge>
+                  ) : (
+                    <Check className="size-4 text-primary" />
                   )}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground whitespace-nowrap">

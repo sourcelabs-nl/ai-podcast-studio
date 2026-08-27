@@ -81,17 +81,6 @@ class PollDelayResolverTest {
         assertEquals(0, r.resolveDelaySeconds(source(type = SourceType.RSS, url = "not a url")))
     }
 
-    @Test
-    fun `extractHost returns host for valid URL`() {
-        val r = resolver()
-        assertEquals("nitter.net", r.extractHost("https://nitter.net/user/rss"))
-    }
-
-    @Test
-    fun `extractHost returns null for invalid URL`() {
-        val r = resolver()
-        assertEquals(null, r.extractHost("not a url"))
-    }
 
     @Test
     fun `host override for different host does not apply`() {

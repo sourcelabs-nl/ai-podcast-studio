@@ -9,6 +9,10 @@ import com.aisummarypodcast.config.HostOverride
 import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.SourceProperties
 import com.aisummarypodcast.podcast.PodcastService
+import com.aisummarypodcast.openBreakerFor
+import com.aisummarypodcast.source.SourceHostBreaker
+import com.aisummarypodcast.testCircuitBreakerRegistry
+import com.aisummarypodcast.source.PollFailure
 import com.aisummarypodcast.source.SourcePoller
 import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
@@ -31,7 +35,11 @@ import java.time.temporal.ChronoUnit
 
 class SourcePollingSchedulerTest {
 
-    private val sourcePoller = mockk<SourcePoller>(relaxed = true)
+    private val sourcePoller = mockk<SourcePoller>(relaxed = true) {
+        // Default to a successful poll: a relaxed mock would otherwise return a non-null
+        // PollFailure, which the host breaker records and acts on.
+        every { poll(any(), any(), any(), any()) } returns null
+    }
     private val sourceRepository = mockk<SourceRepository> {
         every { findAll() } returns emptyList()
     }
@@ -59,6 +67,8 @@ class SourcePollingSchedulerTest {
         )
     )
 
+    private val circuitBreakerRegistry = testCircuitBreakerRegistry()
+
     private fun scheduler(
         maxArticleAgeDays: Int = 7,
         pollDelaySeconds: Map<String, Int> = emptyMap(),
@@ -66,9 +76,117 @@ class SourcePollingSchedulerTest {
     ): SourcePollingScheduler {
         val props = appProperties(maxArticleAgeDays, pollDelaySeconds, hostOverrides)
         return SourcePollingScheduler(
-            sourcePoller, sourceRepository, sourceService,
-            props, podcastService, PollDelayResolver(props)
+            sourcePoller, sourceRepository, sourceService, props, podcastService,
+            PollDelayResolver(props), SourceHostBreaker(circuitBreakerRegistry)
         )
+    }
+
+    /** A source that has been failing permanently long enough to count toward a host breaker. */
+    private fun deadSource(id: String, host: String, lastPolled: Instant = Instant.now().minus(2, ChronoUnit.DAYS)) =
+        Source(
+            id = id, podcastId = "p1", type = SourceType.RSS, url = "https://$host/$id/rss",
+            lastPolled = lastPolled.toString(), enabled = true,
+            consecutiveFailures = 8, lastFailureType = "permanent"
+        )
+
+    @Test
+    fun `sources on a host with an open breaker are skipped`() = runTest {
+        val dead = (1..5).map { deadSource("s$it", "nitter.net") }
+        every { sourceRepository.findAll() } returns dead
+        every { podcastService.findById("p1") } returns podcast
+        circuitBreakerRegistry.openBreakerFor("nitter.net")
+
+        scheduler().pollSources()
+
+        verify(exactly = 0) { sourcePoller.poll(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `repeated permanent failures open the breaker mid-round and skip the remainder`() = runTest {
+        val dead = (1..10).map { deadSource("s$it", "nitter.net") }
+        every { sourceRepository.findAll() } returns dead
+        every { podcastService.findById("p1") } returns podcast
+        every { sourcePoller.poll(any(), any(), any(), any()) } returns PollFailure.Permanent("HTTP 403 Forbidden")
+
+        scheduler().pollSources()
+
+        // The window is 3, so the fourth source onwards is rejected without a request.
+        verify(exactly = 3) { sourcePoller.poll(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a successful poll while the breaker is tripped restores the rest of the host`() = runTest {
+        val dead = (1..4).map { deadSource("s$it", "nitter.net") }
+        every { sourceRepository.findAll() } returns dead
+        every { podcastService.findById("p1") } returns podcast
+        every { sourcePoller.poll(any(), any(), any(), any()) } returns null
+        circuitBreakerRegistry.openBreakerFor("nitter.net")
+        circuitBreakerRegistry.circuitBreaker("nitter.net", "source-host").transitionToHalfOpenState()
+
+        val restored = slot<List<Source>>()
+        every { sourceService.resetFailureState(capture(restored)) } returns Unit
+
+        scheduler().pollSources()
+
+        assertEquals(listOf("s2", "s3", "s4"), restored.captured.map { it.id })
+    }
+
+    @Test
+    fun `a failing probe leaves the host untouched`() = runTest {
+        val dead = (1..4).map { deadSource("s$it", "nitter.net") }
+        every { sourceRepository.findAll() } returns dead
+        every { podcastService.findById("p1") } returns podcast
+        every { sourcePoller.poll(any(), any(), any(), any()) } returns PollFailure.Permanent("HTTP 403 Forbidden")
+        circuitBreakerRegistry.openBreakerFor("nitter.net")
+        circuitBreakerRegistry.circuitBreaker("nitter.net", "source-host").transitionToHalfOpenState()
+
+        scheduler().pollSources()
+
+        verify(exactly = 0) { sourceService.resetFailureState(any()) }
+    }
+
+    @Test
+    fun `healthy host polls every due source`() = runTest {
+        val healthy = (1..4).map {
+            Source(
+                id = "s$it", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/$it/rss",
+                lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
+            )
+        }
+        every { sourceRepository.findAll() } returns healthy
+        every { podcastService.findById("p1") } returns podcast
+
+        scheduler().pollSources()
+
+        verify(exactly = 4) { sourcePoller.poll(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `transient failures across a host never open the breaker`() = runTest {
+        val flaky = (1..10).map { deadSource("s$it", "example.com") }
+        every { sourceRepository.findAll() } returns flaky
+        every { podcastService.findById("p1") } returns podcast
+        every { sourcePoller.poll(any(), any(), any(), any()) } returns PollFailure.Transient("Socket timeout")
+
+        scheduler().pollSources()
+
+        verify(exactly = 10) { sourcePoller.poll(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `one host's open breaker does not suppress another host`() = runTest {
+        val dead = (1..3).map { deadSource("s$it", "nitter.net") }
+        val healthy = Source(
+            id = "h1", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/feed",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
+        )
+        every { sourceRepository.findAll() } returns dead + healthy
+        every { podcastService.findById("p1") } returns podcast
+        circuitBreakerRegistry.openBreakerFor("nitter.net")
+
+        scheduler().pollSources()
+
+        verify(exactly = 1) { sourcePoller.poll(healthy, any(), any(), any()) }
     }
 
     @Test

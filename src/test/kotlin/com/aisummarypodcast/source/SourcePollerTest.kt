@@ -14,11 +14,15 @@ import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.http.HttpStatusCode
 import org.springframework.web.client.HttpClientErrorException
+import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Optional
@@ -157,7 +161,50 @@ class SourcePollerTest {
         val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
         poller.poll(sourceWithFilter)
 
-        verify { rssFeedFetcher.fetch(sourceWithFilter.url, sourceWithFilter.id, sourceWithFilter.lastSeenId, "kotlin,AI") }
+        verify { rssFeedFetcher.fetch(sourceWithFilter.url, sourceWithFilter.id, any(), "kotlin,AI") }
+    }
+
+    @Test
+    fun `age cutoff reaches the fetcher so old entries are never deep-fetched`() {
+        // The fetcher deep-fetches every entry it returns, so the age bound has to be applied
+        // there rather than only in the save loop; otherwise a large archive is crawled and binned.
+        val floor = slot<String>()
+        every { rssFeedFetcher.fetch(any(), any(), capture(floor), any()) } returns emptyList()
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties(maxArticleAgeDays = 7))
+        poller.poll(source.copy(lastSeenId = null, lastPolled = "2026-01-01T00:00:00Z"))
+
+        val cutoff = Instant.parse(floor.captured)
+        val expected = Instant.now().minus(7, ChronoUnit.DAYS)
+        assertTrue(
+            Duration.between(cutoff, expected).abs() < Duration.ofMinutes(1),
+            "expected the 7-day age cutoff to be passed to the fetcher, got ${floor.captured}"
+        )
+    }
+
+    @Test
+    fun `first poll passes source creation time to the fetcher when it is the tightest bound`() {
+        val floor = slot<String>()
+        every { rssFeedFetcher.fetch(any(), any(), capture(floor), any()) } returns emptyList()
+        val createdAt = Instant.now().minus(2, ChronoUnit.DAYS)
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties(maxArticleAgeDays = 90))
+        // lastPolled = null marks the first poll, where anything predating the source is unwanted.
+        poller.poll(source.copy(lastSeenId = null, lastPolled = null, createdAt = createdAt.toString()))
+
+        assertEquals(createdAt, Instant.parse(floor.captured))
+    }
+
+    @Test
+    fun `lastSeenId wins when it is newer than the age cutoff`() {
+        val floor = slot<String>()
+        every { rssFeedFetcher.fetch(any(), any(), capture(floor), any()) } returns emptyList()
+        val lastSeen = Instant.now().minus(1, ChronoUnit.HOURS)
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties(maxArticleAgeDays = 90))
+        poller.poll(source.copy(lastSeenId = lastSeen.toString(), lastPolled = "2026-01-01T00:00:00Z"))
+
+        assertEquals(lastSeen, Instant.parse(floor.captured))
     }
 
     @Test

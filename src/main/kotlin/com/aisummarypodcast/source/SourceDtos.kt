@@ -47,5 +47,19 @@ data class SourceResponse(
     val disabledReason: String?,
     val articleCount: Int = 0,
     val relevantArticleCount: Int = 0,
-    val postCount: Int = 0
+    val postCount: Int = 0,
+    val host: String? = null,
+    val hostSourceCount: Int = 0,
+    val hostBreakerOpen: Boolean = false
+)
+
+/**
+ * Whether a source's host is currently being treated as structurally down, and how many enabled
+ * sources share that host. Lets the dashboard distinguish "not polled because its host is down"
+ * from "failing on its own".
+ */
+data class HostBreakerState(
+    val host: String?,
+    val sourceCount: Int,
+    val open: Boolean
 )

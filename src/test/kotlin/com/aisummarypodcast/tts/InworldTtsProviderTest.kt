@@ -1,5 +1,7 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.testRetryRegistry
+
 import com.aisummarypodcast.store.PodcastStyle
 import io.mockk.every
 import io.mockk.mockk
@@ -15,7 +17,7 @@ import java.util.Collections
 class InworldTtsProviderTest {
 
     private val apiClient = mockk<InworldApiClient>()
-    private val provider = InworldTtsProvider(apiClient)
+    private val provider = InworldTtsProvider(apiClient, testRetryRegistry(maxAttempts = 3))
 
     private val sampleAudio = Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3))
 

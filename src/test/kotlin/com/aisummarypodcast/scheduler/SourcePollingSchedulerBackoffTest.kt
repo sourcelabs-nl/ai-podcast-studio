@@ -8,6 +8,8 @@ import com.aisummarypodcast.config.FeedProperties
 import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.SourceProperties
 import com.aisummarypodcast.podcast.PodcastService
+import com.aisummarypodcast.source.SourceHostBreaker
+import com.aisummarypodcast.testCircuitBreakerRegistry
 import com.aisummarypodcast.source.SourcePoller
 import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
@@ -43,7 +45,7 @@ class SourcePollingSchedulerBackoffTest {
         val props = appProperties(maxBackoffHours)
         return SourcePollingScheduler(
             sourcePoller, sourceRepository, sourceService,
-            props, podcastService, PollDelayResolver(props)
+            props, podcastService, PollDelayResolver(props), SourceHostBreaker(testCircuitBreakerRegistry())
         )
     }
 

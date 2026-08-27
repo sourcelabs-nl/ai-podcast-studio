@@ -177,6 +177,29 @@ class LlmPipelineTest {
     }
 
     @Test
+    fun `composes distinct articles when the dedup filter returns duplicates`() {
+        val second = scoredArticle.copy(id = 2, title = "More AI News", contentHash = "hash2")
+        val eligible = listOf(scoredArticle, second)
+        setupBasicPipeline(eligible)
+        // A degenerating dedup response repeats the same two articles many times over. Without
+        // de-duplication these repeats would consume the compose cap and starve the episode.
+        val repeated = (1..30).flatMap { eligible.map { article -> FilteredArticle(article) } }
+        coEvery { topicDedupFilter.filter(eligible, emptyList(), "u1", filterModelDef) } returns
+            DedupFilterResult(repeated, TokenUsage(100, 50))
+
+        val composed = slot<List<Article>>()
+        coEvery {
+            briefingComposer.compose(capture(composed), any(), any(), any(), any<Map<Long, String>>())
+        } returns CompositionResult("Script", TokenUsage(500, 200))
+
+        runTest {
+            pipeline.run(podcast)
+
+            assertEquals(listOf(1L, 2L), composed.captured.map { it.id })
+        }
+    }
+
+    @Test
     fun `delegates article selection to ArticleEligibilityService`() {
         setupBasicPipeline()
         coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))

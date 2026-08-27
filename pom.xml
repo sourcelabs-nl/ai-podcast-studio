@@ -17,6 +17,7 @@
 		<java.version>25</java.version>
 		<kotlin.version>2.4.0</kotlin.version>
 		<spring-ai.version>2.0.0</spring-ai.version>
+		<resilience4j.version>2.4.0</resilience4j.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -149,6 +150,25 @@
 			<groupId>commons-net</groupId>
 			<artifactId>commons-net</artifactId>
 			<version>3.11.1</version>
+		</dependency>
+		<!--
+		  Resilience4j: circuit breakers for source hosts, retry for external API calls.
+		  The spring-boot4 module supplies the YAML-bound config, the registry beans and the
+		  actuator metrics; call sites use the resilience4j-kotlin API rather than the AOP
+		  annotations, which do not compose with Kotlin suspend functions.
+
+		  Versions are pinned rather than taken from resilience4j-bom, which omits the
+		  spring-boot4 artifact (resilience4j/resilience4j#2427) and so fails to resolve it.
+		-->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-spring-boot4</artifactId>
+			<version>${resilience4j.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-kotlin</artifactId>
+			<version>${resilience4j.version}</version>
 		</dependency>
 	</dependencies>
 

@@ -75,7 +75,6 @@ data class LlmProperties(
 
 data class ScoringProperties(
     val concurrency: Int = 10,
-    val maxRetries: Int = 3
 )
 
 /**

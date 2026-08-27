@@ -1,6 +1,7 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.testRetryRegistry
 import com.aisummarypodcast.config.BriefingProperties
 import com.aisummarypodcast.config.EncryptionProperties
 import com.aisummarypodcast.config.EpisodesProperties
@@ -48,7 +49,7 @@ class ArticleScoreSummarizerTest {
         cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60)
     )
 
-    private fun appProperties(scoring: ScoringProperties = ScoringProperties(concurrency = 10, maxRetries = 1)): AppProperties =
+    private fun appProperties(scoring: ScoringProperties = ScoringProperties(concurrency = 10)): AppProperties =
         AppProperties(
             llm = LlmProperties(scoring = scoring),
             briefing = BriefingProperties(),
@@ -57,7 +58,9 @@ class ArticleScoreSummarizerTest {
             encryption = EncryptionProperties(masterKey = "test-key")
         )
 
-    private val scoreSummarizer = ArticleScoreSummarizer(articleRepository, chatClientFactory, jsonMapper, appProperties())
+    private val scoreSummarizer = ArticleScoreSummarizer(
+        articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(), appProperties()
+    )
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Tech Daily", topic = "AI engineering")
 
@@ -364,8 +367,8 @@ class ArticleScoreSummarizerTest {
         every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
-            articleRepository, chatClientFactory, jsonMapper,
-            appProperties(ScoringProperties(concurrency = 2, maxRetries = 1))
+            articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(),
+            appProperties(ScoringProperties(concurrency = 2))
         )
         val result = summarizer.scoreSummarize(articles, podcast, filterModelDef)
 
@@ -405,8 +408,8 @@ class ArticleScoreSummarizerTest {
         every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
-            articleRepository, chatClientFactory, jsonMapper,
-            appProperties(ScoringProperties(concurrency = 10, maxRetries = 3))
+            articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(maxAttempts = 3),
+            appProperties(ScoringProperties(concurrency = 10))
         )
         val result = summarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
 
@@ -519,8 +522,8 @@ class ArticleScoreSummarizerTest {
         every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
-            articleRepository, chatClientFactory, jsonMapper,
-            appProperties(ScoringProperties(concurrency = 10, maxRetries = 3))
+            articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(maxAttempts = 3),
+            appProperties(ScoringProperties(concurrency = 10))
         )
         val result = summarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
 
@@ -566,8 +569,8 @@ class ArticleScoreSummarizerTest {
         every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
-            articleRepository, chatClientFactory, jsonMapper,
-            appProperties(ScoringProperties(concurrency = 10, maxRetries = 3))
+            articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(maxAttempts = 3),
+            appProperties(ScoringProperties(concurrency = 10))
         )
         summarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
 
