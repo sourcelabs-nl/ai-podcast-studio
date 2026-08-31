@@ -62,7 +62,7 @@ class EpisodeServiceTest {
     }
     private val eventPublisher = mockk<ApplicationEventPublisher>(relaxed = true)
 
-    private val filterModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-haiku-4.5", cost = null)
+    private val filterModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-haiku-4.5", cost = null, stage = PipelineStage.FILTER)
 
     private val audioGenerationService = mockk<AudioGenerationService>(relaxed = true)
 

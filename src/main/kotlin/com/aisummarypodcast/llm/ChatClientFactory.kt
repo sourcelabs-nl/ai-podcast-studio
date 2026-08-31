@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.research.RESEARCH_TOOL_CAP
 import com.aisummarypodcast.research.RESEARCH_TOOL_NAME
 import com.aisummarypodcast.research.ResearchService
@@ -18,7 +19,8 @@ class ChatClientFactory(
     private val providerConfigService: UserProviderConfigService,
     private val llmCacheRepository: LlmCacheRepository,
     private val episodeHistoryRepository: EpisodeHistoryRepository,
-    private val researchService: ResearchService
+    private val researchService: ResearchService,
+    private val appProperties: AppProperties
 ) {
 
     fun createForModel(userId: String, resolvedModel: ResolvedModel): ChatClient {
@@ -72,6 +74,21 @@ class ChatClientFactory(
         return tools
     }
 
+    /**
+     * Request timeout for [stage]. Only composition needs a long ceiling — it has been observed
+     * running 18m11s over a large article set with tool calls — so it is the only stage that gets
+     * one. Sharing that allowance with the others let a single hung scoring call stall an entire
+     * generation for 13 minutes while its 177 siblings each returned in seconds.
+     */
+    internal fun timeoutFor(stage: PipelineStage): Duration {
+        val timeouts = appProperties.llm.timeouts
+        return when (stage) {
+            PipelineStage.FILTER -> timeouts.filter
+            PipelineStage.DEDUP -> timeouts.dedup
+            PipelineStage.COMPOSE -> timeouts.compose
+        }
+    }
+
     private fun buildCachingModel(userId: String, resolvedModel: ResolvedModel): CachingChatModel {
         val config = providerConfigService.resolveConfig(userId, ApiKeyCategory.LLM, resolvedModel.provider)
             ?: throw IllegalStateException(
@@ -79,11 +96,7 @@ class ChatClientFactory(
                     "Configure a user provider for '${resolvedModel.provider}' or set the appropriate environment variable."
             )
 
-        // Generous request timeout: composition with deep-dive web research and history tool
-        // calls over a large article set can run well past ten minutes on slower models. The
-        // dedup/filter stages bound their own output via maxTokens, so a longer ceiling here
-        // only ever helps the long compose request and never lets a degenerate call hang.
-        val openAiClient = buildOpenAiClient(config, Duration.ofMinutes(20))
+        val openAiClient = buildOpenAiClient(config, timeoutFor(resolvedModel.stage))
         val chatModel = OpenAiChatModel.builder()
             .openAiClient(openAiClient)
             .build()

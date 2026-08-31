@@ -37,7 +37,7 @@ class DialogueComposer(
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
-                    .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
+                    .options(buildComposeOptions(composeModelDef.model, temperature, appProperties.compose))
                     .advisors(RoleTagValidationAdvisor(resolveSpeakerRoles(podcast)))
                     .call()
                     .chatResponse()

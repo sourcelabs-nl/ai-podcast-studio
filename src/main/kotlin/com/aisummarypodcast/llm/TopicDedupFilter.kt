@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Article
 import io.github.resilience4j.kotlin.retry.executeSuspendFunction
 import io.github.resilience4j.retry.RetryRegistry
@@ -9,12 +10,25 @@ import org.slf4j.LoggerFactory
 import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
+import tools.jackson.core.JacksonException
+import tools.jackson.core.JsonToken
 import tools.jackson.databind.json.JsonMapper
 import kotlin.time.measureTimedValue
 
-// Generous ceiling for a legitimate dedup response (dozens of small clusters). Well above any
-// real output, but low enough that a repetition loop is cut off in seconds rather than minutes.
-private const val DEDUP_MAX_OUTPUT_TOKENS = 8000
+// The prompt requires every candidate article to appear in exactly one cluster, so a legitimate
+// response's length is proportional to its input, and on days where little clusters together it
+// approaches one cluster per candidate (observed: 37 candidates → 29 clusters, 39 → 39, 56 → 50,
+// 68 → 44). At roughly 90 output tokens per cluster — topic label, status, a CONTINUATION's
+// previousContext sentence, the selected ids — a 183-candidate day needs some 16,000 tokens, so
+// the budget has to scale with the candidate count. A fixed 8000-token cap truncated episode 191's
+// response mid-array at cluster 234 and cost the whole episode.
+private const val DEDUP_TOKENS_PER_CANDIDATE = 90
+private const val DEDUP_MIN_OUTPUT_TOKENS = 8000
+
+// Hard ceiling, so a degenerating response (a repetition loop emitting near-duplicate clusters
+// indefinitely) is still cut off in seconds rather than streaming for minutes. Far inside the
+// dedup model's 1M-token context window.
+private const val DEDUP_MAX_OUTPUT_TOKENS = 32000
 
 // Historical titles are only used for topic recall, but some sources (Twitter/Nitter) put an
 // entire post in the title field (observed up to ~5000 chars). Truncate so one outlier can't
@@ -59,7 +73,8 @@ data class DedupSelection(
 class TopicDedupFilter(
     private val chatClientFactory: ChatClientFactory,
     private val jsonMapper: JsonMapper,
-    private val retryRegistry: RetryRegistry
+    private val retryRegistry: RetryRegistry,
+    private val appProperties: AppProperties
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -81,31 +96,31 @@ class TopicDedupFilter(
         val retry = retryRegistry.retry("topic-dedup")
         val (result, elapsed) = measureTimedValue {
             retry.executeSuspendFunction {
-                val converter = BeanOutputConverter(DedupResult::class.java, jsonMapper)
                 val chatResponse = withContext(Dispatchers.IO) {
                     chatClient.prompt()
                         .user(prompt)
                         // maxTokens caps a degenerating response (e.g. a repetition loop emitting
                         // hundreds of near-duplicate clusters) so it fails in seconds instead of
-                        // streaming for minutes before truncating mid-JSON.
+                        // streaming for minutes before truncating mid-JSON. The budget scales with
+                        // the candidate count so a legitimate large response still fits.
                         .options(
                             OpenAiChatOptions.builder()
                                 .model(modelDef.model)
                                 .temperature(0.3)
-                                .maxTokens(DEDUP_MAX_OUTPUT_TOKENS)
+                                .maxTokens(dedupOutputTokenBudget(candidates.size))
                                 // deepseek-v4-flash reasons by default on OpenRouter; its hidden reasoning
                                 // tokens count against maxTokens and can consume the whole budget, leaving
                                 // no room for the actual JSON output. Disable it explicitly.
                                 .reasoningEffort("none")
                         )
                         .call()
-                        .responseEntity(converter)
+                        .chatResponse()
                 }
 
-                val dedupResult = chatResponse.entity()
+                val raw = chatResponse?.result?.output?.text?.takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Empty response from LLM for topic dedup filter")
 
-                Pair(dedupResult, TokenUsage.fromChatResponse(chatResponse.response()))
+                Pair(parseOrSalvage(raw, candidates), TokenUsage.fromChatResponse(chatResponse))
             }
         }
 
@@ -121,6 +136,87 @@ class TopicDedupFilter(
             elapsed, candidates.size, selection.articles.size, dedupResult.clusters.size)
 
         return DedupFilterResult(selection.articles, usage)
+    }
+
+    /**
+     * Output-token budget for a dedup call over [candidateCount] candidates, clamped to
+     * [DEDUP_MIN_OUTPUT_TOKENS]..[DEDUP_MAX_OUTPUT_TOKENS].
+     */
+    internal fun dedupOutputTokenBudget(candidateCount: Int): Int =
+        (candidateCount * DEDUP_TOKENS_PER_CANDIDATE)
+            .coerceIn(DEDUP_MIN_OUTPUT_TOKENS, DEDUP_MAX_OUTPUT_TOKENS)
+
+    /**
+     * Parses the dedup response, recovering what it can from a response the model truncated.
+     *
+     * A truncated response is safe to act on in a way most stages' output is not: an article that no
+     * surviving cluster mentions is simply not selected, so the loss is material the episode does not
+     * cover, never a corrupted script. Discarding the whole payload instead — which is what parsing
+     * strictly and letting the error fly did — cost episode 191 its 234 complete clusters.
+     *
+     * A salvage is only accepted once it still selects at least `app.compose.max-articles` articles.
+     * At that point the lost tail provably could not have changed the episode, because [LlmPipeline]
+     * caps the compose input to that same number and would have dropped the surplus anyway. Below it
+     * the truncation really did cost material, so the caller's retry gets a turn instead.
+     */
+    private fun parseOrSalvage(raw: String, candidates: List<Article>): DedupResult {
+        val strict = try {
+            BeanOutputConverter(DedupResult::class.java, jsonMapper).convert(raw)
+        } catch (e: JacksonException) {
+            log.warn("[Dedup] Response did not parse ({}) — attempting to salvage the complete clusters", e.message)
+            null
+        }
+        if (strict != null) return strict
+
+        val salvaged = salvageClusters(raw)
+        val selected = selectArticles(salvaged, candidates).articles.size
+        val required = appProperties.compose.maxArticles
+        if (selected < required) {
+            throw IllegalStateException(
+                "Truncated dedup response salvaged only $selected selectable article(s) from " +
+                    "${salvaged.size} cluster(s), below the $required needed to compose"
+            )
+        }
+
+        log.warn("[Dedup] Salvaged {} complete cluster(s) selecting {} article(s) from a truncated response — " +
+            "the lost tail is beyond the compose cap of {} and cannot change the episode",
+            salvaged.size, selected, required)
+        return DedupResult(salvaged)
+    }
+
+    /**
+     * Recovers the complete [DedupCluster] elements from a `clusters` array the model cut off
+     * mid-element, by reading the array one element at a time and stopping where the JSON runs out.
+     */
+    internal fun salvageClusters(raw: String): List<DedupCluster> {
+        val start = raw.indexOf('{')
+        if (start < 0) return emptyList()
+
+        val clusters = mutableListOf<DedupCluster>()
+        try {
+            jsonMapper.createParser(raw.substring(start)).use { parser ->
+                var inClusters = false
+                while (parser.nextToken() != null) {
+                    if (!inClusters) {
+                        val atClusters = parser.currentToken() == JsonToken.PROPERTY_NAME &&
+                            parser.currentName() == "clusters"
+                        if (atClusters && parser.nextToken() == JsonToken.START_ARRAY) inClusters = true
+                        continue
+                    }
+                    when (parser.currentToken()) {
+                        // readValueAs, not jsonMapper.readValue: the latter treats the parser as a
+                        // whole document and rejects the array's remaining tokens as trailing input.
+                        JsonToken.START_OBJECT -> clusters.add(parser.readValueAs(DedupCluster::class.java))
+                        JsonToken.END_ARRAY -> return clusters
+                        else -> {}
+                    }
+                }
+            }
+        } catch (_: JacksonException) {
+            // Expected: the array is cut off part-way through an element. Everything read before it
+            // is complete and usable.
+        }
+        return clusters
     }
 
     /**

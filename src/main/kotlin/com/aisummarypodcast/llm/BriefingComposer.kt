@@ -52,7 +52,7 @@ class BriefingComposer(
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
-                    .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
+                    .options(buildComposeOptions(composeModelDef.model, temperature, appProperties.compose))
                     .call()
                     .chatResponse()
             }

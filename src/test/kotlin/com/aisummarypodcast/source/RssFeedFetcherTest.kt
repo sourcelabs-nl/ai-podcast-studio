@@ -538,4 +538,75 @@ $categoryTags
         assertEquals("Café résumé", results[0].title)
         assertEquals("Naïve façade", results[0].body)
     }
+
+    // --- Narro: markup in titles, and marker-based replies ---------------------------------------
+
+    /** A real item from the `X via Narro` feed, entity-escaped exactly as the feed serves it. */
+    private val narroReplyXml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <channel>
+            <title>Daily Agentic AI Podcast</title>
+            <item>
+              <title>@ivanfioravanti: &lt;span class=&quot;narro-reply-header&quot;&gt;@Rawtrutholog&lt;/span&gt; LOL</title>
+              <link>https://x.com/ivanfioravanti/status/2094481641963938134</link>
+              <pubDate>Mon, 31 Aug 2026 17:45:11 GMT</pubDate>
+              <dc:creator>Ivan Fioravanti</dc:creator>
+              <description>&lt;span class=&quot;narro-reply-header&quot;&gt;@Rawtrutholog&lt;/span&gt;
+        &lt;span class=&quot;narro-reply-text&quot;&gt;quoted parent text&lt;/span&gt;
+
+        @Rawtrutholog 😂 LOL!</description>
+            </item>
+          </channel>
+        </rss>
+    """.trimIndent()
+
+    @Test
+    fun `narro reply marker survives feed parsing and is detected`() {
+        val feed = SyndFeedInput().build(StringReader(narroReplyXml))
+        val rawBody = feed.entries.first().description.value
+
+        // The feed escapes its markup; Rome hands it back unescaped, which is what the detector needs.
+        assertTrue(rawBody.contains("narro-reply-header"))
+        assertEquals("Rawtrutholog", NarroFeed.replyTarget(rawBody))
+    }
+
+    @Test
+    fun `no reply target for an entry without the marker`() {
+        assertNull(NarroFeed.replyTarget("<p>Just a normal post about agents.</p>"))
+    }
+
+    @Test
+    fun `markup is stripped from an entry title and the reply is normalized`() {
+        serveRss(narroReplyXml)
+
+        val posts = fetcher.fetch("http://localhost:$port/feed", "s1", null)
+
+        assertEquals(1, posts.size)
+        val title = posts[0].title
+        // The span markup that used to reach the article title, and the LLM prompts, is gone.
+        assertTrue(title.none { it == '<' || it == '>' }, "title still contains markup: $title")
+        assertTrue(title.startsWith("R to @Rawtrutholog: "), "title not normalized: $title")
+        assertTrue(title.contains("@ivanfioravanti:"))
+        assertTrue(title.contains("LOL"))
+    }
+
+    @Test
+    fun `a non-reply entry title is not prefixed`() {
+        assertEquals(
+            "@steipete: A standalone thought",
+            fetcher.normalizeReplyTitle("@steipete: A standalone thought", "<p>plain body</p>")
+        )
+    }
+
+    @Test
+    fun `an already-prefixed title is not prefixed twice`() {
+        val title = "R to @someone: earlier reply"
+        val body = """<span class="narro-reply-header">@another</span>"""
+
+        val result = fetcher.normalizeReplyTitle(title, body)
+
+        assertEquals(title, result)
+        assertEquals(1, Regex("R to @").findAll(result).count())
+    }
 }

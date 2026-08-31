@@ -1,6 +1,7 @@
 package com.aisummarypodcast.config
 
 import org.springframework.boot.context.properties.ConfigurationProperties
+import java.time.Duration
 
 @ConfigurationProperties(prefix = "app")
 data class AppProperties(
@@ -50,7 +51,14 @@ data class ComposeProperties(
     // Upper bound on articles fed into a single compose request. On busy days dozens of articles can
     // survive scoring and dedup; composing all of them in one LLM call is slow (risking the compose
     // timeout) and dilutes the episode. We keep the highest-relevance articles and drop the rest.
-    val maxArticles: Int = 40
+    val maxArticles: Int = 40,
+    // Upper bound on compose output tokens. Without one the provider reserves the model's entire
+    // output window when checking affordability, which blocked an episode with a 402 demanding
+    // credit for 131,072 tokens to write a 1,876-word script. Real compose output has ranged from
+    // 2,540 to 57,546 tokens (the compose model reasons, so output far exceeds the script), so this
+    // sits well above what is used and well below the model's window. A ceiling near observed usage
+    // would risk truncating a script.
+    val maxOutputTokens: Int = 96000
 )
 
 data class ResearchProperties(
@@ -70,7 +78,21 @@ data class LlmProperties(
     val defaults: StageDefaults = StageDefaults(),
     val maxCostCents: Int = 200,
     val scoring: ScoringProperties = ScoringProperties(),
-    val dedup: DedupProperties = DedupProperties()
+    val dedup: DedupProperties = DedupProperties(),
+    val timeouts: StageTimeouts = StageTimeouts()
+)
+
+/**
+ * Request timeout per pipeline stage. One blanket value cannot serve them all: per-article scoring
+ * returns in seconds and dedup has peaked at 3m06s, while composition over a large article set with
+ * research and history tool calls has been observed from 1m03s up to 18m11s. A single ceiling sized
+ * for compose let one hung scoring call stall a whole generation for 13 minutes; a ceiling sized for
+ * scoring would fail a real compose run. Recap resolves the filter model and so takes [filter].
+ */
+data class StageTimeouts(
+    val filter: Duration = Duration.ofMinutes(3),
+    val dedup: Duration = Duration.ofMinutes(5),
+    val compose: Duration = Duration.ofMinutes(20)
 )
 
 data class ScoringProperties(

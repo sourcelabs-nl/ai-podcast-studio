@@ -320,4 +320,134 @@ class SourceAggregatorTest {
     fun `shouldAggregate returns false when explicit override is false`() {
         assertFalse(aggregator.shouldAggregate(source(type = SourceType.TWITTER, url = "simonw", aggregate = false)))
     }
+
+    // --- Author grouping on a combined feed ----------------------------------------------------
+
+    private fun narroSource() = source(url = "https://rss.narro.info/feed-id", aggregate = true)
+
+    private fun xPost(
+        id: Long,
+        handle: String,
+        title: String,
+        publishedAt: String,
+        body: String = "Body of $title",
+        author: String? = null
+    ) = post(
+        id = id,
+        title = title,
+        body = body,
+        publishedAt = publishedAt,
+        url = "https://x.com/$handle/status/$id",
+        author = author
+    )
+
+    @Test
+    fun `author resolved from an x-com status url`() {
+        val resolved = aggregator.resolveAuthorKey(
+            post(url = "https://x.com/ivanfioravanti/status/2094481641963938134")
+        )
+        assertEquals("ivanfioravanti", resolved)
+    }
+
+    @Test
+    fun `author resolved from a title handle prefix when the url carries none`() {
+        val resolved = aggregator.resolveAuthorKey(
+            post(url = "https://narro.info/item/abc", title = "@steipete: Some post text", author = null)
+        )
+        assertEquals("steipete", resolved)
+    }
+
+    @Test
+    fun `author resolved from the author field as a last resort`() {
+        val resolved = aggregator.resolveAuthorKey(
+            post(url = "https://narro.info/item/abc", title = "No handle here", author = "Ivan Fioravanti")
+        )
+        assertEquals("ivan fioravanti", resolved)
+    }
+
+    @Test
+    fun `author is null when nothing resolves`() {
+        assertNull(
+            aggregator.resolveAuthorKey(
+                post(url = "https://example.com/post/1", title = "No handle", author = null)
+            )
+        )
+    }
+
+    @Test
+    fun `posts are grouped by author before threading`() {
+        val posts = listOf(
+            xPost(1, "authora", "@authora: Parent A", "2026-08-31T10:00:00Z"),
+            xPost(2, "authorb", "@authorb: Parent B", "2026-08-31T10:01:00Z"),
+            xPost(3, "authora", "R to @someone: reply from A", "2026-08-31T10:02:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, narroSource())
+
+        // Author A's parent plus its reply is one article; author B's post is another.
+        assertEquals(2, articles.size)
+        val a = articles.first { it.title == "@authora: Parent A" }
+        assertTrue(a.body.contains("Body of R to @someone: reply from A"))
+        val b = articles.first { it.title == "@authorb: Parent B" }
+        assertFalse(b.body.contains("reply from A"))
+    }
+
+    @Test
+    fun `a reply never attaches across authors`() {
+        // Author B posted most recently before the reply, so the old author-blind rule would have
+        // attached author A's reply to author B's post.
+        val posts = listOf(
+            xPost(1, "authora", "@authora: Parent A", "2026-08-31T10:00:00Z"),
+            xPost(2, "authorb", "@authorb: Parent B", "2026-08-31T10:05:00Z"),
+            xPost(3, "authora", "R to @someone: reply from A", "2026-08-31T10:06:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, narroSource())
+
+        val b = articles.first { it.title == "@authorb: Parent B" }
+        assertFalse(b.body.contains("reply from A"))
+    }
+
+    @Test
+    fun `one article per author when every post is a standalone`() {
+        val posts = listOf(
+            xPost(1, "authora", "@authora: One", "2026-08-31T10:00:00Z"),
+            xPost(2, "authorb", "@authorb: Two", "2026-08-31T10:01:00Z"),
+            xPost(3, "authorc", "@authorc: Three", "2026-08-31T10:02:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, narroSource())
+
+        assertEquals(3, articles.size)
+    }
+
+    @Test
+    fun `a single-account feed threads exactly as before author grouping`() {
+        val posts = listOf(
+            post(id = 1, title = "Parent", body = "Parent body", publishedAt = "2026-08-31T10:00:00Z"),
+            post(id = 2, title = "R to @simonw: reply", body = "Reply body", publishedAt = "2026-08-31T10:01:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, source(aggregate = true))
+
+        assertEquals(1, articles.size)
+        assertEquals("Parent", articles[0].title)
+        assertTrue(articles[0].body.contains("Parent body"))
+        assertTrue(articles[0].body.contains("Reply body"))
+    }
+
+    @Test
+    fun `posts with no resolvable author form one group`() {
+        val posts = listOf(
+            post(id = 1, title = "Parent", body = "Parent body", author = null,
+                url = "https://example.com/1", publishedAt = "2026-08-31T10:00:00Z"),
+            post(id = 2, title = "R to @x: reply", body = "Reply body", author = null,
+                url = "https://example.com/2", publishedAt = "2026-08-31T10:01:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, source(aggregate = true))
+
+        assertEquals(1, articles.size)
+        assertTrue(articles[0].body.contains("Reply body"))
+    }
 }

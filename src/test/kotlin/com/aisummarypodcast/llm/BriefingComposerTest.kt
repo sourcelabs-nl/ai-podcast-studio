@@ -259,7 +259,7 @@ class BriefingComposerTest {
 
     @Test
     fun `compose returns CompositionResult with token usage`() = runTest {
-        val composeModelDef = ResolvedModel(provider = "openrouter", model = "test-model", cost = null)
+        val composeModelDef = ResolvedModel(provider = "openrouter", model = "test-model", cost = null, stage = PipelineStage.COMPOSE)
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test Pod", topic = "tech")
         val articles = listOf(
             Article(

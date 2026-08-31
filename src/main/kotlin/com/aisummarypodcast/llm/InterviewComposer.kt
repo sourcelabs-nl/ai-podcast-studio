@@ -41,7 +41,7 @@ class InterviewComposer(
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
-                    .options(OpenAiChatOptions.builder().model(composeModelDef.model).temperature(temperature))
+                    .options(buildComposeOptions(composeModelDef.model, temperature, appProperties.compose))
                     .advisors(RoleTagValidationAdvisor(INTERVIEW_ROLES))
                     .call()
                     .chatResponse()

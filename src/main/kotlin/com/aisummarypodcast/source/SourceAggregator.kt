@@ -13,6 +13,12 @@ import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.net.URI
 
+/**
+ * Title prefix marking a reply, and so the convention thread detection keys on. Nitter's RSS used
+ * it natively; [RssFeedFetcher] rewrites other feeds' reply markers into the same shape.
+ */
+internal const val REPLY_TITLE_PREFIX = "R to @"
+
 @Component
 class SourceAggregator(
     private val articleRepository: ArticleRepository,
@@ -20,6 +26,11 @@ class SourceAggregator(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    companion object {
+        // Narro prefixes each item's title with the posting account, e.g. "@ivanfioravanti: ...".
+        private val TITLE_HANDLE_PREFIX = Regex("""^@([A-Za-z0-9_]{1,15})\s*:""")
+    }
 
     @Transactional
     fun aggregateAndPersist(posts: List<Post>, source: Source): List<Article> {
@@ -73,11 +84,45 @@ class SourceAggregator(
         return threads
     }
 
-    private fun isReply(post: Post): Boolean = post.title.startsWith("R to @")
+    private fun isReply(post: Post): Boolean = post.title.startsWith(REPLY_TITLE_PREFIX)
+
+    /**
+     * Resolves the account a post belongs to.
+     *
+     * A source is no longer the same thing as an account: a combined feed (Narro) merges many X
+     * accounts into one RSS document, so threading has to be scoped per author or the reply-
+     * attachment rule in [groupPostsByThread] splices different people's posts together.
+     *
+     * The post URL is the most reliable of the three signals, because a combined feed rewrites
+     * every item's link to the original post, so the handle survives even where the feed's own
+     * author field carries a display name ("Ivan Fioravanti") or nothing at all.
+     */
+    internal fun resolveAuthorKey(post: Post): String? {
+        xHandleFromUrl(post.url)?.let { return it }
+        TITLE_HANDLE_PREFIX.find(post.title)?.groupValues?.get(1)?.lowercase()?.let { return it }
+        return post.author?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun xHandleFromUrl(url: String): String? {
+        val uri = try {
+            URI(url)
+        } catch (_: Exception) {
+            return null
+        }
+        val host = uri.host?.lowercase()?.removePrefix("www.") ?: return null
+        if (host != "x.com" && host != "twitter.com") return null
+        val segments = uri.path?.split('/')?.filter { it.isNotEmpty() } ?: return null
+        if (segments.size < 3 || segments[1] != "status") return null
+        return segments[0].lowercase()
+    }
 
     private fun aggregatePosts(posts: List<Post>, source: Source): List<Pair<Article, List<Post>>> {
-        val threads = groupPostsByThread(posts)
-        log.info("[Aggregator] Grouped {} posts into {} threads for source {}", posts.size, threads.size, source.id)
+        // Posts whose author cannot be resolved share the null group, which for a feed carrying no
+        // author information at all reproduces the single-group behaviour this replaced.
+        val byAuthor = posts.groupBy { resolveAuthorKey(it) }
+        val threads = byAuthor.values.flatMap { groupPostsByThread(it) }
+        log.info("[Aggregator] Grouped {} posts into {} threads across {} author(s) for source {}",
+            posts.size, threads.size, byAuthor.size, source.id)
 
         return threads.map { threadPosts ->
             val parent = threadPosts.first()

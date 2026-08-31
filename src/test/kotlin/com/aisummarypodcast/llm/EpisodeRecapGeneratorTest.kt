@@ -24,7 +24,7 @@ class EpisodeRecapGeneratorTest {
     private val generator = EpisodeRecapGenerator(chatClientFactory)
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Tech Daily", topic = "tech")
-    private val filterModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-haiku-4.5", cost = null)
+    private val filterModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-haiku-4.5", cost = null, stage = PipelineStage.FILTER)
 
     private fun mockChatClient(responseText: String, inputTokens: Int = 800, outputTokens: Int = 60): ChatClient {
         val metadata = ChatResponseMetadata.builder()
@@ -116,7 +116,8 @@ class EpisodeRecapGeneratorTest {
     fun `recap computes cost from token usage when pricing configured`() = runTest {
         val pricedModel = ResolvedModel(
             provider = "openrouter", model = "anthropic/claude-haiku-4.5",
-            cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 1.00, outputCostPerMtok = 5.00)
+            cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 1.00, outputCostPerMtok = 5.00),
+            stage = PipelineStage.FILTER
         )
         val chatClient = mockChatClient("Recap.", inputTokens = 1_000_000, outputTokens = 200_000)
         every { chatClientFactory.createForModel("u1", pricedModel) } returns chatClient

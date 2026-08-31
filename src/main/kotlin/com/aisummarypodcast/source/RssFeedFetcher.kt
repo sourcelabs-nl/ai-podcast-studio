@@ -59,9 +59,12 @@ class RssFeedFetcher(
                     ?: entry.description?.value
                     ?: return@mapNotNull null
                 val feedBody = Jsoup.parse(rawBody).text()
-                val title = entry.title?.takeIf { it.isNotBlank() }
+                // Titles get the same markup stripping as the body: some feeds (Narro) embed HTML
+                // in <title>, and it would otherwise reach the article title and the LLM prompts.
+                val title = entry.title?.let { Jsoup.parse(it).text() }?.takeIf { it.isNotBlank() }
                     ?: deriveTitle(feedBody)
                     ?: return@mapNotNull null
+                val replyTitle = normalizeReplyTitle(title, rawBody)
                 val link = entry.link ?: entry.uri ?: return@mapNotNull null
                 val body = resolveBody(feedBody, link, deepFetch)
                 val publishedAt = (entry.publishedDate ?: entry.updatedDate)?.toInstant()?.toString()
@@ -70,7 +73,7 @@ class RssFeedFetcher(
 
                 Post(
                     sourceId = sourceId,
-                    title = title,
+                    title = replyTitle,
                     body = body,
                     url = link,
                     publishedAt = publishedAt,
@@ -80,6 +83,17 @@ class RssFeedFetcher(
                 )
             }
             .also { log.info("Fetched {} new entries from RSS feed {}", it.size, url) }
+    }
+
+    /**
+     * Rewrites a marker-based reply's title into the `R to @handle: ` form that
+     * [SourceAggregator]'s thread detection recognises, so a feed that marks replies in its markup
+     * threads the same way Nitter's title convention did. Already-prefixed titles are left alone.
+     */
+    internal fun normalizeReplyTitle(title: String, rawBody: String): String {
+        if (title.startsWith(REPLY_TITLE_PREFIX)) return title
+        val target = NarroFeed.replyTarget(rawBody) ?: return title
+        return "$REPLY_TITLE_PREFIX$target: $title"
     }
 
     /**

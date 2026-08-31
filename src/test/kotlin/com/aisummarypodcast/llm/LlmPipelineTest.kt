@@ -67,8 +67,8 @@ class LlmPipelineTest {
         source = SourceProperties(maxArticleAgeDays = 7)
     )
 
-    private val filterModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-haiku-4.5", cost = null)
-    private val composeModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-sonnet-4", cost = null)
+    private val filterModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-haiku-4.5", cost = null, stage = PipelineStage.FILTER)
+    private val composeModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-sonnet-4", cost = null, stage = PipelineStage.COMPOSE)
 
     private val pipeline = LlmPipeline(
         articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
@@ -367,11 +367,13 @@ class LlmPipelineTest {
 
     private val pricedFilterModel = ResolvedModel(
         provider = "openrouter", model = "gpt-4o-mini",
-        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60)
+        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60),
+        stage = PipelineStage.FILTER
     )
     private val pricedComposeModel = ResolvedModel(
         provider = "openrouter", model = "claude-sonnet",
-        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00)
+        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00),
+        stage = PipelineStage.COMPOSE
     )
 
     private fun articleWithBody(bodySize: Int) = Article(

@@ -128,6 +128,15 @@ app:
         provider: openrouter
         model: z-ai/glm-5.2
     max-cost-cents: 200
+    # Request timeout per stage. One blanket value cannot serve them all: scoring returns in seconds
+    # and dedup has peaked at 3m06s, while compose over a large article set with tool calls has run
+    # from 1m03s to 18m11s. A single compose-sized ceiling let one hung scoring call stall a whole
+    # generation for 13 minutes; a scoring-sized one would fail a real compose run. Recap resolves
+    # the filter model and so takes the filter timeout.
+    timeouts:
+      filter: 3m
+      dedup: 5m
+      compose: 20m
     scoring:
       concurrency: 10
     dedup:
@@ -146,6 +155,11 @@ app:
     rapid-fire-max-items: 6
     # Cap on articles fed into a single compose request (highest-relevance kept, rest dropped).
     max-articles: 40
+    # Ceiling on compose output tokens. Without one the provider reserves the model's whole output
+    # window when checking affordability (a 402 asking for credit on 131,072 tokens to write a
+    # 1,876-word script). Observed compose output: 2,540 min / 12,032 avg / 57,546 max, the model
+    # being reasoning-heavy. Kept far above that max, since a tight ceiling truncates a script.
+    max-output-tokens: 96000
   episodes:
     directory: ./data
     retention-days: 365

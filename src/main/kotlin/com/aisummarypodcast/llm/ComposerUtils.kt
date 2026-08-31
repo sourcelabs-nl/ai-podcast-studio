@@ -1,9 +1,11 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.config.ComposeProperties
 import com.aisummarypodcast.podcast.SupportedLanguage
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
 import org.slf4j.LoggerFactory
+import org.springframework.ai.openai.OpenAiChatOptions
 import java.net.URI
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -352,3 +354,21 @@ fun extractDomainAndPath(url: String): String =
     } catch (_: Exception) {
         url
     }
+
+/**
+ * Request options shared by every composer.
+ *
+ * The `maxTokens` ceiling matters beyond bounding a runaway response: with no ceiling the provider
+ * reserves the model's entire output window when checking affordability, which failed an episode
+ * with a 402 demanding credit for 131,072 tokens to write a 1,876-word script. See
+ * [ComposeProperties.maxOutputTokens] for why the default sits far above observed usage.
+ */
+fun buildComposeOptions(
+    model: String,
+    temperature: Double,
+    compose: ComposeProperties
+): OpenAiChatOptions.Builder =
+    OpenAiChatOptions.builder()
+        .model(model)
+        .temperature(temperature)
+        .maxTokens(compose.maxOutputTokens)

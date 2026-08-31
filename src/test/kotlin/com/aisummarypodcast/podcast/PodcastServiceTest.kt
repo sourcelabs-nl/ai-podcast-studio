@@ -24,11 +24,13 @@ import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import com.aisummarypodcast.source.SourceAggregator
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.springframework.context.ApplicationEventPublisher
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -165,5 +167,50 @@ class PodcastServiceTest {
 
         assertEquals(ResumePoint.POST_COMPOSE, resumePoint)
         verify { eventPublisher.publishEvent(match<PodcastEvent> { it.event == "episode.retrying" && it.data["resumePoint"] == "POST_COMPOSE" }) }
+    }
+
+    // --- Regeneration guard --------------------------------------------------------------------
+
+    private val sourceEpisode = Episode(
+        id = 191, podcastId = "p1", scriptText = "script",
+        status = EpisodeStatus.FAILED, generatedAt = "2026-08-31T13:00:00Z"
+    )
+
+    @Test
+    fun `regenerate rejects an episode with no linked articles and creates no episode`() {
+        every { episodeService.findLinkedArticlesAndTopics(191) } returns
+            LinkedArticlesResult(emptyList(), emptyList(), emptyMap())
+
+        val error = assertThrows(EpisodeNotRegenerableException::class.java) {
+            podcastService.regenerateEpisodeAsync(sourceEpisode, podcast)
+        }
+
+        assertTrue(error.message!!.contains("no linked articles"))
+        verify(exactly = 0) { episodeService.createGeneratingEpisode(any(), any()) }
+    }
+
+    @Test
+    fun `regenerate proceeds for an episode that has linked articles`() {
+        val article = Article(
+            id = 1, sourceId = "s1", title = "Article 1", body = "body",
+            url = "https://example.com/1", contentHash = "h1", relevanceScore = 7
+        )
+        val generating = Episode(
+            id = 192, podcastId = "p1", scriptText = "",
+            status = EpisodeStatus.GENERATING, generatedAt = "2026-08-31T19:00:00Z"
+        )
+        every { episodeService.findLinkedArticlesAndTopics(191) } returns
+            LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"))
+        every { episodeService.createGeneratingEpisode(podcast, false) } returns generating
+        // Stubbed so the background recompose this launches completes quietly.
+        coEvery { llmPipeline.recompose(any(), any(), any(), any()) } returns mockk(relaxed = true)
+        coEvery {
+            episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any())
+        } returns generating
+
+        val result = podcastService.regenerateEpisodeAsync(sourceEpisode, podcast)
+
+        assertEquals(192, result.id)
+        verify { episodeService.createGeneratingEpisode(podcast, false) }
     }
 }

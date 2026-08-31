@@ -46,7 +46,8 @@ class ArticleScoreSummarizerTest {
 
     private val filterModelDef = ResolvedModel(
         provider = "openrouter", model = "test-model",
-        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60)
+        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60),
+        stage = PipelineStage.FILTER
     )
 
     private fun appProperties(scoring: ScoringProperties = ScoringProperties(concurrency = 10)): AppProperties =

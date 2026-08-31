@@ -334,10 +334,21 @@ class PodcastService(
      * the podcast's lastGeneratedAt or the scheduler would skip the next scheduled run.
      */
     fun regenerateEpisodeAsync(sourceEpisode: Episode, podcast: Podcast): Episode {
+        // Check before creating anything. Regeneration recomposes from the source episode's linked
+        // articles, so an episode that failed before article selection can never be regenerated —
+        // creating the episode first only manufactured a second FAILED episode per attempt.
+        val linked = episodeService.findLinkedArticlesAndTopics(sourceEpisode.id!!)
+        if (linked.articles.isEmpty()) {
+            throw EpisodeNotRegenerableException(
+                "Episode ${sourceEpisode.id} has no linked articles to recompose — it failed before " +
+                    "article selection, so it needs a fresh generation rather than a regeneration"
+            )
+        }
+
         val generatingEpisode = episodeService.createGeneratingEpisode(podcast, updateLastGenerated = false)
         pipelineScope.launch {
             try {
-                runRegeneration(sourceEpisode, podcast, generatingEpisode)
+                runRegeneration(linked, podcast, generatingEpisode, sourceEpisode.generatedAt)
             } catch (e: Exception) {
                 log.error("[Pipeline] Regeneration failed for episode {} (podcast '{}' ({})): {}", generatingEpisode.id, podcast.name, podcast.id, e.message, e)
                 episodeService.failEpisode(podcast, e.message ?: "Unknown error", generatingEpisode)
@@ -346,11 +357,13 @@ class PodcastService(
         return generatingEpisode
     }
 
-    private suspend fun runRegeneration(sourceEpisode: Episode, podcast: Podcast, generatingEpisode: Episode): Episode {
-        val (articles, topicLabels, articleTopics) = episodeService.findLinkedArticlesAndTopics(sourceEpisode.id!!)
-        if (articles.isEmpty()) {
-            throw IllegalStateException("No articles found for episode ${sourceEpisode.id}")
-        }
+    private suspend fun runRegeneration(
+        linked: LinkedArticlesResult,
+        podcast: Podcast,
+        generatingEpisode: Episode,
+        sourceGeneratedAt: String
+    ): Episode {
+        val (articles, topicLabels, articleTopics) = linked
 
         val result = llmPipeline.recompose(articles, podcast, topicLabels) { stage, detail ->
             eventPublisher.publishEvent(
@@ -363,7 +376,7 @@ class PodcastService(
             podcast,
             resultWithTopics,
             generatingEpisode = generatingEpisode,
-            overrideGeneratedAt = sourceEpisode.generatedAt,
+            overrideGeneratedAt = sourceGeneratedAt,
             updateLastGenerated = false
         )
     }

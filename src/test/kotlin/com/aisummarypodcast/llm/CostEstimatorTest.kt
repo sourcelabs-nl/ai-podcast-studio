@@ -128,12 +128,14 @@ class CostEstimatorTest {
 
     private val cheapModel = ResolvedModel(
         provider = "openrouter", model = "gpt-4o-mini",
-        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60)
+        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60),
+        stage = PipelineStage.FILTER
     )
 
     private val capableModel = ResolvedModel(
         provider = "openrouter", model = "claude-sonnet",
-        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00)
+        cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00, outputCostPerMtok = 15.00),
+        stage = PipelineStage.COMPOSE
     )
 
     private fun article(body: String) = Article(
@@ -160,21 +162,21 @@ class CostEstimatorTest {
 
     @Test
     fun `returns null when pricing not configured for filter model`() {
-        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null)
+        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null, stage = PipelineStage.FILTER)
         val articles = listOf(article("x".repeat(1000)))
         assertNull(CostEstimator.estimatePipelineCostCents(articles, noPricingModel, capableModel, 1500))
     }
 
     @Test
     fun `returns null when pricing not configured for compose model`() {
-        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null)
+        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null, stage = PipelineStage.FILTER)
         val articles = listOf(article("x".repeat(1000)))
         assertNull(CostEstimator.estimatePipelineCostCents(articles, cheapModel, noPricingModel, 1500))
     }
 
     @Test
     fun `returns null when pricing not configured for both models`() {
-        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null)
+        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null, stage = PipelineStage.FILTER)
         val articles = listOf(article("x".repeat(1000)))
         assertNull(CostEstimator.estimatePipelineCostCents(articles, noPricingModel, noPricingModel, 1500))
     }
@@ -192,7 +194,7 @@ class CostEstimatorTest {
 
     @Test
     fun `estimateScoringCostCents returns null without pricing`() {
-        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null)
+        val noPricingModel = ResolvedModel(provider = "openrouter", model = "test", cost = null, stage = PipelineStage.FILTER)
         assertNull(CostEstimator.estimateScoringCostCents(listOf(article("x".repeat(1000))), noPricingModel))
     }
 
