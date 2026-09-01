@@ -147,6 +147,17 @@ export interface EpisodeArticle {
   body: string | null;
   subtopic: string | null;
   source: ArticleSource;
+  /** Posts this article was aggregated from; 1 when it is not an aggregate. */
+  postCount: number;
+}
+
+/** One post behind an aggregated article, shown when a thread card is expanded. */
+export interface ArticlePost {
+  id: number;
+  title: string;
+  body: string;
+  url: string;
+  publishedAt: string | null;
 }
 
 export interface UpcomingArticlesResponse {

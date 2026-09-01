@@ -23,7 +23,9 @@ data class UpcomingContent(
     val unlinkedPosts: List<Post>,
     val sources: List<Source>,
     val totalPostCount: Long,
-    val effectiveArticleCount: Long
+    val effectiveArticleCount: Long,
+    /** Posts each article was aggregated from, keyed by article id. Absent means one. */
+    val postCounts: Map<Long, Int> = emptyMap()
 )
 
 /** Score-stage facts for an episode's cost breakdown: how many article calls it made. */

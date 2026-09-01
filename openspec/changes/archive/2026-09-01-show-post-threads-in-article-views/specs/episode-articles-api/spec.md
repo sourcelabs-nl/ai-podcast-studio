@@ -1,10 +1,4 @@
-# Capability: Episode Articles API
-
-## Purpose
-
-Read access to the articles behind an episode: the articles linked to it with their source details and thread sizes, and the posts an individual article was aggregated from.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Episode articles endpoint
 The system SHALL provide `GET /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/articles` returning the articles linked to an episode with their source details, ordered by relevance score descending.
@@ -27,16 +21,7 @@ Each article SHALL include `postCount`, the number of posts it was aggregated fr
 - **WHEN** a request is made for an episode with no linked articles
 - **THEN** an empty list is returned
 
-### Requirement: Recap field in episode response
-The episode response from `GET /api/users/{userId}/podcasts/{podcastId}/episodes/{episodeId}` SHALL include the `recap` field.
-
-#### Scenario: Episode with recap
-- **WHEN** a single episode is fetched and it has a recap
-- **THEN** the response includes the `recap` field with the recap text
-
-#### Scenario: Episode without recap
-- **WHEN** a single episode is fetched and it has no recap
-- **THEN** the response includes the `recap` field as null
+## ADDED Requirements
 
 ### Requirement: Article posts endpoint
 The system SHALL provide `GET /users/{userId}/podcasts/{podcastId}/articles/{articleId}/posts` returning the posts an article was aggregated from, ordered by `publishedAt` ascending so a thread reads in the order it was written. Each post SHALL include its id, title, body, url and `publishedAt`.

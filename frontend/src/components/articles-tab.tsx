@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ArticleCard, getSourceDisplayName } from "@/components/article-card";
 import type { EpisodeArticle } from "@/lib/types";
 
 interface ArticlesTabProps {
@@ -10,75 +11,6 @@ interface ArticlesTabProps {
   podcastId: string;
   episodeId: number;
   onCountLoaded?: (count: number) => void;
-}
-
-function getSourceDisplayName(source: EpisodeArticle["source"]): string {
-  if (source.label) return source.label;
-  try {
-    const url = new URL(source.url);
-    return url.hostname.replace(/^www\./, "");
-  } catch {
-    return source.url;
-  }
-}
-
-function relevanceColor(score: number | null): string {
-  if (score === null) return "bg-muted text-muted-foreground";
-  if (score >= 7) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-  if (score >= 4) return "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200";
-  return "bg-muted text-muted-foreground";
-}
-
-function ArticleCard({ article }: { article: EpisodeArticle }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h4 className="truncate text-sm font-medium">{article.title}</h4>
-            {article.relevanceScore !== null && (
-              <span
-                className={`inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${relevanceColor(article.relevanceScore)}`}
-              >
-                {article.relevanceScore}
-              </span>
-            )}
-            {article.subtopic && (
-              <span className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {article.subtopic}
-              </span>
-            )}
-          </div>
-          {article.author && (
-            <p className="mt-0.5 text-xs text-muted-foreground">{article.author}</p>
-          )}
-        </div>
-        <a
-          href={article.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 text-muted-foreground hover:text-foreground"
-        >
-          <ExternalLink className="size-4" />
-        </a>
-      </div>
-      {(article.summary || article.body) && (
-        <div className="mt-2">
-          <p
-            className={`text-sm text-muted-foreground ${!expanded ? "line-clamp-2" : ""}`}
-            onClick={() => setExpanded(!expanded)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(!expanded); }}
-          >
-            {article.summary || article.body}
-          </p>
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function ArticlesTab({ userId, podcastId, episodeId, onCountLoaded }: ArticlesTabProps) {
@@ -159,7 +91,7 @@ export function ArticlesTab({ userId, podcastId, episodeId, onCountLoaded }: Art
             {isExpanded && (
               <div className="ml-6 mt-2 space-y-2">
                 {group.articles.map((article) => (
-                  <ArticleCard key={article.id} article={article} />
+                  <ArticleCard key={article.id} article={article} userId={userId} podcastId={podcastId} />
                 ))}
               </div>
             )}

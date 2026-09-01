@@ -381,6 +381,27 @@ class PodcastService(
         )
     }
 
+    /**
+     * The posts an article was aggregated from, oldest first, or null when the article does not
+     * exist or belongs to a source of another podcast. Ownership is checked here rather than in the
+     * controller so article contents follow the same rules as every other read.
+     */
+    fun findArticlePosts(podcast: Podcast, articleId: Long): List<ArticlePostResponse>? {
+        val article = articleRepository.findByIdOrNull(articleId) ?: return null
+        val sourceIds = sourceRepository.findByPodcastId(podcast.id).map { it.id }
+        if (article.sourceId !in sourceIds) return null
+
+        return postRepository.findPostsByArticleId(articleId).map { post ->
+            ArticlePostResponse(
+                id = post.id!!,
+                title = post.title,
+                body = post.body,
+                url = post.url,
+                publishedAt = post.publishedAt
+            )
+        }
+    }
+
     fun getUpcomingContent(podcast: Podcast): UpcomingContent {
         val sources = sourceRepository.findByPodcastId(podcast.id)
         val sourceIds = sources.map { it.id }
@@ -407,7 +428,10 @@ class PodcastService(
             }
         val effectiveArticleCount = articles.size.toLong() + unlinkedPostArticleCount
 
-        return UpcomingContent(articles, unlinkedPosts, sources, totalPostCount, effectiveArticleCount)
+        return UpcomingContent(
+            articles, unlinkedPosts, sources, totalPostCount, effectiveArticleCount,
+            postCounts = if (articleIds.isNotEmpty()) postRepository.getPostCountsByArticleIds(articleIds) else emptyMap()
+        )
     }
 
     @Transactional

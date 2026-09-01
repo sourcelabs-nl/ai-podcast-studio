@@ -226,6 +226,7 @@ internal fun UpcomingContent.toResponse(): Map<String, Any> {
         summary = article.summary,
         body = article.body,
         subtopic = article.subtopic,
+        postCount = postCounts[article.id] ?: 1,
         source = sourceMap[article.sourceId].let { source ->
             ArticleSourceResponse(
                 id = source?.id ?: article.sourceId,

@@ -5,27 +5,17 @@ Defines the backend API endpoints for fetching upcoming articles and generating 
 ## Requirements
 
 ### Requirement: Upcoming articles endpoint
-The system SHALL provide a `GET /users/{userId}/podcasts/{podcastId}/upcoming-articles` endpoint that returns all articles and unlinked posts collected since the last episode generation, regardless of relevance score. The response SHALL include `articleCount` (effective number of articles after pre-calculating post-to-article aggregation) and `postCount` (total individual posts).
+The system SHALL provide `GET /users/{userId}/podcasts/{podcastId}/upcoming-articles` returning the unprocessed articles that would feed the next episode, together with their sources and counts.
 
-#### Scenario: Articles and posts available since last episode
-- **WHEN** a GET request is made and there are articles or unlinked posts published/created since `podcast.lastGeneratedAt`
-- **THEN** the response SHALL return a combined list of articles and posts with: id, title, url, author, publishedAt, relevanceScore (null for unscored/posts), summary (null for posts), body, and source (id, type, url, label), sorted by relevanceScore descending (nulls last)
+Each article SHALL include `postCount`, the number of posts it was aggregated from, matching the episode articles endpoint so both views can show a thread's size. An article that is not an aggregate SHALL report a `postCount` of 1.
 
-#### Scenario: No content since last episode
-- **WHEN** a GET request is made and there are no articles or posts since `podcast.lastGeneratedAt`
-- **THEN** the response SHALL return an empty list
+#### Scenario: Upcoming articles returned with sources
+- **WHEN** a request is made for a podcast with unprocessed articles
+- **THEN** the response lists the articles with their source details and counts
 
-#### Scenario: No previous episode
-- **WHEN** a GET request is made and `podcast.lastGeneratedAt` is null
-- **THEN** the system SHALL fall back to returning content from the last `maxArticleAgeDays` days (default 7)
-
-#### Scenario: Podcast not found
-- **WHEN** the podcast does not exist or does not belong to the user
-- **THEN** the response SHALL return 404
-
-#### Scenario: Service layer delegation
-- **WHEN** the endpoint is called
-- **THEN** the controller SHALL delegate to a service method and SHALL NOT access repositories directly
+#### Scenario: Aggregated upcoming article reports its thread size
+- **WHEN** an upcoming article was aggregated from 8 posts
+- **THEN** its `postCount` is 8
 
 ### Requirement: Upcoming articles response includes effective article count
 The `GET /users/{userId}/podcasts/{podcastId}/upcoming-articles` endpoint SHALL return `articleCount` as the effective number of articles after pre-calculating post-to-article aggregation. Unlinked posts from sources where `shouldAggregate()` returns true and with more than one post SHALL be counted as a single article per source.

@@ -28,8 +28,10 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.context.ApplicationEventPublisher
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -89,9 +91,12 @@ class PodcastServiceTest {
         every { articleRepository.findUnprocessedSince(listOf("s1"), any()) } returns listOf(article)
         every { postRepository.findUnlinkedSince(listOf("s1"), "2026-03-01T00:00:00Z") } returns listOf(post)
         every { postArticleRepository.countByArticleIds(listOf(1L)) } returns 3L
+        every { postRepository.getPostCountsByArticleIds(listOf(1L)) } returns mapOf(1L to 4)
 
         val result = podcastService.getUpcomingContent(podcast)
 
+        // Thread size travels with the content so the upcoming view can show it on the card.
+        assertEquals(mapOf(1L to 4), result.postCounts)
         assertEquals(1, result.articles.size)
         assertEquals(1, result.unlinkedPosts.size)
         assertEquals("Article 1", result.articles[0].title)
@@ -212,5 +217,46 @@ class PodcastServiceTest {
 
         assertEquals(192, result.id)
         verify { episodeService.createGeneratingEpisode(podcast, false) }
+    }
+
+    // --- Article posts (thread view) ------------------------------------------------------------
+
+    private fun threadArticle(id: Long, sourceId: String) = Article(
+        id = id, sourceId = sourceId, title = "Thread", body = "body",
+        url = "https://x.com/a/status/1", contentHash = "h$id"
+    )
+
+    @Test
+    fun `findArticlePosts returns the posts of an article on this podcast`() {
+        val post = Post(
+            id = 7, sourceId = "s1", title = "p", body = "post body",
+            url = "https://x.com/a/status/7", publishedAt = "2026-08-31T10:00:00Z",
+            contentHash = "ph", createdAt = "2026-08-31T10:00:00Z"
+        )
+        every { articleRepository.findByIdOrNull(1L) } returns threadArticle(1, "s1")
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+        every { postRepository.findPostsByArticleId(1L) } returns listOf(post)
+
+        val result = podcastService.findArticlePosts(podcast, 1L)
+
+        assertEquals(1, result!!.size)
+        assertEquals("post body", result[0].body)
+        assertEquals("2026-08-31T10:00:00Z", result[0].publishedAt)
+    }
+
+    @Test
+    fun `findArticlePosts returns null for an article belonging to another podcast`() {
+        // The article exists, but its source is not one of this podcast's — the controller 404s.
+        every { articleRepository.findByIdOrNull(1L) } returns threadArticle(1, "other-source")
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+
+        assertNull(podcastService.findArticlePosts(podcast, 1L))
+    }
+
+    @Test
+    fun `findArticlePosts returns null for an unknown article`() {
+        every { articleRepository.findByIdOrNull(99L) } returns null
+
+        assertNull(podcastService.findArticlePosts(podcast, 99L))
     }
 }

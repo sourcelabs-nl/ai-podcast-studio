@@ -25,7 +25,8 @@ class EpisodeArticleRepositoryCustomImpl(
         return jdbcClient.sql(
             """
             SELECT a.id, a.title, a.url, a.author, a.published_at, a.relevance_score, a.summary, a.body, a.subtopic,
-                   s.id AS source_id, s.type AS source_type, s.url AS source_url, s.label AS source_label
+                   s.id AS source_id, s.type AS source_type, s.url AS source_url, s.label AS source_label,
+                   (SELECT COUNT(*) FROM post_articles pa WHERE pa.article_id = a.id) AS post_count
             FROM episode_articles ea
             JOIN articles a ON ea.article_id = a.id
             JOIN sources s ON a.source_id = s.id
@@ -45,6 +46,8 @@ class EpisodeArticleRepositoryCustomImpl(
                     summary = rs.getString("summary"),
                     body = rs.getString("body"),
                     subtopic = rs.getString("subtopic"),
+                    // An article with no post links was not aggregated from posts; it counts as one.
+                    postCount = rs.getInt("post_count").coerceAtLeast(1),
                     source = ArticleSourceResponse(
                         id = rs.getString("source_id"),
                         type = rs.getString("source_type"),

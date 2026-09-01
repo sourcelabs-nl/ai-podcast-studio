@@ -253,6 +253,21 @@ class PodcastController(
         return ResponseEntity.accepted().body(mapOf("message" to "Episode regeneration started", "episodeId" to newEpisode.id))
     }
 
+    @GetMapping("/{podcastId}/articles/{articleId}/posts")
+    fun articlePosts(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @PathVariable articleId: Long
+    ): ResponseEntity<List<ArticlePostResponse>> {
+        userService.findById(userId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
+        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+
+        val posts = podcastService.findArticlePosts(podcast, articleId)
+            ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(posts)
+    }
+
     @GetMapping("/{podcastId}/upcoming-articles")
     fun upcomingArticles(@PathVariable userId: String, @PathVariable podcastId: String): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()

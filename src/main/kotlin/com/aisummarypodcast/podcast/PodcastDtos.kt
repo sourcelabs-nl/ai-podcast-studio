@@ -210,5 +210,21 @@ data class EpisodeArticleResponse(
     val summary: String?,
     val body: String?,
     val subtopic: String?,
-    val source: ArticleSourceResponse
+    val source: ArticleSourceResponse,
+    /**
+     * Posts this article was aggregated from. Short-form sources become one article per author
+     * thread, so this is the only signal distinguishing a lone tweet from a long conversation —
+     * the posts themselves are joined into [body] with no structure a client could rely on.
+     * An article that is not an aggregate reports 1.
+     */
+    val postCount: Int = 1
+)
+
+/** One post behind an aggregated article, for the thread view on an article card. */
+data class ArticlePostResponse(
+    val id: Long,
+    val title: String,
+    val body: String,
+    val url: String,
+    val publishedAt: String?
 )
