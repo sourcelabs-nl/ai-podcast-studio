@@ -1,9 +1,40 @@
 package com.aisummarypodcast.tts
 
+import org.slf4j.LoggerFactory
+
 object InworldScriptPostProcessor {
+
+    private val log = LoggerFactory.getLogger(InworldScriptPostProcessor::class.java)
 
     /** Sound names Inworld documents. An unrecognised name is reinterpreted as a steering instruction. */
     private val SOUND_TAGS = setOf("sigh", "laugh", "breathe", "cough", "clear throat", "yawn")
+
+    /**
+     * Instruction words asking for a delivery that removes expression or reduces audibility. The
+     * engine obeys a steering instruction literally, so these are dropped rather than forwarded.
+     *
+     * `[deadpan]` on an expert turn a quarter of the way into episode 194 produced some 25 seconds
+     * of flat, expressionless delivery that a listener noticed. Every other cue the composer has
+     * produced across recent episodes added warmth or energy — warm and conversational, playful,
+     * bright and quick, with quiet awe — so the mechanism is sound and only the vocabulary needed a
+     * floor.
+     *
+     * Stripping is deliberately the safe direction: the turn falls back to neutral delivery, which
+     * is never wrong, so a false positive costs a little colour while a false negative costs part of
+     * an episode. `flat` is listed on that basis, even though it could appear in a benign phrase.
+     */
+    private val FLATTENING_INSTRUCTION_WORDS = setOf(
+        "deadpan", "monotone", "monotonous", "flat", "flatly",
+        "robotic", "robotically", "mechanical", "mechanically",
+        "emotionless", "emotionlessly", "expressionless", "lifeless", "lifelessly",
+        "dull", "dully", "bored", "boredly", "disinterested", "uninterested",
+        "whisper", "whispers", "whispering", "whispered",
+        "mutter", "muttering", "muttered", "mumble", "mumbling", "mumbled",
+        "shout", "shouting", "shouted", "scream", "screaming", "yell", "yelling",
+    )
+
+    /** Splits an instruction into comparable words; the match is per word, not per substring. */
+    private val INSTRUCTION_WORDS = Regex("[^A-Za-z]+")
 
     private val DOUBLE_ASTERISKS = Regex("\\*\\*(.+?)\\*\\*")
     private val MARKDOWN_HEADERS = Regex("(?m)^#{1,6}\\s+.*$")
@@ -48,7 +79,14 @@ object InworldScriptPostProcessor {
             val sound = normalizeSoundName(tag)
             when {
                 sound != null -> "[$sound]"
-                retainSteeringInstructions && isSteeringInstruction(tag) -> match.value
+                retainSteeringInstructions && isSteeringInstruction(tag) -> {
+                    if (flattensDelivery(tag)) {
+                        log.warn("Dropped delivery direction [{}]: it flattens or distorts the read", tag)
+                        ""
+                    } else {
+                        match.value
+                    }
+                }
                 else -> ""
             }
         }
@@ -64,6 +102,13 @@ object InworldScriptPostProcessor {
     /** Returns the documented spelling of a sound name, or null when the tag is not a sound. */
     fun normalizeSoundName(tag: String): String? =
         tag.trim().lowercase().replace('_', ' ').takeIf { it in SOUND_TAGS }
+
+    /**
+     * True when a steering instruction asks for a flattened or distorted delivery, so it should be
+     * dropped instead of forwarded. Matches on whole words, so `[in a deadpan tone]` is caught too.
+     */
+    fun flattensDelivery(tag: String): Boolean =
+        tag.split(INSTRUCTION_WORDS).any { it.isNotEmpty() && it.lowercase() in FLATTENING_INSTRUCTION_WORDS }
 
     /** True for a bracketed tag that Inworld would treat as a delivery instruction, including `reset`. */
     fun isSteeringInstruction(tag: String): Boolean {

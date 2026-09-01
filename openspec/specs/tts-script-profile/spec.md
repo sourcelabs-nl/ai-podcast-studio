@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Capability: TTS Script Profile
+
+## Purpose
+
+The per-provider script guidelines handed to the composer, telling it which expressiveness markup the TTS engine understands and what it may ask that engine to do.
+
+## Requirements
 
 ### Requirement: TTS provider declares script guidelines
 Each `TtsProvider` implementation SHALL provide a `scriptGuidelines(style: PodcastStyle, pronunciations: Map<String, String>): String` method that returns LLM prompt instructions specific to that provider's capabilities. The `pronunciations` parameter SHALL default to an empty map so existing callers without pronunciations continue to work. The guidelines describe what markup, emotion tags, or formatting the TTS engine supports so the LLM can generate optimized scripts. For the Inworld provider, guidelines SHALL additionally include text normalization rules, anti-markdown warnings, contractions guidance, punctuation rules, and a pronunciation guide section when pronunciations are provided.
@@ -63,3 +69,16 @@ The `LlmPipeline` SHALL resolve the `TtsProvider` via `TtsProviderFactory` befor
 #### Scenario: Pipeline passes empty pronunciations when none configured
 - **WHEN** the pipeline runs for a podcast with `ttsProvider: INWORLD`, `style: CASUAL`, and `pronunciations: null`
 - **THEN** it calls `scriptGuidelines(CASUAL, emptyMap())` and passes the result to the composer
+
+### Requirement: Delivery directions may colour a read, never flatten it
+The Inworld script guidelines SHALL tell the composer that a delivery direction may adjust warmth, energy or pace, and SHALL NOT ask for a delivery that removes expression or makes a turn harder to hear — naming `deadpan`, `monotone`, `robotic` and `whispering` as examples to avoid.
+
+The engine obeys such a direction literally, so the instruction is the first line of defence and the post-processor's suppression rule is the backstop. `[deadpan]` reached episode 194 this way and flattened an expert turn for roughly 25 seconds.
+
+#### Scenario: Guidelines constrain delivery directions
+- **WHEN** the Inworld guidelines are built for any podcast style
+- **THEN** they state that a delivery direction may adjust warmth, energy or pace but must not remove expression or reduce audibility
+
+#### Scenario: Flattening examples are named
+- **WHEN** the guidelines describe delivery directions
+- **THEN** they name at least `deadpan` and `monotone` as directions not to use

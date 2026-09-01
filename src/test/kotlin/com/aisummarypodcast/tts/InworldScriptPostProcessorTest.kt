@@ -1,6 +1,8 @@
 package com.aisummarypodcast.tts
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class InworldScriptPostProcessorTest {
@@ -172,5 +174,90 @@ class InworldScriptPostProcessorTest {
     fun `strips star bullets but not emphasis`() {
         val result = InworldScriptPostProcessor.process("* Bullet item\n*emphasized* word")
         assertEquals("Bullet item\n*emphasized* word", result)
+    }
+
+    // --- Flattening delivery directions ---------------------------------------------------------
+
+    @Test
+    fun `a bare deadpan direction is dropped`() {
+        val result = InworldScriptPostProcessor.process("[deadpan] They caught visible mistakes.", retainSteeringInstructions = true)
+
+        assertEquals("They caught visible mistakes.", result)
+    }
+
+    @Test
+    fun `episode 194's turn comes back with the cue gone and the words intact`() {
+        val turn = "[deadpan] They caught visible mistakes, like a button parked in the wrong spot, " +
+            "but the gains didn't survive statistical correction."
+
+        val result = InworldScriptPostProcessor.process(turn, retainSteeringInstructions = true)
+
+        assertEquals(
+            "They caught visible mistakes, like a button parked in the wrong spot, " +
+                "but the gains didn't survive statistical correction.",
+            result
+        )
+    }
+
+    @Test
+    fun `a flattening word inside a phrase is dropped`() {
+        for (cue in listOf("in a deadpan tone", "flat and bored", "monotone, almost robotic", "whispering")) {
+            val result = InworldScriptPostProcessor.process("[$cue] Something happened.", retainSteeringInstructions = true)
+            assertEquals("Something happened.", result, "cue [$cue] should have been dropped")
+        }
+    }
+
+    @Test
+    fun `expressive directions are still forwarded`() {
+        for (cue in listOf(
+            "warm and conversational with an easy pace", "playful", "bright and quick",
+            "with quiet awe", "with barely contained glee",
+        )) {
+            val result = InworldScriptPostProcessor.process("[$cue] Something happened.", retainSteeringInstructions = true)
+            assertEquals("[$cue] Something happened.", result, "cue [$cue] should have been kept")
+        }
+    }
+
+    @Test
+    fun `reset is not treated as a flattening direction`() {
+        val result = InworldScriptPostProcessor.process("[reset] Back to normal.", retainSteeringInstructions = true)
+
+        assertEquals("[reset] Back to normal.", result)
+    }
+
+    @Test
+    fun `sound tags are unaffected by the suppression rule`() {
+        val result = InworldScriptPostProcessor.process("[sigh] Well. [laugh] Fine.", retainSteeringInstructions = true)
+
+        assertEquals("[sigh] Well. [laugh] Fine.", result)
+    }
+
+    @Test
+    fun `flattensDelivery matches whole words only`() {
+        assertTrue(InworldScriptPostProcessor.flattensDelivery("deadpan"))
+        assertTrue(InworldScriptPostProcessor.flattensDelivery("in a DEADPAN tone"))
+        assertFalse(InworldScriptPostProcessor.flattensDelivery("warm and conversational"))
+        // "deadpanning" is not the listed word, and a substring match would wrongly catch it.
+        assertFalse(InworldScriptPostProcessor.flattensDelivery("flattered"))
+        assertFalse(InworldScriptPostProcessor.flattensDelivery("shoutout energy"))
+    }
+
+    @Test
+    fun `a dropped cue cannot survive into a chunk via re-emission`() {
+        // Suppression happens in process, before chunking and before steering re-emission, so the
+        // instruction is gone from the text the steering pass ever sees.
+        val processed = InworldScriptPostProcessor.process(
+            "[deadpan] First sentence. Second sentence.", retainSteeringInstructions = true
+        )
+        val chunks = InworldSteering.reemitInstructions(listOf(processed, "A later chunk."))
+
+        assertTrue(chunks.none { it.contains("deadpan") }, "no chunk should carry the dropped cue")
+    }
+
+    @Test
+    fun `a model without steering support still strips every direction`() {
+        val result = InworldScriptPostProcessor.process("[deadpan] Words.", retainSteeringInstructions = false)
+
+        assertEquals("Words.", result)
     }
 }
