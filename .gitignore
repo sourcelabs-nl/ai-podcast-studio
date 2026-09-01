@@ -68,3 +68,6 @@ tmp/
 
 # Nitter session credentials — a logged-in X session, never commit
 docker/nitter/sessions.jsonl
+
+# Playwright MCP writes page snapshots, console logs and screenshots here per session
+.playwright-mcp/
