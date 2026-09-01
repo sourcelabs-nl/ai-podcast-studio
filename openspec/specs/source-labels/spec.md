@@ -1,3 +1,9 @@
+# Capability: Source Labels
+
+## Purpose
+
+A human-readable display name per source, used wherever a source is shown instead of its raw URL.
+
 ## Requirements
 
 ### Requirement: Source label field

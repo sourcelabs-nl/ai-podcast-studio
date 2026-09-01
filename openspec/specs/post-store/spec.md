@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Capability: Post Store
+
+## Purpose
+
+Persistence for individual content items: the posts table with per-source and cross-source deduplication, the join table linking posts to the articles they were aggregated into, and the queries that find posts not yet linked.
+
+## Requirements
 
 ### Requirement: Post persistence with deduplication
 The system SHALL persist individual content items in a `posts` SQLite table with columns: `id` (auto-generated INTEGER PRIMARY KEY), `source_id` (TEXT, NOT NULL, FK to sources), `title` (TEXT, NOT NULL), `body` (TEXT, NOT NULL), `url` (TEXT, NOT NULL), `published_at` (TEXT, nullable), `author` (TEXT, nullable), `content_hash` (TEXT, NOT NULL), `created_at` (TEXT, NOT NULL, ISO-8601 timestamp of when the post was stored). Deduplication SHALL be enforced via a unique constraint on `(source_id, content_hash)`. An index SHALL exist on `(source_id, created_at)` for efficient time-windowed queries. Additionally, the system SHALL provide a cross-source deduplication query to check whether a post with a given content hash already exists across a set of source IDs (all sources within the same podcast).

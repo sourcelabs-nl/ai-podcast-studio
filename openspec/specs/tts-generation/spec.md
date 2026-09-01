@@ -1,3 +1,9 @@
+# Capability: TTS Generation
+
+## Purpose
+
+Turning a finished script into an audio file: chunking it at natural boundaries, synthesising each chunk, and stitching the result into one episode MP3.
+
 ## Requirements
 ### Requirement: Text chunking at sentence boundaries
 The system SHALL split the briefing script into chunks that respect a configurable maximum chunk size. The `TextChunker.chunk()` method SHALL accept a `maxChunkSize: Int` parameter (defaulting to 4096 for backward compatibility).

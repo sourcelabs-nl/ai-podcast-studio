@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Capability: ElevenLabs TTS
+
+## Purpose
+
+Speech synthesis through ElevenLabs: the API client, the single-voice provider and the Text-to-Dialogue provider used for multi-speaker scripts.
+
+## Requirements
 
 ### Requirement: ElevenLabs API client
 The system SHALL provide an `ElevenLabsApiClient` component that wraps Spring's `RestClient` for calling ElevenLabs APIs. The client SHALL authenticate using the `xi-api-key` header with the API key resolved from the user's provider config. The base URL SHALL default to `https://api.elevenlabs.io`.

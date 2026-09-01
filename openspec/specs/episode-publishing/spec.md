@@ -100,6 +100,14 @@ When publishing an episode to a target, the system SHALL check for existing publ
 ### Requirement: Unpublish support on publisher interface
 The `EpisodePublisher` interface SHALL provide an `unpublish(userId, externalId)` method with a default implementation that throws `UnsupportedOperationException`. Publishers that support unpublishing (e.g. SoundCloud) SHALL override this method.
 
+#### Scenario: A publisher without unpublish support refuses
+- **WHEN** `unpublish` is called on a publisher that does not override it
+- **THEN** an `UnsupportedOperationException` is thrown, naming the target
+
+#### Scenario: A publisher with unpublish support removes the publication
+- **WHEN** `unpublish` is called on a publisher that overrides it, such as SoundCloud
+- **THEN** the publisher removes the remote item for the given `externalId`
+
 ### Requirement: Publication status tracking
 The system SHALL store publication records in an `episode_publications` table with columns: `id` (INTEGER, auto-increment PK), `episode_id` (INTEGER, FK to episodes), `target` (TEXT, NOT NULL), `status` (TEXT, NOT NULL — PENDING, PUBLISHED, FAILED, UNPUBLISHED), `external_id` (TEXT, nullable), `external_url` (TEXT, nullable), `error_message` (TEXT, nullable), `published_at` (TEXT, nullable — ISO-8601), `created_at` (TEXT, NOT NULL — ISO-8601). A unique constraint SHALL exist on `(episode_id, target)`.
 

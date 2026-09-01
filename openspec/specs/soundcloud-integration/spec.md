@@ -207,6 +207,14 @@ The `SoundCloudPublisher` SHALL provide an `updateTrackPermalinks(podcast, userI
 ### Requirement: Playlist rebuild ordering
 When rebuilding a SoundCloud playlist, tracks SHALL be ordered newest-first (descending by episode `generatedAt`). This matches standard podcast convention where the latest episode appears at the top.
 
+#### Scenario: The rebuilt playlist starts with the newest episode
+- **WHEN** the playlist is rebuilt for a podcast with episodes generated on three different days
+- **THEN** the tracks are ordered by episode `generatedAt` descending, newest first
+
+#### Scenario: The order comes from the query, not a later sort
+- **WHEN** the published SoundCloud publications are fetched for the rebuild
+- **THEN** they already arrive newest-first, and that order is passed through to the playlist unchanged
+
 ### Requirement: Playlist rebuild admin endpoint
 The system SHALL provide a `POST /users/{userId}/podcasts/{podcastId}/playlist/rebuild` endpoint that rebuilds the podcast's SoundCloud playlist from all published episode publications. The endpoint SHALL query all `episode_publications` with `status = 'PUBLISHED'` and `target = 'soundcloud'` for episodes belonging to the podcast, collect their `externalId` values as SoundCloud track IDs, and call `SoundCloudPublisher.rebuildPlaylist()` to replace the playlist contents with the full list of track IDs. If no published SoundCloud tracks exist, the endpoint SHALL return HTTP 400. On success, the endpoint SHALL return the list of track IDs that were set on the playlist.
 
@@ -310,6 +318,10 @@ The system SHALL resolve SoundCloud OAuth application credentials (`clientId`, `
 
 ### Requirement: SoundCloudClient uses Spring-managed RestTemplate
 The `SoundCloudClient` SHALL use a `RestTemplate` built from Spring Boot's `RestTemplateBuilder` instead of a plain `RestTemplate()` constructor. This ensures proper auto-configured message converters (Jackson 3) are available.
+
+#### Scenario: The client is built from the Spring builder
+- **WHEN** `SoundCloudClient` is constructed
+- **THEN** its `RestTemplate` comes from the injected `RestTemplateBuilder`, so the auto-configured Jackson 3 message converters are present
 
 ### Requirement: Cascade delete OAuth connections with user
 When a user is deleted, all of the user's OAuth connections SHALL be deleted as part of the cascade.

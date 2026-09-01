@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# Capability: Voice Discovery
+
+## Purpose
+
+Lists the voices available to a user for a TTS provider, proxied from the provider's own API with the user's configured credentials, so voices can be picked in the dashboard.
+
+## Requirements
 
 ### Requirement: Voice listing endpoint
 The system SHALL provide a `GET /users/{userId}/voices` endpoint that returns available voices for a TTS provider. The endpoint SHALL accept a required `provider` query parameter. When `provider` is `"elevenlabs"`, it SHALL proxy the ElevenLabs `GET /v1/voices` API using the user's configured ElevenLabs API key. When `provider` is `"inworld"`, it SHALL proxy the Inworld voices API using the user's configured Inworld credentials. The response SHALL be a JSON array of voice objects with fields: `voiceId` (String), `name` (String), `category` (String, e.g., "premade", "cloned"), and `previewUrl` (String, nullable).

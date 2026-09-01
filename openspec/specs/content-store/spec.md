@@ -21,8 +21,6 @@ The system SHALL persist source polling state in a `sources` SQLite table with c
 - **WHEN** the migration adding `created_at` runs on a database with existing sources
 - **THEN** existing sources receive `created_at` = `'1970-01-01T00:00:00Z'` so they continue to ingest all content
 
-## MODIFIED Requirements
-
 ### Requirement: Article persistence with deduplication
 The system SHALL persist articles in an `articles` SQLite table with columns: `id` (auto-generated), `source_id` (text, foreign key), `title` (text), `body` (text), `url` (text), `published_at` (timestamp, nullable), `content_hash` (text), `relevance_score` (integer, nullable), `is_processed` (boolean, default false), `summary` (text, nullable), `author` (text, nullable), `llm_input_tokens` (integer, nullable), `llm_output_tokens` (integer, nullable), and `llm_cost_cents` (integer, nullable). Deduplication SHALL be enforced via a unique constraint on `(source_id, content_hash)`. Articles are no longer created during source polling. Instead, articles SHALL be created at script generation time by the `SourceAggregator` which aggregates posts into articles. The `relevance_score`, `summary`, `is_processed`, and LLM cost fields behave as before — they are populated by the LLM pipeline after article creation.
 
