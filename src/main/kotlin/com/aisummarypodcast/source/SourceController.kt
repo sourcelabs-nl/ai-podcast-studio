@@ -37,12 +37,16 @@ class SourceController(
     }
 
     @GetMapping
-    fun list(@PathVariable userId: String, @PathVariable podcastId: String): ResponseEntity<List<SourceResponse>> {
+    fun list(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @RequestParam(required = false) enabled: Boolean?
+    ): ResponseEntity<List<SourceResponse>> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (podcast.userId != userId) return ResponseEntity.notFound().build()
 
-        val sources = sourceService.findByPodcastId(podcastId)
+        val sources = sourceService.findByPodcastId(podcastId, enabled)
         val sourceIds = sources.map { it.id }
         val articleCounts = sourceService.getArticleCounts(sourceIds, podcast.relevanceThreshold)
         val postCounts = sourceService.getPostCounts(sourceIds)

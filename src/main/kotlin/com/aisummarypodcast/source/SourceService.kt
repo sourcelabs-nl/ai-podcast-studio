@@ -120,7 +120,16 @@ class SourceService(
         }
     }
 
-    fun findByPodcastId(podcastId: String): List<Source> = sourceRepository.findByPodcastId(podcastId)
+    /**
+     * Sources of a podcast, optionally narrowed to enabled or disabled ones. Filtering happens in
+     * the query rather than on the result, so the per-source article, post and breaker lookups the
+     * caller performs only run for the sources it actually returns. A podcast keeps its retired
+     * sources — deleting one takes its posts and articles with it, and `episode_articles` cascades —
+     * so the disabled set only grows.
+     */
+    fun findByPodcastId(podcastId: String, enabled: Boolean? = null): List<Source> =
+        if (enabled == null) sourceRepository.findByPodcastId(podcastId)
+        else sourceRepository.findByPodcastIdAndEnabled(podcastId, enabled)
 
     fun findById(sourceId: String): Source? = sourceRepository.findByIdOrNull(sourceId)
 

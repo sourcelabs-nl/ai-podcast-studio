@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Source } from "@/lib/types";
-import { Check, Download, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Download, Pencil, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +41,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const SOURCE_TYPES = ["rss", "website", "twitter", "youtube"] as const;
 
@@ -73,9 +79,13 @@ export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
   const [formData, setFormData] = useState<SourceFormData>(defaultFormData);
   const [deleteSource, setDeleteSource] = useState<Source | null>(null);
   const [saving, setSaving] = useState(false);
+  // Retired sources are disabled rather than deleted, so they pile up and would otherwise dominate
+  // the table. Open on the ones that actually run; the filter is applied by the backend.
+  const [enabledFilter, setEnabledFilter] = useState<"all" | "enabled" | "disabled">("enabled");
 
   function fetchSources() {
-    fetch(`/api/users/${userId}/podcasts/${podcastId}/sources`)
+    const qs = enabledFilter === "all" ? "" : `?enabled=${enabledFilter === "enabled"}`;
+    fetch(`/api/users/${userId}/podcasts/${podcastId}/sources${qs}`)
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setSources(data))
       .catch(() => setSources([]))
@@ -84,7 +94,7 @@ export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
 
   useEffect(() => {
     fetchSources();
-  }, [userId, podcastId]);
+  }, [userId, podcastId, enabledFilter]);
 
   function openAddDialog() {
     setEditingSource(null);
@@ -188,7 +198,9 @@ export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
       </div>
 
       {sources.length === 0 ? (
-        <p className="text-muted-foreground">No sources configured.</p>
+        <p className="text-muted-foreground">
+          {enabledFilter === "all" ? "No sources configured." : `No ${enabledFilter} sources.`}
+        </p>
       ) : (
         <Table>
           <TableHeader>
@@ -196,7 +208,26 @@ export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
               <TableHead className="w-0">Label</TableHead>
               <TableHead className="w-0">Type</TableHead>
               <TableHead className="w-0">Interval</TableHead>
-              <TableHead className="w-0">Enabled</TableHead>
+              <TableHead className="w-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="flex items-center gap-1 hover:text-foreground transition-colors">
+                    {enabledFilter === "disabled" ? "Disabled" : "Enabled"}
+                    {enabledFilter !== "all" && <span className="text-primary">&nbsp;only</span>}
+                    <ChevronDown className="size-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {(["all", "enabled", "disabled"] as const).map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option}
+                        checked={enabledFilter === option}
+                        onCheckedChange={() => setEnabledFilter(option)}
+                      >
+                        {option === "all" ? "All sources" : option}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </TableHead>
               <TableHead className="w-0">Articles</TableHead>
               <TableHead className="w-0">Posts</TableHead>
               <TableHead className="text-right">Actions</TableHead>

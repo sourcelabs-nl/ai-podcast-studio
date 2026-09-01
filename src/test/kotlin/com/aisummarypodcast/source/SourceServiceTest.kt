@@ -248,4 +248,39 @@ class SourceServiceTest {
 
         service.validateUrl(SourceType.RSS, "https://example.com/feed", "tech")
     }
+
+    // --- Enabled filter on the source list -----------------------------------------------------
+
+    private fun enabledSource(id: String, enabled: Boolean) = Source(
+        id = id, podcastId = "p1", type = SourceType.RSS, url = "https://example.com/$id", enabled = enabled
+    )
+
+    @Test
+    fun `findByPodcastId without a filter returns every source`() {
+        val all = listOf(enabledSource("s1", true), enabledSource("s2", false))
+        every { sourceRepository.findByPodcastId("p1") } returns all
+
+        assertEquals(all, service.findByPodcastId("p1"))
+        verify(exactly = 0) { sourceRepository.findByPodcastIdAndEnabled(any(), any()) }
+    }
+
+    @Test
+    fun `findByPodcastId with enabled true narrows the query, not the result`() {
+        val live = listOf(enabledSource("s1", true))
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", true) } returns live
+
+        assertEquals(live, service.findByPodcastId("p1", enabled = true))
+        // The unfiltered query must not be used: the caller looks up article, post and breaker
+        // details per source, and those should not run for rows that are about to be dropped.
+        verify(exactly = 0) { sourceRepository.findByPodcastId(any()) }
+        verify { sourceRepository.findByPodcastIdAndEnabled("p1", true) }
+    }
+
+    @Test
+    fun `findByPodcastId with enabled false returns the retired sources`() {
+        val retired = listOf(enabledSource("s2", false), enabledSource("s3", false))
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", false) } returns retired
+
+        assertEquals(retired, service.findByPodcastId("p1", enabled = false))
+    }
 }
