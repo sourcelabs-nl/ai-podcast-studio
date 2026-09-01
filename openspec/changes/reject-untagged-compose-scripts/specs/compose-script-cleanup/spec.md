@@ -43,6 +43,10 @@ This validation SHALL apply only to multi-speaker compositions. Briefing (monolo
 - **WHEN** the compose LLM's response still has pending tool calls
 - **THEN** the system does not validate speaker tags on that response, since its text is not the final script
 
+#### Scenario: Model never self-corrects
+- **WHEN** the compose LLM's response contains an invalid tag on every attempt through the retry budget
+- **THEN** the system throws an error identifying the invalid tag(s) instead of returning the script
+
 ## ADDED Requirements
 
 ### Requirement: Multi-speaker prompts state that speaker tags are mandatory

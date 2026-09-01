@@ -41,3 +41,8 @@ A registry key MAY be a provider routing alias rather than a pinned model releas
 #### Scenario: Multiple providers defined
 - **WHEN** `application.yaml` contains models under `openrouter`, `inworld`, and `openai` providers
 - **THEN** `AppProperties.models` contains three provider keys, each with their respective model entries
+
+#### Scenario: No models defined
+- **WHEN** `application.yaml` does not define any `app.models` entries
+- **THEN** `AppProperties.models` is an empty map
+

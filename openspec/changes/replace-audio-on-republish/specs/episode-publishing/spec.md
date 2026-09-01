@@ -33,6 +33,10 @@ An update SHALL NOT be assumed to preserve the episode's external identity. A pl
 - **WHEN** `update()` is called on a publisher that has not overridden the default
 - **THEN** an `UnsupportedOperationException` is thrown and the endpoint returns HTTP 400
 
+#### Scenario: Publisher supports update
+- **WHEN** `SoundCloudPublisher.update()` is called with an episode and its external track ID
+- **THEN** the track's description is updated on SoundCloud and a `PublishResult` is returned
+
 ### Requirement: Publication status tracking
 The system SHALL store publication records in an `episode_publications` table with columns: `id` (INTEGER, auto-increment PK), `episode_id` (INTEGER, FK to episodes), `target` (TEXT, NOT NULL), `status` (TEXT, NOT NULL — PENDING, PUBLISHED, FAILED, UNPUBLISHED), `external_id` (TEXT, nullable), `external_url` (TEXT, nullable), `error_message` (TEXT, nullable), `published_at` (TEXT, nullable — ISO-8601), `created_at` (TEXT, NOT NULL — ISO-8601). A unique constraint SHALL exist on `(episode_id, target)`.
 

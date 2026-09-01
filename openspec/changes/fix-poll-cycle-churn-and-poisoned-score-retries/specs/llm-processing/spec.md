@@ -28,3 +28,84 @@ The LLM prompt SHALL include the podcast's topic, the full article content, and 
 #### Scenario: A cached unparseable response does not permanently block an article
 - **WHEN** an article's first attempt is served a cached response that cannot be parsed as JSON, and the second attempt's model call returns valid JSON
 - **THEN** the article is scored and persisted, so it is not re-queued by the unscored-article query on the next pipeline run
+
+#### Scenario: Articles processed with concurrency limit
+- **WHEN** 50 articles are submitted for scoring and the concurrency limit is 10
+- **THEN** at most 10 LLM calls SHALL be in-flight simultaneously, with new calls starting as previous ones complete
+
+#### Scenario: Concurrency window acts as sliding window
+- **WHEN** 20 articles are submitted with concurrency limit 10 and the 3rd article completes before others
+- **THEN** the 11th article SHALL start immediately without waiting for the entire first batch of 10 to complete
+
+#### Scenario: Transient failure retried successfully
+- **WHEN** an article's LLM call fails on the 1st attempt but succeeds on the 2nd attempt
+- **THEN** the article SHALL be scored and included in the result, and a WARN log SHALL record the retry
+
+#### Scenario: All retries exhausted
+- **WHEN** an article's LLM call fails on all 3 attempts (default max-retries)
+- **THEN** the article SHALL be excluded from the result list and an ERROR SHALL be logged
+
+#### Scenario: Retry uses exponential backoff
+- **WHEN** an article's LLM call fails on the 1st attempt
+- **THEN** the system SHALL wait 1 second before the 2nd attempt, and 2 seconds before the 3rd attempt
+
+#### Scenario: One article failure does not cancel others
+- **WHEN** 3 articles are submitted and the 2nd article's LLM call throws an exception on all retry attempts
+- **THEN** the 1st and 3rd articles SHALL still be processed and returned successfully, and the 2nd article SHALL be excluded from the result
+
+#### Scenario: All articles fail gracefully
+- **WHEN** 3 articles are submitted and all LLM calls throw exceptions on all retry attempts
+- **THEN** an empty list SHALL be returned and all errors SHALL be logged
+
+#### Scenario: Retry logs include attempt details
+- **WHEN** an article's LLM call fails on the 1st attempt and succeeds on the 2nd
+- **THEN** the WARN log SHALL include the attempt number (1/3), the article title, and the error message
+
+#### Scenario: Short article summarized in 2-3 sentences
+- **WHEN** an article with a body of 300 words is scored and summarized
+- **THEN** the summary contains 2-3 sentences
+
+#### Scenario: Medium article summarized in 4-6 sentences
+- **WHEN** an article with a body of 1000 words is scored and summarized
+- **THEN** the summary contains 4-6 sentences with additional context beyond the current 2-3 sentence default
+
+#### Scenario: Long article summarized in a full paragraph
+- **WHEN** an article with a body of 2500 words is scored and summarized
+- **THEN** the summary is a full paragraph covering key points, context, and attribution
+
+#### Scenario: Fully relevant article
+- **WHEN** all content in an article is relevant to the topic
+- **THEN** the response has a high `relevanceScore` and a comprehensive summary
+
+#### Scenario: Fully irrelevant article
+- **WHEN** no content in an article is relevant to the topic
+- **THEN** the response has `relevanceScore` 0-2 and an empty or minimal summary
+
+#### Scenario: Non-aggregated article scored and summarized
+- **WHEN** an article from a non-aggregated source (1:1 post mapping) is processed
+- **THEN** the response contains `relevanceScore` and `summary`
+
+#### Scenario: Attribution preserved in summary
+- **WHEN** a post body states "Researchers at MIT published a study showing..."
+- **THEN** the summary retains the attribution, e.g., "MIT researchers found that..."
+
+#### Scenario: Token usage persisted
+- **WHEN** the LLM call uses 500 input tokens and 80 output tokens
+- **THEN** the article's `llmInputTokens` is set to 500 and `llmOutputTokens` to 80
+
+#### Scenario: Aggregated article prompt includes post context
+- **WHEN** an aggregated article with title "Posts from @rauchg — Feb 15, 2026" and author "@rauchg" is scored
+- **THEN** the LLM prompt states the content consists of multiple social media posts by @rauchg
+
+#### Scenario: Non-aggregated article uses neutral framing
+- **WHEN** a single article titled "New AI Breakthrough" is scored
+- **THEN** the LLM prompt uses "Content title" and "Content" labels, not "Article title" and "Article text"
+
+#### Scenario: Summary uses direct factual statements
+- **WHEN** an article about Anthropic's funding round is summarized
+- **THEN** the summary states facts directly (e.g., "Anthropic closed a $30B Series G round") rather than meta-describing (e.g., "The article discusses Anthropic's funding round")
+
+#### Scenario: Author context included in prompt
+- **WHEN** an article has `author` = "@simonw"
+- **THEN** the LLM prompt includes "@simonw" as the content author for attribution context
+
