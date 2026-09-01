@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/lib-process.sh"
 PID_FILE="$SCRIPT_DIR/.app.pid"
 FRONTEND_PID_FILE="$SCRIPT_DIR/.frontend.pid"
 JAR_FILE="$SCRIPT_DIR/target/ai-podcast-studio-0.0.1-SNAPSHOT.jar"
-NPM="/Users/soudmaijer/.nvm/versions/node/v22.16.0/bin/npm"
+NPM="$(command -v npm || true)"
 
 # Refuse to start when a port is already held. Starting anyway produces a process that dies on
 # EADDRINUSE while the script reports success, which is how a stale frontend kept serving old code.
@@ -21,6 +21,13 @@ assert_port_free() {
     exit 1
   fi
 }
+
+# npm is resolved from PATH; a missing one only surfaced in frontend.log before, after the script
+# had already reported the backend as started.
+if [ -z "$NPM" ]; then
+  echo "npm was not found on PATH. Install Node.js (or activate your version manager) and retry."
+  exit 1
+fi
 
 assert_port_free "Backend" "$BACKEND_PORT"
 assert_port_free "Frontend" "$FRONTEND_PORT"
