@@ -10,6 +10,7 @@ import com.aisummarypodcast.user.UserService
 import com.ninjasquad.springmockk.MockkBean
 import io.mockk.every
 import io.mockk.slot
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -357,6 +358,33 @@ class PodcastControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""{"name":"x","topic":"y","subtopics":{"X":0}}""")
         ).andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `create podcast rejects an unknown compose reasoning effort`() {
+        every { userService.findById(userId) } returns user
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"x","topic":"y","composeSettings":{"reasoningEffort":"hard"}}""")
+        ).andExpect(status().isUnprocessableEntity)
+    }
+
+    @Test
+    fun `create podcast accepts a documented compose reasoning effort`() {
+        val podcastSlot = slot<Podcast>()
+        every { userService.findById(userId) } returns user
+        every { podcastService.create(userId, "x", "y", capture(podcastSlot)) } answers {
+            podcastSlot.captured.copy(id = podcastId)
+        }
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"name":"x","topic":"y","composeSettings":{"reasoningEffort":"low"}}""")
+        ).andExpect(status().isCreated)
+
+        assertEquals("low", podcastSlot.captured.composeSettings?.get("reasoningEffort"))
     }
 
     @Test

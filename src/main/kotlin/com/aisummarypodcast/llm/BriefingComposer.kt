@@ -46,13 +46,12 @@ class BriefingComposer(
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
         val prompt = buildPrompt(articles, podcast, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-        val temperature = resolveTemperature(podcast, appProperties)
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
-                    .options(buildComposeOptions(composeModelDef.model, temperature, appProperties.compose))
+                    .options(buildComposeOptions(composeModelDef, podcast, appProperties))
                     .call()
                     .chatResponse()
             }
@@ -144,6 +143,15 @@ class BriefingComposer(
             .trim()
 
 }
+
+/**
+ * Reasoning effort for this podcast's compose calls: the podcast's own `composeSettings` value when
+ * set, otherwise the configured default. Left unset entirely, OpenRouter infers it from the routed
+ * provider's defaults, which is what made compose cost and duration swing twelvefold between days.
+ */
+internal fun resolveReasoningEffort(podcast: Podcast, appProperties: AppProperties): String =
+    podcast.composeSettings?.get("reasoningEffort")?.takeIf { it.isNotBlank() }
+        ?: appProperties.compose.reasoningEffort
 
 /**
  * Resolves the compose-stage LLM temperature for a podcast: reads `composeSettings["temperature"]`,

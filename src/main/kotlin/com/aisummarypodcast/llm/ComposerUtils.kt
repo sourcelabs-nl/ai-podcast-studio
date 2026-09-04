@@ -1,6 +1,6 @@
 package com.aisummarypodcast.llm
 
-import com.aisummarypodcast.config.ComposeProperties
+import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.SupportedLanguage
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
@@ -358,17 +358,28 @@ fun extractDomainAndPath(url: String): String =
 /**
  * Request options shared by every composer.
  *
- * The `maxTokens` ceiling matters beyond bounding a runaway response: with no ceiling the provider
- * reserves the model's entire output window when checking affordability, which failed an episode
- * with a 402 demanding credit for 131,072 tokens to write a 1,876-word script. See
- * [ComposeProperties.maxOutputTokens] for why the default sits far above observed usage.
+ * Three things here are deliberate rather than incidental:
+ *
+ * `maxTokens` bounds the response, and matters beyond runaway protection: with no ceiling the
+ * provider reserves the model's entire output window when checking affordability, which failed an
+ * episode with a 402 demanding credit for 131,072 tokens to write a 1,876-word script.
+ *
+ * The reasoning effort is stated rather than left to the provider. Composition is the one stage
+ * where reasoning earns its cost — it plans a long script — but OpenRouter infers an omitted
+ * setting from the routed provider's defaults, and that produced compose output between 6,048 and
+ * 72,821 tokens for scripts of comparable length. See [resolveReasoningEffort].
+ *
+ * The routing floor keeps the request off lossy endpoints; see [OpenRouterRouting].
  */
 fun buildComposeOptions(
-    model: String,
-    temperature: Double,
-    compose: ComposeProperties
-): OpenAiChatOptions.Builder =
-    OpenAiChatOptions.builder()
-        .model(model)
-        .temperature(temperature)
-        .maxTokens(compose.maxOutputTokens)
+    model: ResolvedModel,
+    podcast: Podcast,
+    appProperties: AppProperties
+): OpenAiChatOptions.Builder {
+    return OpenAiChatOptions.builder()
+        .model(model.model)
+        .temperature(resolveTemperature(podcast, appProperties))
+        .maxTokens(appProperties.compose.maxOutputTokens)
+        .reasoningEffort(resolveReasoningEffort(podcast, appProperties))
+        .withOpenRouterFloor(model.provider)
+}

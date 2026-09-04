@@ -39,6 +39,11 @@ class PodcastController(
 
     private val previewScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    private companion object {
+        /** Reasoning efforts OpenRouter documents, lowest to highest. */
+        val REASONING_EFFORTS = listOf("none", "minimal", "low", "medium", "high", "xhigh", "max")
+    }
+
     @PreDestroy
     fun onDestroy() {
         previewScope.cancel()
@@ -392,6 +397,13 @@ class PodcastController(
     }
 
     private fun validateComposeSettings(composeSettings: Map<String, String>?): ResponseEntity<Any>? {
+        composeSettings?.get("reasoningEffort")?.takeIf { it.isNotBlank() }?.let { effort ->
+            if (effort !in REASONING_EFFORTS) {
+                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(
+                    mapOf("error" to "composeSettings.reasoningEffort must be one of ${REASONING_EFFORTS.joinToString()}")
+                )
+            }
+        }
         val temperatureRaw = composeSettings?.get("temperature") ?: return null
         val temperature = temperatureRaw.toDoubleOrNull()
             ?: return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)

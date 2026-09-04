@@ -89,7 +89,9 @@ app:
         type: llm
         input-cost-per-mtok: 1.00
         output-cost-per-mtok: 4.00
-      # Z.ai is the only provider serving GLM-5.3, so its list price is the routed price.
+      # Routed price varies: OpenRouter serves GLM-5.3 from 25 endpoints at 1.15-2.10 in / 3.50-6.60
+      # out. These are Z.AI's list rates and only a fallback — OpenRouter reports the real cost per
+      # call and the pipeline uses that. OpenRouterRouting keeps requests off the lossy endpoints.
       "[z-ai/glm-5.3]":
         type: llm
         input-cost-per-mtok: 1.40
@@ -155,6 +157,12 @@ app:
     rapid-fire-max-items: 6
     # Cap on articles fed into a single compose request (highest-relevance kept, rest dropped).
     max-articles: 40
+    # Reasoning effort for composition, overridable per podcast via composeSettings.reasoningEffort.
+    # Left unset, OpenRouter infers it from the routed provider's defaults, which produced compose
+    # output between 6,048 and 72,821 tokens for scripts of comparable length — 1 to 18 minutes and
+    # 4 to 38 cents. Reasoning belongs to this stage, which plans a long script; the structured
+    # stages ask for none. This is the pipeline's largest cost lever: turn it down to low or none.
+    reasoning-effort: medium
     # Ceiling on compose output tokens. Without one the provider reserves the model's whole output
     # window when checking affordability (a 402 asking for credit on 131,072 tokens to write a
     # 1,876-word script). Observed compose output: 2,540 min / 12,032 avg / 57,546 max, the model
@@ -229,6 +237,16 @@ resilience4j:
         base-config: external-api
       topic-dedup:
         base-config: external-api
+      # Compose is the pipeline's most expensive call, so only a genuinely transient provider fault
+      # is retried: a completion the client cannot read (a missing finish_reason) or an I/O failure.
+      # A speaker-tag failure is deliberately absent — RoleTagValidationAdvisor already re-issues
+      # the request inside the call, and retrying here would multiply attempts and cost.
+      compose:
+        base-config: external-api
+        max-attempts: 2
+        retry-exceptions:
+          - com.openai.errors.OpenAIInvalidDataException
+          - org.springframework.web.client.ResourceAccessException
       # Only genuinely transient Inworld faults are retried: a rate limit, an I/O failure
       # (connection reset, timeout) or an upstream 5xx. A rejected request fails immediately.
       inworld-tts:

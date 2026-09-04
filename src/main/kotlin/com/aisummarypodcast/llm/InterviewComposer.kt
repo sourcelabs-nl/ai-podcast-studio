@@ -35,13 +35,12 @@ class InterviewComposer(
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
         val prompt = buildPrompt(articles, podcast, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-        val temperature = resolveTemperature(podcast, appProperties)
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
-                    .options(buildComposeOptions(composeModelDef.model, temperature, appProperties.compose))
+                    .options(buildComposeOptions(composeModelDef, podcast, appProperties))
                     .advisors(RoleTagValidationAdvisor(INTERVIEW_ROLES))
                     .call()
                     .chatResponse()

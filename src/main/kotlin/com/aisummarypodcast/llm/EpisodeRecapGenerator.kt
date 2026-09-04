@@ -34,7 +34,13 @@ class EpisodeRecapGenerator(
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
-                    .options(OpenAiChatOptions.builder().model(filterModelDef.model))
+                    .options(
+                        OpenAiChatOptions.builder()
+                            .model(filterModelDef.model)
+                            // A short paragraph; reasoning would be cost without benefit.
+                            .reasoningEffort("none")
+                            .withOpenRouterFloor(filterModelDef.provider)
+                    )
                     .call()
                     .chatResponse()
             }

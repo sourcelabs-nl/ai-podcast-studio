@@ -58,7 +58,17 @@ data class ComposeProperties(
     // 2,540 to 57,546 tokens (the compose model reasons, so output far exceeds the script), so this
     // sits well above what is used and well below the model's window. A ceiling near observed usage
     // would risk truncating a script.
-    val maxOutputTokens: Int = 96000
+    val maxOutputTokens: Int = 96000,
+    /**
+     * Reasoning effort for composition, when the podcast does not set its own in
+     * `composeSettings.reasoningEffort`. Reasoning belongs to this stage — it plans a
+     * two-thousand-word script — while the structured stages ask for `none`.
+     *
+     * It is configurable because it is the largest cost lever in the pipeline: leaving it to the
+     * routed provider produced compose output between 6,048 and 72,821 tokens for scripts of
+     * comparable length, and cost between 4 and 38 cents.
+     */
+    val reasoningEffort: String = "medium"
 )
 
 data class ResearchProperties(

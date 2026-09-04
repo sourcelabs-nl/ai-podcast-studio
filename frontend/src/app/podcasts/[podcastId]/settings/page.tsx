@@ -854,7 +854,7 @@ export default function PodcastSettingsPage() {
                   className={`${textareaClass} min-h-[300px]`}
                 />
               </FieldGroup>
-              <FieldGroup label="Composer Settings" description="Script composer settings as key/value pairs. Common keys: 'temperature' (sampling variety for briefing/dialogue/interview composers, 0.0–2.0, default 0.95). Unknown keys are persisted as-is for future use.">
+              <FieldGroup label="Composer Settings" description="Script composer settings as key/value pairs. Common keys: 'temperature' (sampling variety for briefing/dialogue/interview composers, 0.0–2.0, default 0.95) and 'reasoningEffort' (how much the model plans before writing: none, minimal, low, medium, high, xhigh or max; default medium). Reasoning tokens are charged as output, so this is the largest cost lever — turning it down to low or none makes composition faster and cheaper. Unknown keys are persisted as-is for future use.">
                 <KeyValueEditor
                   value={form.composeSettings}
                   onChange={(v) => update("composeSettings", v)}

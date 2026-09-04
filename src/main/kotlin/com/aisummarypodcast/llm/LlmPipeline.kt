@@ -1,6 +1,8 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
+import io.github.resilience4j.kotlin.retry.executeSuspendFunction
+import io.github.resilience4j.retry.RetryRegistry
 import com.aisummarypodcast.source.SourceAggregator
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
@@ -92,7 +94,8 @@ class LlmPipeline(
     private val appProperties: AppProperties,
     private val ttsProviderFactory: TtsProviderFactory,
     private val articleEligibilityService: ArticleEligibilityService,
-    private val topicDedupFilter: TopicDedupFilter
+    private val topicDedupFilter: TopicDedupFilter,
+    private val retryRegistry: RetryRegistry
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -334,10 +337,18 @@ class LlmPipeline(
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         val ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
 
-        val compositionResult = when (podcast.style) {
-            PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-            PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-            else -> briefingComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        // Retried only on a transient provider fault (see the `compose` instance): an invalid or
+        // incomplete completion, or an I/O failure. A speaker-tag failure must NOT land here —
+        // RoleTagValidationAdvisor already re-issues the request up to twice inside the call, and
+        // retrying the whole call would multiply the attempts and the cost of the pipeline's most
+        // expensive stage. Before this, one `finish_reason is null` discarded ten minutes of
+        // generation and failed the episode, while every cheaper stage around it retried.
+        val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
+            when (podcast.style) {
+                PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                else -> briefingComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+            }
         }
 
         val composeCost = CostEstimator.resolveLlmCost(compositionResult.usage, composeModelDef.cost)
@@ -521,10 +532,13 @@ class LlmPipeline(
         val followUpAnnotations = buildFollowUpAnnotations(dedupResult.filteredArticles)
         val topicLabels = dedupResult.filteredArticles.mapNotNull { it.topic }.distinct()
 
-        val compositionResult = when (podcast.style) {
-            PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-            PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-            else -> briefingComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        // Same transient-fault retry as the compose stage above.
+        val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
+            when (podcast.style) {
+                PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                else -> briefingComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+            }
         }
 
         log.info("[LLM Preview] Preview complete for podcast '{}' ({}): {} articles composed", podcast.name, podcast.id, toCompose.size)

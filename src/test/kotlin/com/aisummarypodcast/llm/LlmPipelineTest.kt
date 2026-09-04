@@ -11,6 +11,8 @@ import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.config.SourceProperties
 import com.aisummarypodcast.source.SourceAggregator
+import com.aisummarypodcast.testComposeRetryRegistry
+import com.aisummarypodcast.testRetryRegistry
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Podcast
@@ -73,7 +75,7 @@ class LlmPipelineTest {
     private val pipeline = LlmPipeline(
         articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
         sourceRepository, postRepository, sourceAggregator, appProperties, ttsProviderFactory,
-        articleEligibilityService, topicDedupFilter
+        articleEligibilityService, topicDedupFilter, testRetryRegistry()
     )
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Tech Daily", topic = "tech", relevanceThreshold = 5)
@@ -216,7 +218,7 @@ class LlmPipelineTest {
         val cappedPipeline = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter
+            articleEligibilityService, topicDedupFilter, testRetryRegistry()
         )
 
         val low = scoredArticle.copy(id = 1, relevanceScore = 5)
@@ -244,7 +246,7 @@ class LlmPipelineTest {
         val cappedPipeline = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter
+            articleEligibilityService, topicDedupFilter, testRetryRegistry()
         )
 
         val low = scoredArticle.copy(id = 1, relevanceScore = 5)
@@ -394,7 +396,7 @@ class LlmPipelineTest {
         val pipelineWithLowThreshold = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, lowThresholdProps, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter
+            articleEligibilityService, topicDedupFilter, testRetryRegistry()
         )
 
         val articles = (1..100).map { articleWithBody(10000) }
@@ -569,7 +571,7 @@ class LlmPipelineTest {
         val pipelineWithLowThreshold = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, lowThresholdProps, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter
+            articleEligibilityService, topicDedupFilter, testRetryRegistry()
         )
         val articles = (1..100).map { articleWithBody(10000) }
 
@@ -596,5 +598,47 @@ class LlmPipelineTest {
 
         assertNotNull(result)
         coVerify { briefingComposer.compose(listOf(article), podcast, composeModelDef, "", emptyMap()) }
+    }
+
+    // --- Compose retry -------------------------------------------------------------------------
+
+    /** Same wiring as [pipeline], but with the application's real `compose` retry policy. */
+    private val retryingPipeline = LlmPipeline(
+        articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver,
+        articleRepository, sourceRepository, postRepository, sourceAggregator, appProperties,
+        ttsProviderFactory, articleEligibilityService, topicDedupFilter, testComposeRetryRegistry()
+    )
+
+    @Test
+    fun `a transient provider fault is retried rather than failing the episode`() {
+        setupBasicPipeline()
+        var attempts = 0
+        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } answers {
+            attempts++
+            // What episode 197 hit: the provider returned a completion with no finish_reason.
+            if (attempts == 1) throw com.openai.errors.OpenAIInvalidDataException("`finish_reason` is null")
+            CompositionResult("Script", TokenUsage(500, 200))
+        }
+
+        var result: PipelineResult? = null
+        runTest { result = retryingPipeline.run(podcast) }
+
+        assertEquals(2, attempts)
+        assertEquals("Script", result?.script)
+    }
+
+    @Test
+    fun `a speaker-tag failure is not retried by the compose retry`() {
+        setupBasicPipeline()
+        var attempts = 0
+        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } answers {
+            attempts++
+            // RoleTagValidationAdvisor has already exhausted its own attempts inside the call.
+            throw IllegalStateException("Compose LLM produced a script with no speaker tags")
+        }
+
+        assertThrows(IllegalStateException::class.java) { runTest { retryingPipeline.run(podcast) } }
+
+        assertEquals(1, attempts)
     }
 }

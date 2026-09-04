@@ -112,6 +112,7 @@ class TopicDedupFilter(
                                 // tokens count against maxTokens and can consume the whole budget, leaving
                                 // no room for the actual JSON output. Disable it explicitly.
                                 .reasoningEffort("none")
+                                .withOpenRouterFloor(modelDef.provider)
                         )
                         .call()
                         .chatResponse()

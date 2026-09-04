@@ -92,6 +92,11 @@ class ArticleScoreSummarizer(
                                             OpenAiChatOptions.builder()
                                                 .model(model)
                                                 .temperature(0.3)
+                                                // A JSON score needs no deliberation, and reasoning
+                                                // tokens are charged as output. Stated rather than
+                                                // left to whichever endpoint OpenRouter picked.
+                                                .reasoningEffort("none")
+                                                .withOpenRouterFloor(filterModelDef.provider)
                                         )
                                         .call()
                                         .responseEntity(converter)

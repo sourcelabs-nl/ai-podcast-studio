@@ -53,3 +53,28 @@ fun CircuitBreakerRegistry.openBreakerFor(host: String) {
         }
     }
 }
+
+/**
+ * A [RetryRegistry] carrying the same `compose` config the application defines: two attempts, and
+ * only a transient provider fault retried. Tests use it so they exercise the real policy — in
+ * particular that a speaker-tag failure is NOT retried here, because the advisor inside the call
+ * has already made its own attempts.
+ */
+fun testComposeRetryRegistry(): RetryRegistry {
+    // Registered as an INSTANCE, not a config: RetryRegistry.of(map) takes configurations, and
+    // retry("compose") would then hand back the default policy — retrying every exception — which
+    // is the opposite of what this registry exists to pin down.
+    val registry = RetryRegistry.ofDefaults()
+    registry.retry(
+        "compose",
+        RetryConfig.custom<Any>()
+            .maxAttempts(2)
+            .waitDuration(Duration.ofMillis(1))
+            .retryExceptions(
+                com.openai.errors.OpenAIInvalidDataException::class.java,
+                org.springframework.web.client.ResourceAccessException::class.java,
+            )
+            .build()
+    )
+    return registry
+}
