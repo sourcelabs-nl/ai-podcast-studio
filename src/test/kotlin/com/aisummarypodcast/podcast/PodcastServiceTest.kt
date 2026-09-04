@@ -25,6 +25,7 @@ import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import com.aisummarypodcast.source.SourceAggregator
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -184,7 +185,7 @@ class PodcastServiceTest {
     @Test
     fun `regenerate rejects an episode with no linked articles and creates no episode`() {
         every { episodeService.findLinkedArticlesAndTopics(191) } returns
-            LinkedArticlesResult(emptyList(), emptyList(), emptyMap())
+            LinkedArticlesResult(emptyList(), emptyList(), emptyMap(), emptyMap())
 
         val error = assertThrows(EpisodeNotRegenerableException::class.java) {
             podcastService.regenerateEpisodeAsync(sourceEpisode, podcast)
@@ -208,7 +209,7 @@ class PodcastServiceTest {
             LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"))
         every { episodeService.createGeneratingEpisode(podcast, false) } returns generating
         // Stubbed so the background recompose this launches completes quietly.
-        coEvery { llmPipeline.recompose(any(), any(), any(), any()) } returns mockk(relaxed = true)
+        coEvery { llmPipeline.recompose(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
         coEvery {
             episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any())
         } returns generating
@@ -217,6 +218,34 @@ class PodcastServiceTest {
 
         assertEquals(192, result.id)
         verify { episodeService.createGeneratingEpisode(podcast, false) }
+    }
+
+    @Test
+    fun `regenerate recomposes with the source episode's follow-up annotations`() {
+        val article = Article(
+            id = 1, sourceId = "s1", title = "Article 1", body = "body",
+            url = "https://example.com/1", contentHash = "h1", relevanceScore = 7
+        )
+        val generating = Episode(
+            id = 192, podcastId = "p1", scriptText = "",
+            status = EpisodeStatus.GENERATING, generatedAt = "2026-08-31T19:00:00Z"
+        )
+        val annotations = mapOf(1L to "Covered the launch in a recent episode")
+        every { episodeService.findLinkedArticlesAndTopics(191) } returns
+            LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"), annotations)
+        every { episodeService.createGeneratingEpisode(podcast, false) } returns generating
+        coEvery { llmPipeline.recompose(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
+        coEvery {
+            episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any())
+        } returns generating
+
+        podcastService.regenerateEpisodeAsync(sourceEpisode, podcast)
+
+        // Without this the composer has no continuity signal and falls back on the history tool,
+        // which demoted a launch story on an unrelated keyword match.
+        coVerify(timeout = 5000) {
+            llmPipeline.recompose(listOf(article), podcast, listOf("Topic"), annotations, any())
+        }
     }
 
     // --- Article posts (thread view) ------------------------------------------------------------

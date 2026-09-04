@@ -237,6 +237,8 @@ Episodes can be **regenerated** (re-composes the script from the same articles u
 
 Episodes can also be **audio-regenerated** without recomposing the script: a separate `regenerate-audio` action reruns TTS on the existing script (useful after changing the TTS model, voice, `deliveryMode`, or enhanced audio quality) and overwrites the previous MP3. The episode's audio can be played inline from the dashboard via a streaming `audio` endpoint.
 
+Regeneration recomposes with the continuity annotations the original script was written from: the topic grouping records, per story, whether it is new or follows up on earlier coverage, and that is stored on the episode's article links so a regenerated script makes the same calls about what the audience has already heard. The script writer's search over past episodes informs wording, not the running order, so a name recurring in an older story cannot push the day's lead out of the opening.
+
 If the pipeline fails mid-run, the `pipelineStage` is preserved on the episode along with all intermediate state (scored articles, dedup links, script). A **retry** action resumes from exactly the failed stage without re-running earlier LLM work.
 
 If recap generation produced an empty or low-quality recap, a **regenerate-recap** action recomputes the recap and show-notes from the existing script and re-exports the static feed.

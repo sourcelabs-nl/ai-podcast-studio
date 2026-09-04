@@ -9,5 +9,7 @@ data class EpisodeArticle(
     val episodeId: Long,
     val articleId: Long,
     val topic: String? = null,
-    val topicOrder: Int? = null
+    val topicOrder: Int? = null,
+    /** The dedup cluster's previous-coverage sentence, or null for a NEW topic. */
+    val followUpContext: String? = null
 )

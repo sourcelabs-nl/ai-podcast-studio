@@ -9,8 +9,14 @@ interface EpisodeArticleRepository : CrudRepository<EpisodeArticle, Long>, Episo
     fun findByEpisodeId(episodeId: Long): List<EpisodeArticle>
 
     @Modifying
-    @Query("INSERT OR IGNORE INTO episode_articles (episode_id, article_id, topic, topic_order) VALUES (:episodeId, :articleId, :topic, :topicOrder)")
-    fun insertIgnore(episodeId: Long, articleId: Long, topic: String? = null, topicOrder: Int? = null)
+    @Query("INSERT OR IGNORE INTO episode_articles (episode_id, article_id, topic, topic_order, follow_up_context) VALUES (:episodeId, :articleId, :topic, :topicOrder, :followUpContext)")
+    fun insertIgnore(
+        episodeId: Long,
+        articleId: Long,
+        topic: String? = null,
+        topicOrder: Int? = null,
+        followUpContext: String? = null
+    )
 
     /**
      * Demotes to "background" (clears topic_order) every link for the episode whose topic is NOT in

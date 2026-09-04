@@ -36,7 +36,9 @@ data class ScoreStageSummary(
 data class LinkedArticlesResult(
     val articles: List<Article>,
     val topicLabels: List<String>,
-    val articleTopics: Map<Long, String>
+    val articleTopics: Map<Long, String>,
+    /** Article id to the dedup follow-up context stored on its link, so a recompose keeps continuity. */
+    val followUpAnnotations: Map<Long, String> = emptyMap()
 )
 
 /** An episode returned by a search, paired with the topics and titles that matched the query. */

@@ -12,6 +12,7 @@ import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.TtsProviderType
 import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
 
@@ -49,6 +50,24 @@ class ComposerBannedPromptsTest {
                 "Compose prompt for style $style still contains banned phrase: \"$banned\""
             )
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(PodcastStyle::class)
+    fun `built compose prompt subordinates the history tool to the follow-up annotations`(style: PodcastStyle) {
+        val prompt = buildPromptFor(style)
+
+        // Dedup compares titles and summaries against the real historical article set; the tool
+        // only matches keywords against past scripts. Told to treat any hit as prior coverage, the
+        // composer claimed a launch had been "covered yesterday" and dropped it from the lead.
+        assertTrue(
+            prompt.contains("WHAT COUNTS AS NEW"),
+            "Compose prompt for style $style must state that the [FOLLOW-UP: ...] headers are authoritative"
+        )
+        assertTrue(
+            prompt.contains("A keyword match is NOT evidence"),
+            "Compose prompt for style $style must forbid demoting a story on a keyword match alone"
+        )
     }
 
     private fun buildPromptFor(style: PodcastStyle): String {

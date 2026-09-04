@@ -114,8 +114,19 @@ fun buildTopicOrderBlock(topicLabels: List<String>): String {
  * `searchPastEpisodes` tool before treating any subject as new. Included in every
  * compose-stage prompt; the tool itself is registered by `ChatClientFactory.createForCompose`.
  */
+/**
+ * Prompt block for the `searchPastEpisodes` tool. Deliberately subordinate to the
+ * `[FOLLOW-UP: ...]` headers: those come from the dedup stage, which compared every candidate's
+ * title and summary against the actual set of historical episode articles, while the tool matches
+ * keywords against past scripts and so reports a hit whenever a product name recurs in a different
+ * story. An earlier version told the model to treat any hit as prior coverage, and a regeneration
+ * of episode 197 duly claimed the GPT-6 Astra launch had been "covered yesterday" on three keyword
+ * matches, when the previous episode never mentioned it and the older match was a pre-release
+ * benchmark story. It demoted the day's lead story on that basis.
+ */
 fun buildHistoryLookupBlock(): String = """
-            - HISTORY CHECK: Before treating any subject as new, call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}). If the tool returns a prior episode that covered the topic, either skip it, treat it as a follow-up referencing the prior coverage, or angle the segment as an update. You have a small budget for these lookups; spend them on topics most likely to have been covered before"""
+            - WHAT COUNTS AS NEW: The `[FOLLOW-UP: ...]` headers above the article groups are authoritative. An article group carrying such a header continues a story from an earlier episode, and you may reference that prior coverage. An article group with NO header is new: cover it as news, and keep it eligible to lead the episode
+            - HISTORY CHECK: You may call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}) to see how a recurring subject was framed before, so you can reference it accurately and avoid reusing the same phrasing, examples or statistics. Use it for wording, not for the running order. A keyword match is NOT evidence that today's development was already covered: do NOT skip a story, demote it out of the lead, or claim the audience already heard it, unless it carries a `[FOLLOW-UP: ...]` header saying so. Never assert when a topic was previously covered unless the header states it. You have a small budget for these lookups"""
 
 /**
 d * Prompt block instructing the LLM to use the `webSearch` Tavily tool to enrich the 2-3 most

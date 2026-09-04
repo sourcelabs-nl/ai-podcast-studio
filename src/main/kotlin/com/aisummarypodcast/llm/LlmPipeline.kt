@@ -28,6 +28,11 @@ data class PipelineResult(
     val llmCostSource: LlmCostSource? = null,
     val processedArticleIds: List<Long> = emptyList(),
     val articleTopics: Map<Long, String> = emptyMap(),
+    /**
+     * Article id to the dedup follow-up context it was composed under. Persisted on the episode's
+     * article links so a later regeneration recomposes with the same continuity annotations.
+     */
+    val followUpAnnotations: Map<Long, String> = emptyMap(),
     val dedupModel: String? = null,
     val topicOrder: List<String> = emptyList(),
     val researchCalls: Int = 0,
@@ -398,6 +403,7 @@ class LlmPipeline(
             ),
             processedArticleIds = processedArticleIds,
             articleTopics = articleTopics,
+            followUpAnnotations = dedupStageResult.followUpAnnotations,
             dedupModel = dedupStageResult.dedupModel,
             topicOrder = composeStageResult.topicOrder,
             researchCalls = composeStageResult.researchCalls,
@@ -417,17 +423,28 @@ class LlmPipeline(
         )
     }
 
-    suspend fun recompose(articles: List<Article>, podcast: Podcast, topicLabels: List<String> = emptyList(), onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult {
+    suspend fun recompose(
+        articles: List<Article>,
+        podcast: Podcast,
+        topicLabels: List<String> = emptyList(),
+        followUpAnnotations: Map<Long, String> = emptyMap(),
+        onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
+    ): PipelineResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         val ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
 
         onProgress("composing", mapOf("articleCount" to articles.size))
 
-        val compositionResult = when (podcast.style) {
-            PodcastStyle.DIALOGUE -> dialogueComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, topicLabels = topicLabels)
-            PodcastStyle.INTERVIEW -> interviewComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, topicLabels = topicLabels)
-            else -> briefingComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, topicLabels = topicLabels)
+        // Recompose runs no dedup stage, so the annotations must come from the source episode's
+        // stored links. Without them the composer has no continuity signal and substitutes the
+        // searchPastEpisodes tool, which demoted a launch story on an unrelated keyword match.
+        val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
+            when (podcast.style) {
+                PodcastStyle.DIALOGUE -> dialogueComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                PodcastStyle.INTERVIEW -> interviewComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                else -> briefingComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+            }
         }
 
         val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
@@ -454,6 +471,7 @@ class LlmPipeline(
             llmCostCents = costCents,
             llmCostSource = LlmCostSource.aggregate(listOf(scoreCost.source, composeCost.source)),
             processedArticleIds = articles.map { it.id!! },
+            followUpAnnotations = followUpAnnotations,
             topicOrder = compositionResult.topicOrder,
             researchCalls = compositionResult.researchCalls,
             researchCostCents = researchCostCents,

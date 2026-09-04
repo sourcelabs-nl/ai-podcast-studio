@@ -148,7 +148,9 @@ class DialogueComposerTest {
     fun `prompt excludes follow-up annotation when empty`() {
         val prompt = composer.buildPrompt(articles, podcast)
 
-        assertFalse(prompt.contains("[FOLLOW-UP:"))
+        // The prompt's own rules name the marker as a placeholder; what must be absent is a real
+        // header above an article group.
+        assertFalse(prompt.replace("[FOLLOW-UP: ...]", "").contains("[FOLLOW-UP:"))
     }
 
     @Test

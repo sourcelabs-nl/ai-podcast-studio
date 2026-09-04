@@ -304,7 +304,9 @@ class BriefingComposerTest {
     fun `buildPrompt excludes follow-up annotation when empty`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
         val prompt = composer.buildPrompt(sampleArticles, podcast)
-        assertFalse(prompt.contains("[FOLLOW-UP:"))
+        // The prompt's own rules name the marker as a placeholder; what must be absent is a real
+        // header above an article group.
+        assertFalse(prompt.replace("[FOLLOW-UP: ...]", "").contains("[FOLLOW-UP:"))
     }
 
     @Test

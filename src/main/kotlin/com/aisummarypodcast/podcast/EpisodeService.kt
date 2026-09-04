@@ -193,7 +193,13 @@ class EpisodeService(
         for (articleId in result.processedArticleIds) {
             val topic = result.articleTopics[articleId]
             val topicOrder = topic?.let { topicOrderMap[it] }
-            episodeArticleRepository.insertIgnore(episodeId = episode.id!!, articleId = articleId, topic = topic, topicOrder = topicOrder)
+            episodeArticleRepository.insertIgnore(
+                episodeId = episode.id!!,
+                articleId = articleId,
+                topic = topic,
+                topicOrder = topicOrder,
+                followUpContext = result.followUpAnnotations[articleId]
+            )
         }
     }
 
@@ -265,7 +271,8 @@ class EpisodeService(
                 episodeId = episode.id!!,
                 articleId = fa.article.id!!,
                 topic = topic,
-                topicOrder = topicOrder
+                topicOrder = topicOrder,
+                followUpContext = fa.followUpContext
             )
         }
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
@@ -562,7 +569,10 @@ class EpisodeService(
         val articleTopics = linkedArticles
             .filter { it.topic != null }
             .associate { it.articleId to it.topic!! }
-        return LinkedArticlesResult(articles, topicLabels, articleTopics)
+        val followUpAnnotations = linkedArticles
+            .filter { it.followUpContext != null }
+            .associate { it.articleId to it.followUpContext!! }
+        return LinkedArticlesResult(articles, topicLabels, articleTopics, followUpAnnotations)
     }
 
     fun findArticlesForEpisode(episodeId: Long): List<EpisodeArticleResponse> {

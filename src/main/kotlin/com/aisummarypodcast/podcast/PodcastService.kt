@@ -363,9 +363,9 @@ class PodcastService(
         generatingEpisode: Episode,
         sourceGeneratedAt: String
     ): Episode {
-        val (articles, topicLabels, articleTopics) = linked
+        val (articles, topicLabels, articleTopics, followUpAnnotations) = linked
 
-        val result = llmPipeline.recompose(articles, podcast, topicLabels) { stage, detail ->
+        val result = llmPipeline.recompose(articles, podcast, topicLabels, followUpAnnotations) { stage, detail ->
             eventPublisher.publishEvent(
                 PodcastEvent(this, podcast.id, "episode", generatingEpisode.id!!, "episode.stage",
                     detail + ("stage" to stage))

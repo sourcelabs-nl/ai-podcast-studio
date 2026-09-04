@@ -47,7 +47,7 @@ class EpisodeServiceTest {
     private val ttsPipeline = mockk<TtsPipeline>()
     private val episodeArticleRepository = mockk<EpisodeArticleRepository> {
         every { save(any()) } answers { firstArg() }
-        every { insertIgnore(any(), any(), any(), any()) } returns Unit
+        every { insertIgnore(any(), any(), any(), any(), any()) } returns Unit
     }
     private val articleRepository = mockk<ArticleRepository> {
         every { findById(any<Long>()) } returns Optional.empty()
@@ -479,6 +479,46 @@ class EpisodeServiceTest {
         verify { episodeArticleRepository.insertIgnore(5L, 10L, "AI Safety", 0) }
         verify { episodeArticleRepository.insertIgnore(5L, 20L, "New Releases", 1) }
         verify { episodeRepository.save(match { it.filterModel == "anthropic/claude-haiku-4.5" && it.llmInputTokens == 200 && it.llmOutputTokens == 100 }) }
+    }
+
+    @Test
+    fun `saveDedupResults persists the follow-up context and leaves a new topic null`() {
+        val episode = Episode(id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "", status = EpisodeStatus.GENERATING)
+        val continuation = Article(id = 10L, sourceId = "s1", title = "A1", body = "body", url = "https://example.com/1", contentHash = "h1", relevanceScore = 8)
+        val fresh = Article(id = 20L, sourceId = "s1", title = "A2", body = "body", url = "https://example.com/2", contentHash = "h2", relevanceScore = 7)
+        val dedupResult = DedupStageResult(
+            filteredArticles = listOf(
+                FilteredArticle(continuation, followUpContext = "Covered the launch two episodes ago", topic = "AI Safety"),
+                FilteredArticle(fresh, topic = "New Releases")
+            ),
+            filterModel = "f", dedupModel = "d", usage = TokenUsage(200, 100),
+            followUpAnnotations = mapOf(10L to "Covered the launch two episodes ago"),
+            topicLabels = listOf("AI Safety", "New Releases"),
+            dedupCostCents = 5, dedupCostSource = LlmCostSource.TABLE
+        )
+        every { episodeRepository.findById(5L) } returns Optional.of(episode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.saveDedupResults(episode, dedupResult)
+
+        // A regeneration recomposes from these rows, so the annotation has to survive here.
+        verify { episodeArticleRepository.insertIgnore(5L, 10L, "AI Safety", 0, "Covered the launch two episodes ago") }
+        verify { episodeArticleRepository.insertIgnore(5L, 20L, "New Releases", 1, null) }
+    }
+
+    @Test
+    fun `findLinkedArticlesAndTopics returns the persisted follow-up annotations`() {
+        val article = Article(id = 10L, sourceId = "s1", title = "A1", body = "body", url = "https://example.com/1", contentHash = "h1")
+        every { episodeArticleRepository.findByEpisodeId(5L) } returns listOf(
+            EpisodeArticle(id = 1L, episodeId = 5L, articleId = 10L, topic = "T", topicOrder = 0, followUpContext = "Covered before"),
+            EpisodeArticle(id = 2L, episodeId = 5L, articleId = 20L, topic = "T2", topicOrder = 1)
+        )
+        every { articleRepository.findById(10L) } returns Optional.of(article)
+        every { articleRepository.findById(20L) } returns Optional.empty()
+
+        val linked = episodeService.findLinkedArticlesAndTopics(5L)
+
+        assertEquals(mapOf(10L to "Covered before"), linked.followUpAnnotations)
     }
 
     // --- saveComposeResult tests ---
