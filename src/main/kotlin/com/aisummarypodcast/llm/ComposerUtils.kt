@@ -391,6 +391,5 @@ fun buildComposeOptions(
         .model(model.model)
         .temperature(resolveTemperature(podcast, appProperties))
         .maxTokens(appProperties.compose.maxOutputTokens)
-        .reasoningEffort(resolveReasoningEffort(podcast, appProperties))
-        .withOpenRouterFloor(model.provider)
+        .withRoutingAndReasoning(model.provider, resolveReasoningEffort(podcast, appProperties))
 }

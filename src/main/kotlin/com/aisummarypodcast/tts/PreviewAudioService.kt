@@ -95,7 +95,7 @@ class PreviewAudioService(
      * bills only the spoken text inside them.
      */
     private fun billableCharacters(podcast: Podcast, script: String): Int {
-        val sanitized = TtsScriptSanitizer.sanitize(script)
+        val sanitized = TtsScriptSanitizer.sanitize(script, podcast.pronunciations ?: emptyMap())
         if (podcast.style !in MULTI_VOICE_STYLES) return sanitized.length
         val turns = DialogueScriptParser.parse(sanitized)
         return if (turns.isEmpty()) sanitized.length else turns.sumOf { it.text.length }

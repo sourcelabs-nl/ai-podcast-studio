@@ -52,4 +52,41 @@ class TtsScriptSanitizerTest {
         val result = TtsScriptSanitizer.sanitize("foo  —  bar")
         assertEquals("foo , bar", result)
     }
+
+    // --- unlisted IPA spans ---
+
+    private val dictionary = mapOf("Jarno" to "/j\u0251rno\u02d0/")
+
+    @Test
+    fun `keeps an IPA span that is in the pronunciation dictionary`() {
+        val script = "It's less scary than it sounds, /j\u0251rno\u02d0/."
+        assertEquals(script, TtsScriptSanitizer.sanitize(script, dictionary))
+    }
+
+    @Test
+    fun `drops an IPA span the model invented for an unlisted name`() {
+        // The dictionary held only Jarno; the model minted this one for the other speaker and the
+        // engine read it out as a mispronounced name.
+        val result = TtsScriptSanitizer.sanitize("And I'm /st\u025bfan/ ... I mean, Stephan.", dictionary)
+        assertEquals("And I'm ... I mean, Stephan.", result)
+    }
+
+    @Test
+    fun `drops every IPA span when no dictionary is configured`() {
+        val result = TtsScriptSanitizer.sanitize("And I'm /st\u025bfan/ here.", emptyMap())
+        assertEquals("And I'm here.", result)
+    }
+
+    @Test
+    fun `leaves all-ASCII slash pairs alone`() {
+        // Ordinary prose, not phonetics: stripping these would mangle the script.
+        val script = "Use TCP/IP for input/output, and/or a queue, 24/7."
+        assertEquals(script, TtsScriptSanitizer.sanitize(script, dictionary))
+    }
+
+    @Test
+    fun `does not span across a line break`() {
+        val script = "half a fraction 1/2\nand /or something/ else"
+        assertEquals(script, TtsScriptSanitizer.sanitize(script, dictionary))
+    }
 }

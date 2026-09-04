@@ -35,9 +35,13 @@ class OpenRouterRoutingTest {
     private fun providerBlock(extraBody: Map<String, Any>?) =
         extraBody?.get("provider") as? Map<String, Any>
 
+    @Suppress("UNCHECKED_CAST")
+    private fun reasoningBlock(extraBody: Map<String, Any>?) =
+        extraBody?.get("reasoning") as? Map<String, Any>
+
     @Test
     fun `an openrouter model gets the routing floor`() {
-        val block = providerBlock(OpenRouterRouting.extraBodyFor("openrouter"))
+        val block = providerBlock(OpenRouterRouting.extraBodyFor("openrouter", "medium"))
 
         assertEquals(listOf("fp8", "fp16", "bf16", "fp32"), block?.get("quantizations"))
         assertEquals(true, block?.get("require_parameters"))
@@ -46,7 +50,7 @@ class OpenRouterRoutingTest {
     @Test
     fun `the floor excludes the lossy quantizations that caused the trouble`() {
         @Suppress("UNCHECKED_CAST")
-        val accepted = providerBlock(OpenRouterRouting.extraBodyFor("openrouter"))
+        val accepted = providerBlock(OpenRouterRouting.extraBodyFor("openrouter", "medium"))
             ?.get("quantizations") as List<String>
 
         // fp4 endpoints follow a long, format-sensitive prompt worse; "unknown" gives no assurance.
@@ -57,13 +61,13 @@ class OpenRouterRoutingTest {
 
     @Test
     fun `fallbacks are left enabled so one bad endpoint is not fatal`() {
-        assertNull(providerBlock(OpenRouterRouting.extraBodyFor("openrouter"))?.get("allow_fallbacks"))
+        assertNull(providerBlock(OpenRouterRouting.extraBodyFor("openrouter", "medium"))?.get("allow_fallbacks"))
     }
 
     @Test
     fun `a non-openrouter provider gets nothing`() {
-        assertTrue(OpenRouterRouting.extraBodyFor("openai").isEmpty())
-        assertTrue(OpenRouterRouting.extraBodyFor("ollama").isEmpty())
+        assertTrue(OpenRouterRouting.extraBodyFor("openai", "medium").isEmpty())
+        assertTrue(OpenRouterRouting.extraBodyFor("ollama", "medium").isEmpty())
     }
 
     // --- Compose options ------------------------------------------------------------------------
@@ -72,7 +76,10 @@ class OpenRouterRoutingTest {
     fun `compose options carry the configured reasoning effort and the floor`() {
         val options = buildComposeOptions(model("openrouter"), podcast(), appProperties()).build()
 
-        assertEquals("medium", options.reasoningEffort)
+        // OpenRouter reads a `reasoning` object and, per its docs, does not accept OpenAI's flat
+        // `reasoning_effort`; sending the flat field here had no effect at all.
+        assertEquals("medium", reasoningBlock(options.extraBody)?.get("effort"))
+        assertNull(options.reasoningEffort)
         assertEquals(96000, options.maxTokens)
         assertEquals("z-ai/glm-5.3", options.model)
         assertEquals(true, providerBlock(options.extraBody)?.get("require_parameters"))
@@ -84,7 +91,7 @@ class OpenRouterRoutingTest {
             model("openrouter"), podcast(mapOf("reasoningEffort" to "low")), appProperties()
         ).build()
 
-        assertEquals("low", options.reasoningEffort)
+        assertEquals("low", reasoningBlock(options.extraBody)?.get("effort"))
     }
 
     @Test
@@ -93,14 +100,26 @@ class OpenRouterRoutingTest {
             model("openrouter"), podcast(mapOf("reasoningEffort" to "  ")), appProperties(effort = "high")
         ).build()
 
-        assertEquals("high", options.reasoningEffort)
+        assertEquals("high", reasoningBlock(options.extraBody)?.get("effort"))
     }
 
     @Test
-    fun `the configured default applies when the podcast says nothing`() {
+    fun `an effort of none sends no reasoning block at all`() {
         val options = buildComposeOptions(model("openrouter"), podcast(), appProperties(effort = "none")).build()
 
-        assertEquals("none", options.reasoningEffort)
+        // require_parameters restricts routing to endpoints supporting every parameter sent, so
+        // asking a deliberately non-reasoning model to acknowledge one risks leaving no endpoint.
+        assertNull(reasoningBlock(options.extraBody))
+        assertEquals(true, providerBlock(options.extraBody)?.get("require_parameters"))
+    }
+
+    @Test
+    fun `reasoning text is excluded from the response`() {
+        val options = buildComposeOptions(model("openrouter"), podcast(), appProperties()).build()
+
+        // The tokens are billed either way and openai-java has no field for message.reasoning, so
+        // returning it would only risk it being mistaken for the script.
+        assertEquals(true, reasoningBlock(options.extraBody)?.get("exclude"))
     }
 
     @Test
@@ -108,6 +127,7 @@ class OpenRouterRoutingTest {
         val options = buildComposeOptions(model("openai"), podcast(), appProperties()).build()
 
         assertTrue(options.extraBody.isNullOrEmpty())
+        // On a direct OpenAI call the flat field is the real one.
         assertEquals("medium", options.reasoningEffort)
     }
 }

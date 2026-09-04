@@ -6,8 +6,29 @@ object TtsScriptSanitizer {
     private val COMMA_BEFORE_TERMINATOR = Regex("\\s*,\\s*([.!?])")
     private val DUPLICATE_SPACES = Regex(" {2,}")
 
-    fun sanitize(script: String): String {
-        var result = DASHES.replace(script, ", ")
+    /**
+     * A slash-delimited IPA span: no whitespace or slash inside, and at least one non-ASCII
+     * character. The non-ASCII requirement is what keeps ordinary prose intact — `and/or`,
+     * `TCP/IP` and `input/output` are all-ASCII and are left alone.
+     */
+    private val PHONEME_SPAN = Regex("/(?=[^/\\s]*[^\\u0000-\\u007F])[^/\\s]{1,40}/")
+
+    /**
+     * Prepares a script for a TTS provider.
+     *
+     * [pronunciations] is the podcast's pronunciation dictionary (term to IPA). Any IPA span in the
+     * script that is not one of its values is removed: the compose prompt says IPA notation is
+     * reserved for the listed terms, but the model does not always obey. A script whose dictionary
+     * held only `Jarno` came back with an invented `/stɛfan/` for the other speaker, and the engine
+     * reads an unintended transcription out as a mispronounced name. The intended word cannot be
+     * recovered from a phoneme string, so the span is dropped rather than guessed at.
+     */
+    fun sanitize(script: String, pronunciations: Map<String, String> = emptyMap()): String {
+        val allowed = pronunciations.values.map { it.trim() }.toSet()
+        var result = PHONEME_SPAN.replace(script) { match ->
+            if (match.value in allowed) match.value else ""
+        }
+        result = DASHES.replace(result, ", ")
         result = COMMA_BEFORE_TERMINATOR.replace(result, "$1")
         result = DUPLICATE_SPACES.replace(result, " ")
         return result

@@ -82,7 +82,7 @@ The system SHALL fetch historical articles by joining `episode_articles` with `a
 - **THEN** the dedup prompt's historical block contains a truncated form of the title (with an ellipsis), not the full 500 characters
 
 ### Requirement: Dedup filter salvages a truncated response, and otherwise fails the episode
-The dedup stage SHALL use a non-reasoning model (default `deepseek/deepseek-v4-flash`) and SHALL request a reasoning effort of `none`, in line with the per-stage reasoning policy. Reasoning is unsuitable here because its tokens are charged against the output-token cap and can return empty content, which previously caused dedup to be silently skipped.
+The dedup stage SHALL use a non-reasoning model (default `deepseek/deepseek-v4-flash`). That choice, rather than any request parameter, is what keeps reasoning out of the stage: reasoning tokens are charged against the output-token cap and can return empty content, which previously caused dedup to be silently skipped. Accordingly the stage sends no reasoning block, since requiring a non-reasoning model's endpoints to support a reasoning parameter risks leaving none eligible.
 
 `TopicDedupFilter` SHALL parse the response strictly first. When the strict parse fails because the response is truncated, the filter SHALL recover the complete cluster objects from the incomplete `clusters` array instead of discarding the response. A truncated dedup response is safe to act on because an article that no surviving cluster mentions is simply not selected for composition, which is the conservative outcome.
 
@@ -92,7 +92,7 @@ A salvaged response SHALL be accepted only when it still selects at least `app.c
 
 #### Scenario: Dedup requests no reasoning
 - **WHEN** the dedup request is built
-- **THEN** it carries a reasoning effort of `none`
+- **THEN** it carries no reasoning block, and the configured model is a non-reasoning one
 
 #### Scenario: Truncated response with enough clusters is salvaged
 - **WHEN** the dedup response is cut off mid-array after 234 complete clusters that together select at least `app.compose.max-articles` articles

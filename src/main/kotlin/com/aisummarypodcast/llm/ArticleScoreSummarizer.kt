@@ -95,8 +95,7 @@ class ArticleScoreSummarizer(
                                                 // A JSON score needs no deliberation, and reasoning
                                                 // tokens are charged as output. Stated rather than
                                                 // left to whichever endpoint OpenRouter picked.
-                                                .reasoningEffort("none")
-                                                .withOpenRouterFloor(filterModelDef.provider)
+                                                .withRoutingAndReasoning(filterModelDef.provider, OpenRouterRouting.NO_REASONING)
                                         )
                                         .call()
                                         .responseEntity(converter)

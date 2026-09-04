@@ -27,7 +27,7 @@ data class TtsRequest(
          * fallbacks, or a preview would not sound like the episode it is previewing.
          */
         fun forPodcast(podcast: Podcast, script: String, progress: TtsProgressListener? = null) = TtsRequest(
-            script = TtsScriptSanitizer.sanitize(script),
+            script = TtsScriptSanitizer.sanitize(script, podcast.pronunciations ?: emptyMap()),
             ttsVoices = podcast.ttsVoices ?: mapOf("default" to "nova"),
             ttsSettings = podcast.ttsSettings ?: emptyMap(),
             language = podcast.language,

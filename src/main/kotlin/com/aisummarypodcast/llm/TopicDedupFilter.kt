@@ -111,8 +111,7 @@ class TopicDedupFilter(
                                 // deepseek-v4-flash reasons by default on OpenRouter; its hidden reasoning
                                 // tokens count against maxTokens and can consume the whole budget, leaving
                                 // no room for the actual JSON output. Disable it explicitly.
-                                .reasoningEffort("none")
-                                .withOpenRouterFloor(modelDef.provider)
+                                .withRoutingAndReasoning(modelDef.provider, OpenRouterRouting.NO_REASONING)
                         )
                         .call()
                         .chatResponse()
