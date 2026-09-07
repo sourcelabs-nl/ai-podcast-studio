@@ -3,6 +3,7 @@
 ## Purpose
 
 Estimate and report LLM and TTS costs per episode based on per-model pricing configured in `app.models`.
+
 ## Requirements
 
 ### Requirement: TTS cost estimation
@@ -377,20 +378,35 @@ The floor SHALL keep enough endpoints to stay redundant: at the time of writing 
 - **WHEN** the floor is applied
 - **THEN** `allow_fallbacks` is not disabled, so an unavailable endpoint falls through to another that meets the floor
 
-### Requirement: Reasoning is decided per stage, not by the provider
+### Requirement: The compose stage retries a transient provider fault
+The composition call SHALL be wrapped in a retry that fires only on transient provider faults, namely an invalid or incomplete completion from the provider (`OpenAIInvalidDataException`) and an I/O failure (`ResourceAccessException`).
+
+The retry SHALL NOT fire on a speaker-tag validation failure. `RoleTagValidationAdvisor` already re-issues the request up to twice within a single call, so retrying the whole call on that outcome would multiply attempts and cost for a fault that is already handled.
+
+Compose was the only LLM stage without a retry while scoring, dedup and TTS all had one, and it is the most expensive call in the pipeline. A single `finish_reason is null` therefore discarded ten minutes of generation and failed the episode outright.
+
+#### Scenario: An invalid completion is retried
+- **WHEN** the provider returns a completion whose `finish_reason` is absent and the client raises `OpenAIInvalidDataException`
+- **THEN** the compose call is retried rather than failing the episode
+
+#### Scenario: A tag-validation failure is not retried
+- **WHEN** composition fails because no attempt produced a valid speaker tag
+- **THEN** the compose retry does not fire and the failure surfaces, because the advisor has already exhausted its own attempts
+
+### Requirement: Every stage states its reasoning effort, including none
 Each stage SHALL state its reasoning intent explicitly rather than leaving it to the routed provider, in the form the resolved provider actually reads.
 
-For a model resolved to `openrouter`, the budget SHALL be sent in the request's extra body as a `reasoning` object carrying `effort`, alongside the `provider` block. The flat `reasoning_effort` field SHALL NOT be sent to OpenRouter: its documentation states that reasoning is controlled by the `reasoning` object and that `reasoning_effort` is not accepted as an alias, and combined with `require_parameters` an unsupported parameter could steer routing on a field the provider never reads. For a model resolved to the direct `openai` provider, the flat `reasoning_effort` field SHALL be used, where it is the correct one.
+For a model resolved to `openrouter`, the effort SHALL be sent in the request's extra body as a `reasoning` object carrying `effort`, alongside the `provider` block. This SHALL include an effort of `none`, sent as an explicit `effort: "none"`. The flat `reasoning_effort` field SHALL NOT be sent to OpenRouter: its documentation states that reasoning is controlled by the `reasoning` object and that `reasoning_effort` is not accepted as an alias, and combined with `require_parameters` an unsupported parameter could steer routing on a field the provider never reads. For a model resolved to the direct `openai` provider, the flat `reasoning_effort` field SHALL be used, where it is the correct one.
 
-Composition SHALL request reasoning at an effort configured as `app.compose.reasoning-effort` (default `medium`), overridable per podcast via `composeSettings.reasoningEffort`.
+Omitting the block SHALL NOT be used to express "no reasoning". OpenRouter infers an absent reasoning parameter from the model's own default, and the dedup and filter model `~deepseek/deepseek-v4-flash-latest` reports `default_enabled: true` at `default_effort: "high"`. Measured on the live API for that model with a one-line task, an omitted block cost 47 reasoning tokens, `effort: "low"` cost 22, and `effort: "none"` cost none. Since reasoning tokens are charged as output and drawn from the same `max_tokens` a stage sets for its own output, omitting the block consumed the entire dedup budget and returned empty content, failing episode 200 five times over.
 
-An effort of `none` SHALL send no `reasoning` block at all rather than an explicit `effort: "none"`. `require_parameters` restricts routing to endpoints that support every parameter supplied, so asking a deliberately non-reasoning model to acknowledge a reasoning parameter risks leaving no eligible endpoint. Article scoring, topic dedup and recap generation therefore send no reasoning block, and take their non-reasoning behaviour from the model they run on.
+Composition SHALL request reasoning at an effort configured as `app.compose.reasoning-effort` (default `medium`), overridable per podcast via `composeSettings.reasoningEffort`. Article scoring, topic dedup and recap generation SHALL request `none`: they produce a JSON object or a short paragraph, where reasoning is cost without benefit.
 
-The `reasoning` object SHALL set `exclude` so the reasoning text is kept out of the response. The tokens are billed either way, and the text has nowhere to go: it is returned in `message.reasoning`, for which `openai-java`'s `ChatCompletionMessage` declares no field. Excluding it also means it cannot be mistaken for the script.
+An effort the resolved endpoint cannot honour SHALL be allowed to fail rather than be silently softened. An endpoint reporting `mandatory: true` rejects `effort: "none"` outright, as `z-ai/glm-5.3` does with *"Reasoning is mandatory for this endpoint and cannot be disabled"* (HTTP 400). Configuring such an effort is a configuration error, and a 400 naming the cause is preferable to sending nothing and receiving the provider's default instead.
 
-OpenRouter treats an omitted reasoning parameter as "inferred from model defaults" and counts reasoning tokens as output tokens, charged accordingly. Leaving it unset let the provider decide both the quality and the bill: across five episodes on one model, compose output ranged from 6,048 to 72,821 tokens for scripts of comparable length, with duration between 1 minute and 18 minutes and cost between 4 and 38 cents. Sending it in a form the provider does not read has the same effect, which is what setting only the flat field did.
+The `reasoning` object SHALL set `exclude` so the reasoning text is kept out of the response. The tokens are billed either way, and the client cannot read it regardless: reasoning comes back in `message.reasoning`, for which `openai-java`'s `ChatCompletionMessage` declares no field. Excluding it also means it cannot be mistaken for the script.
 
-Reasoning belongs to composition, which plans a two-thousand-word script. The other three stages produce a JSON object or a short paragraph, where reasoning tokens are cost without benefit — and where, for dedup, they previously consumed the whole output budget and returned empty content.
+OpenRouter treats an omitted reasoning parameter as inferred from model defaults and counts reasoning tokens as output tokens, charged accordingly. Leaving it unset let the provider decide both the quality and the bill: across five episodes on one model, compose output ranged from 6,048 to 72,821 tokens for scripts of comparable length, with duration between 1 minute and 18 minutes and cost between 4 and 38 cents. Sending it in a form the provider does not read has the same effect, which is what setting only the flat field did.
 
 The effort SHALL be configurable rather than hard-coded, because it is the largest single cost lever in the pipeline.
 
@@ -410,29 +426,18 @@ The effort SHALL be configurable rather than hard-coded, because it is the large
 - **WHEN** a compose request is built for a model resolved to the direct `openai` provider
 - **THEN** it carries `reasoning_effort` and no extra body
 
-#### Scenario: An effort of none sends no reasoning block
+#### Scenario: An effort of none is stated explicitly
 - **WHEN** a request is built for an `openrouter` model with an effort of `none`
-- **THEN** the extra body carries the `provider` block and no `reasoning` block
+- **THEN** the extra body carries the `provider` block and a `reasoning` object with `effort` `none`
 
-#### Scenario: Structured stages disable reasoning
-- **WHEN** an article-scoring, topic-dedup or recap request is built
-- **THEN** it carries no `reasoning` block, and takes its non-reasoning behaviour from the model it runs on
+#### Scenario: The structured stages suppress reasoning
+- **WHEN** an article-scoring, topic-dedup or recap request is built for an `openrouter` model
+- **THEN** it carries a `reasoning` object with `effort` `none`, rather than no block
+
+#### Scenario: A mandatory-reasoning endpoint rejects none
+- **WHEN** an effort of `none` is configured for a model whose endpoint reports reasoning as mandatory
+- **THEN** the request fails with the provider's 400 rather than falling back to the provider's default effort
 
 #### Scenario: Reasoning text is excluded from the response
 - **WHEN** a `reasoning` block is sent
 - **THEN** it sets `exclude`, so the provider returns the reasoning tokens' effect but not their text
-
-### Requirement: The compose stage retries a transient provider fault
-The composition call SHALL be wrapped in a retry that fires only on transient provider faults, namely an invalid or incomplete completion from the provider (`OpenAIInvalidDataException`) and an I/O failure (`ResourceAccessException`).
-
-The retry SHALL NOT fire on a speaker-tag validation failure. `RoleTagValidationAdvisor` already re-issues the request up to twice within a single call, so retrying the whole call on that outcome would multiply attempts and cost for a fault that is already handled.
-
-Compose was the only LLM stage without a retry while scoring, dedup and TTS all had one, and it is the most expensive call in the pipeline. A single `finish_reason is null` therefore discarded ten minutes of generation and failed the episode outright.
-
-#### Scenario: An invalid completion is retried
-- **WHEN** the provider returns a completion whose `finish_reason` is absent and the client raises `OpenAIInvalidDataException`
-- **THEN** the compose call is retried rather than failing the episode
-
-#### Scenario: A tag-validation failure is not retried
-- **WHEN** composition fails because no attempt produced a valid speaker tag
-- **THEN** the compose retry does not fire and the failure surfaces, because the advisor has already exhausted its own attempts

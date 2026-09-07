@@ -61,20 +61,25 @@ Voice configuration uses the `ttsVoices` map:
 
 ## Model configuration
 
-All model definitions (LLM and TTS) live under `app.models` in `application.yaml`, organized by provider. Each model has a `type` (`llm` or `tts`) and optional cost fields:
+All model definitions (LLM and TTS) live under `app.models` in `application.yaml`, organized by provider. Each model has a `type` (`llm` or `tts`), optional cost fields, and an optional `selectable` flag (default `true`):
 
 ```yaml
 app:
   models:
     openrouter:
-      "[openai/gpt-5.4-nano]":
+      "[deepseek/deepseek-v4-flash-0731]":
         type: llm
-        input-cost-per-mtok: 0.20
-        output-cost-per-mtok: 1.25
-      "[anthropic/claude-sonnet-4.6]":
+        input-cost-per-mtok: 0.05
+        output-cost-per-mtok: 0.16
+      "[z-ai/glm-5.3]":
         type: llm
-        input-cost-per-mtok: 3.00
-        output-cost-per-mtok: 15.00
+        input-cost-per-mtok: 1.12
+        output-cost-per-mtok: 3.52
+      "[anthropic/claude-opus-5]":
+        type: llm
+        input-cost-per-mtok: 5.00
+        output-cost-per-mtok: 25.00
+        selectable: false
     openai:
       "[tts-1-hd]":
         type: tts
@@ -87,25 +92,34 @@ app:
     defaults:
       filter:
         provider: openrouter
-        model: openai/gpt-5.4-nano
+        model: deepseek/deepseek-v4-flash-0731
+      dedup:
+        provider: openrouter
+        model: deepseek/deepseek-v4-flash-0731
       compose:
         provider: openrouter
-        model: anthropic/claude-sonnet-4.6
+        model: z-ai/glm-5.3
 ```
 
-Model name keys containing `/`, `-`, or `.` must be quoted with `"[...]"` for Spring Boot's relaxed property binding.
+Model name keys containing `/`, `-`, or `.` must be quoted with `"[...]"` for Spring Boot's relaxed property binding. A key may be a provider routing alias rather than a pinned release, in which case it must be the exact slug the provider accepts, including OpenRouter's leading `~`. Alias pricing is approximate, since the alias resolves to whichever release is current, and a new release can bring different reasoning defaults with it, so a pinned release is preferred for a stage default.
 
-Per-podcast overrides use the `llmModels` field, mapping stage names (`filter`, `compose`) to `{provider, model}` objects:
+For an OpenRouter model, the configured price should be that of the cheapest endpoint clearing the quantization floor described below, since that is the price routing can actually select.
+
+### Models that cannot be selected
+
+Requests to OpenRouter state the endpoint quantizations they accept, which excludes any endpoint reporting `unknown`. Vendor-native endpoints do not disclose a quantization, so every model served only by its own vendor (OpenAI, Anthropic, Google) answers with `404 No endpoints found`. Such a model is marked `selectable: false`: its pricing stays, because a registry entry is how a past episode's cost is resolved and deleting one would leave those episodes with no cost at all, but it is withheld from the models offered for selection so a stage cannot be pointed at something that cannot serve a request. This limits stage models to open-weight models served by third-party inference providers.
+
+Per-podcast overrides use the `llmModels` field, mapping stage names (`filter`, `dedup`, `compose`) to `{provider, model}` objects:
 
 ```json
 {
   "llmModels": {
-    "compose": {"provider": "openrouter", "model": "anthropic/claude-opus-4.7"}
+    "compose": {"provider": "openrouter", "model": "deepseek/deepseek-v4-pro"}
   }
 }
 ```
 
-The `GET /config/defaults` endpoint returns available models grouped by provider and type, used by the frontend to populate model selection dropdowns.
+The `GET /config/defaults` endpoint returns the selectable models grouped by provider and type, used by the frontend to populate model selection dropdowns. Provider keys are retained even when every model under them is withheld. The endpoint does not validate an override sent directly to the podcast API, so an unselectable model set that way fails at generation time rather than on save.
 
 ## Cost gate
 
