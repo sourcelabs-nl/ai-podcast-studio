@@ -125,11 +125,22 @@ data class DedupProperties(
 
 enum class ModelType { LLM, TTS }
 
+/**
+ * A model's pricing, and whether a podcast may still choose it.
+ *
+ * [selectable] exists because a model can stop being usable while its pricing must stay: an entry is
+ * how a past episode's cost is resolved, so deleting one leaves those episodes with a null cost. A
+ * model whose every endpoint is rejected by the `OpenRouterRouting` quantization floor — which is
+ * every vendor-native model, since OpenAI, Anthropic and Google report their quantization as
+ * `unknown` — answers any request with a 404, so offering it in the settings picker only invites a
+ * generation that cannot succeed. Marking it unselectable keeps the price and withdraws the choice.
+ */
 data class ModelCost(
     val type: ModelType,
     val inputCostPerMtok: Double? = null,
     val outputCostPerMtok: Double? = null,
-    val costPerMillionChars: Double? = null
+    val costPerMillionChars: Double? = null,
+    val selectable: Boolean = true
 )
 
 data class ModelReference(
@@ -144,10 +155,21 @@ data class LlmModelOverrides(
     fun isEmpty(): Boolean = stages.isEmpty()
 }
 
+/**
+ * Stage defaults for a podcast that sets no override of its own. Kept in step with
+ * `app.llm.defaults` in `application.yaml`.
+ *
+ * Every default must be a model that clears the `OpenRouterRouting` quantization floor, which only
+ * open-weight models on third-party inference endpoints do: a vendor-native endpoint (OpenAI,
+ * Anthropic, Google) reports its quantization as `unknown`, which the floor rejects, so such a model
+ * resolves to a request OpenRouter answers with 404 "No endpoints found". The previous filter default
+ * `openai/gpt-5.4-nano` and dedup default `anthropic/claude-sonnet-4.6` were both unroutable for
+ * exactly that reason.
+ */
 data class StageDefaults(
-    val filter: ModelReference = ModelReference("openrouter", "openai/gpt-5.4-nano"),
-    val dedup: ModelReference = ModelReference("openrouter", "anthropic/claude-sonnet-4.6"),
-    val compose: ModelReference = ModelReference("openrouter", "z-ai/glm-5.2")
+    val filter: ModelReference = ModelReference("openrouter", "deepseek/deepseek-v4-flash-0731"),
+    val dedup: ModelReference = ModelReference("openrouter", "deepseek/deepseek-v4-flash-0731"),
+    val compose: ModelReference = ModelReference("openrouter", "z-ai/glm-5.3")
 )
 
 data class BriefingProperties(

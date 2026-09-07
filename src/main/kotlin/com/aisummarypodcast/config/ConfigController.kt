@@ -16,13 +16,9 @@ class ConfigController(private val appProperties: AppProperties) {
             "compose" to appProperties.llm.defaults.compose
         )
 
-        val availableModels = appProperties.models.mapValues { (_, models) ->
-            models.map { (name, cost) -> AvailableModel(name = name, type = cost.type.name.lowercase()) }
-        }
-
         return PodcastDefaultsResponse(
             llmModels = llmModels,
-            availableModels = availableModels,
+            availableModels = appProperties.models.toSelectableModels(),
             maxLlmCostCents = appProperties.llm.maxCostCents,
             targetWords = appProperties.briefing.targetWords,
             fullBodyThreshold = appProperties.briefing.fullBodyThreshold,

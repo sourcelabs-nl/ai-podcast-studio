@@ -43,59 +43,83 @@ app:
     master-key: ${APP_ENCRYPTION_MASTER_KEY}
   models:
     openrouter:
+      # selectable: false on every entry below. Each is served only by its own vendor (OpenAI,
+      # Anthropic), which reports quantization "unknown", so the OpenRouterRouting floor rejects all
+      # of their endpoints — 0 of 4, 9, 11, 9 and 10 respectively — and any request comes back 404
+      # "No endpoints found". The pricing stays so episodes generated on them still resolve a cost;
+      # only the settings picker withdraws them.
       "[openai/gpt-5.4-nano]":
         type: llm
         input-cost-per-mtok: 0.20
         output-cost-per-mtok: 1.25
+        selectable: false
       "[anthropic/claude-sonnet-4.6]":
         type: llm
         input-cost-per-mtok: 3.00
         output-cost-per-mtok: 15.00
+        selectable: false
       "[anthropic/claude-opus-4.7]":
         type: llm
         input-cost-per-mtok: 5.00
         output-cost-per-mtok: 25.00
+        selectable: false
       "[anthropic/claude-opus-4.8]":
         type: llm
         input-cost-per-mtok: 5.00
         output-cost-per-mtok: 25.00
+        selectable: false
       "[anthropic/claude-sonnet-5]":
         type: llm
         input-cost-per-mtok: 2.00
         output-cost-per-mtok: 10.00
+        selectable: false
       "[anthropic/claude-opus-5]":
         type: llm
         input-cost-per-mtok: 5.00
         output-cost-per-mtok: 25.00
+        selectable: false
+      # Prices below are the cheapest endpoint that clears the quantization floor, since that is what
+      # routing can actually select. Verified against OpenRouter's /api/v1/models and
+      # /api/v1/models/{id}/endpoints on 2026-09-07.
+      # The July release, and the filter/dedup default: 14 of 29 endpoints eligible, cheapest
+      # OpenInference. Better and cheaper than the April release on every axis — Artificial Analysis
+      # intelligence 40.8 / coding 69.1 / agentic 41.9 against no index / 56.2 / 23.8, and $0.05
+      # against $0.0886 in. Its 1.31M context also exceeds the April model's 1.05M.
+      "[deepseek/deepseek-v4-flash-0731]":
+        type: llm
+        input-cost-per-mtok: 0.05
+        output-cost-per-mtok: 0.16
+      # The April release (canonical slug deepseek-v4-flash-20260423), superseded as the default but
+      # kept so episodes generated on it still resolve a cost. 10 of 15 endpoints eligible.
       "[deepseek/deepseek-v4-flash]":
         type: llm
-        input-cost-per-mtok: 0.0983
-        output-cost-per-mtok: 0.1966
-      # OpenRouter alias (note the leading "~") that always routes to the newest V4 Flash release,
-      # currently deepseek-v4-flash-0731. Pricing is the alias's own listed price; the resolved
-      # target can differ, so cost tracking for this entry is approximate by design.
+        input-cost-per-mtok: 0.0886
+        output-cost-per-mtok: 0.1772
+      # OpenRouter alias (note the leading "~") that always routes to the newest V4 Flash release.
+      # Its cheapest eligible endpoint prices identically to deepseek-v4-flash-0731, which is what it
+      # currently resolves to, but the target moves without notice — so cost tracking for this entry
+      # is approximate by design, and a new target can bring different reasoning defaults with it.
       "[~deepseek/deepseek-v4-flash-latest]":
         type: llm
-        input-cost-per-mtok: 0.08
-        output-cost-per-mtok: 0.252
-      # Pricing reflects the cheapest non-ZDR provider (DeepInfra) that Balanced routing selects;
-      # the OpenRouter floor ($0.435/$0.87) is a ZDR provider we filter out.
+        input-cost-per-mtok: 0.05
+        output-cost-per-mtok: 0.16
+      # 9 of 16 endpoints eligible, cheapest StreamLake.
       "[deepseek/deepseek-v4-pro]":
         type: llm
-        input-cost-per-mtok: 1.30
-        output-cost-per-mtok: 2.60
-      # Pricing reflects DeepInfra, the cheapest provider OpenRouter routing selects for GLM-5.2.
+        input-cost-per-mtok: 0.9553
+        output-cost-per-mtok: 1.9105
+      # 17 of 33 endpoints eligible, cheapest StreamLake.
       "[z-ai/glm-5.2]":
         type: llm
-        input-cost-per-mtok: 1.00
-        output-cost-per-mtok: 4.00
-      # Routed price varies: OpenRouter serves GLM-5.3 from 25 endpoints at 1.15-2.10 in / 3.50-6.60
-      # out. These are Z.AI's list rates and only a fallback — OpenRouter reports the real cost per
-      # call and the pipeline uses that. OpenRouterRouting keeps requests off the lossy endpoints.
+        input-cost-per-mtok: 0.42
+        output-cost-per-mtok: 1.32
+      # 12 of 28 endpoints eligible (7 fp4 and 9 unknown are excluded by the floor), cheapest
+      # GMICloud. Only a fallback — OpenRouter reports the real cost per call and the pipeline uses
+      # that wherever it is present.
       "[z-ai/glm-5.3]":
         type: llm
-        input-cost-per-mtok: 1.40
-        output-cost-per-mtok: 4.40
+        input-cost-per-mtok: 1.12
+        output-cost-per-mtok: 3.52
     openai:
       "[tts-1-hd]":
         type: tts
@@ -115,26 +139,40 @@ app:
         type: tts
         cost-per-million-chars: 25.00
   llm:
+    # Every default must clear the OpenRouterRouting quantization floor. Only open-weight models on
+    # third-party inference endpoints do: a vendor-native endpoint (OpenAI, Anthropic, Google) reports
+    # its quantization as "unknown", which the floor rejects, so the request comes back 404 "No
+    # endpoints found". The previous filter default openai/gpt-5.4-nano (0 of 4 endpoints eligible)
+    # was unroutable for that reason.
     defaults:
       filter:
         provider: openrouter
-        model: openai/gpt-5.4-nano
+        model: deepseek/deepseek-v4-flash-0731
       # Dedup clusters today's candidates against recent (title-only, capped) historical articles
-      # and emits structured JSON. deepseek-v4-flash defaults to reasoning mode on OpenRouter, whose
-      # hidden reasoning tokens count against the output cap and can burn the whole budget, returning
-      # empty content — TopicDedupFilter explicitly disables reasoning (reasoningEffort("none")).
+      # and emits structured JSON. deepseek-v4-flash reasons by default on OpenRouter (its model
+      # metadata reports default_enabled: true at default_effort: high), and those tokens are charged
+      # against the output cap, so TopicDedupFilter states an explicit effort of "none" — measured at
+      # 0 reasoning tokens, where sending no reasoning block at all cost 47.
       dedup:
         provider: openrouter
-        model: deepseek/deepseek-v4-flash
+        model: deepseek/deepseek-v4-flash-0731
+      # GLM-5.3 over v4-pro-0813 and glm-5.3-flash on Artificial Analysis: intelligence 48.6 vs 42.1
+      # and 46.2, coding 74.8 vs 68.8 and 71.5, agentic 53.6 vs 42.5 and 51.5. It is the strongest
+      # model that clears the floor without reaching vendor-native pricing (gpt-6-astra and
+      # claude-fable-5.1 are $10/$50). glm-5.3-flash would cut output cost ~14x for roughly 5% lower
+      # benchmarks, but those indices measure reasoning and code, not the prose this stage writes.
       compose:
         provider: openrouter
-        model: z-ai/glm-5.2
+        model: z-ai/glm-5.3
     max-cost-cents: 200
     # Request timeout per stage. One blanket value cannot serve them all: scoring returns in seconds
-    # and dedup has peaked at 3m06s, while compose over a large article set with tool calls has run
-    # from 1m03s to 18m11s. A single compose-sized ceiling let one hung scoring call stall a whole
+    # and dedup in 21s-1m44s, while compose over a large article set with tool calls has run from
+    # 1m03s to 18m11s. A single compose-sized ceiling let one hung scoring call stall a whole
     # generation for 13 minutes; a scoring-sized one would fail a real compose run. Recap resolves
     # the filter model and so takes the filter timeout.
+    #
+    # Each is a hard wall-clock deadline (okhttp callTimeout), not an idle timeout, so arriving bytes
+    # do not extend it and streaming a response would not either.
     timeouts:
       filter: 3m
       dedup: 5m
@@ -161,7 +199,9 @@ app:
     # Left unset, OpenRouter infers it from the routed provider's defaults, which produced compose
     # output between 6,048 and 72,821 tokens for scripts of comparable length — 1 to 18 minutes and
     # 4 to 38 cents. Reasoning belongs to this stage, which plans a long script; the structured
-    # stages ask for none. This is the pipeline's largest cost lever: turn it down to low or none.
+    # stages ask for none. This is the pipeline's largest cost lever: turn it down to low. Note that
+    # "none" is not universally accepted — glm-5.3 rejects it with "Reasoning is mandatory for this
+    # endpoint and cannot be disabled" (HTTP 400), so check the model before setting it.
     reasoning-effort: medium
     # Ceiling on compose output tokens. Without one the provider reserves the model's whole output
     # window when checking affordability (a 402 asking for credit on 131,072 tokens to write a

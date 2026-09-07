@@ -21,7 +21,10 @@ class ModelResolverTest {
     private val models = mapOf(
         "openrouter" to mapOf(
             "anthropic/claude-haiku-4.5" to ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.20),
-            "anthropic/claude-sonnet-4" to ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00)
+            "anthropic/claude-sonnet-4" to ModelCost(type = ModelType.LLM, inputCostPerMtok = 3.00),
+            "anthropic/claude-opus-5" to ModelCost(
+                type = ModelType.LLM, inputCostPerMtok = 5.00, selectable = false
+            )
         ),
         "ollama" to mapOf(
             "llama3" to ModelCost(type = ModelType.LLM)
@@ -80,6 +83,23 @@ class ModelResolverTest {
 
         assertEquals("anthropic/claude-haiku-4.5", filterModel.model)
         assertEquals("llama3", composeModel.model)
+    }
+
+    @Test
+    fun `resolves the cost of an unselectable model`() {
+        // A model is marked unselectable when its endpoints can no longer serve a request, but its
+        // pricing has to keep resolving: an episode already generated on it would otherwise lose its
+        // cost. Withdrawing the choice must not withdraw the price.
+        val podcastOnWithheldModel = podcast.copy(
+            llmModels = LlmModelOverrides(
+                mapOf("filter" to ModelReference("openrouter", "anthropic/claude-opus-5"))
+            )
+        )
+
+        val result = resolver.resolve(podcastOnWithheldModel, PipelineStage.FILTER)
+
+        assertEquals("anthropic/claude-opus-5", result.model)
+        assertEquals(5.00, result.cost?.inputCostPerMtok)
     }
 
     @Test
