@@ -7,6 +7,7 @@ import io.github.resilience4j.retry.RetryRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
@@ -26,7 +27,7 @@ private const val DEDUP_TOKENS_PER_CANDIDATE = 90
 private const val DEDUP_MIN_OUTPUT_TOKENS = 8000
 
 // Hard ceiling, so a degenerating response (a repetition loop emitting near-duplicate clusters
-// indefinitely) is still cut off in seconds rather than streaming for minutes. Far inside the
+// indefinitely) is still cut off rather than streaming until the request timeout. Far inside the
 // dedup model's 1M-token context window.
 private const val DEDUP_MAX_OUTPUT_TOKENS = 32000
 
@@ -34,6 +35,10 @@ private const val DEDUP_MAX_OUTPUT_TOKENS = 32000
 // entire post in the title field (observed up to ~5000 chars). Truncate so one outlier can't
 // dominate the prompt; the leading words are enough to recognise the topic.
 private const val HISTORICAL_TITLE_MAX_CHARS = 150
+
+// Spring AI carries OpenAI's finish reason through as the enum's name, so a normal completion
+// reports "STOP" and a response cut off at maxTokens reports "LENGTH".
+private const val NORMAL_FINISH_REASON = "STOP"
 
 data class DedupCandidate(
     val id: Long,
@@ -93,6 +98,7 @@ class TopicDedupFilter(
         val chatClient = chatClientFactory.createForModel(userId, modelDef)
         val prompt = buildPrompt(candidates, historicalArticles)
 
+        val outputTokenBudget = dedupOutputTokenBudget(candidates.size)
         val retry = retryRegistry.retry("topic-dedup")
         val (result, elapsed) = measureTimedValue {
             retry.executeSuspendFunction {
@@ -100,22 +106,25 @@ class TopicDedupFilter(
                     chatClient.prompt()
                         .user(prompt)
                         // maxTokens caps a degenerating response (e.g. a repetition loop emitting
-                        // hundreds of near-duplicate clusters) so it fails in seconds instead of
-                        // streaming for minutes before truncating mid-JSON. The budget scales with
-                        // the candidate count so a legitimate large response still fits.
+                        // hundreds of near-duplicate clusters) so it is cut off instead of streaming
+                        // until the request timeout. The budget scales with the candidate count so a
+                        // legitimate large response still fits.
                         .options(
                             OpenAiChatOptions.builder()
                                 .model(modelDef.model)
                                 .temperature(0.3)
-                                .maxTokens(dedupOutputTokenBudget(candidates.size))
-                                // deepseek-v4-flash reasons by default on OpenRouter; its hidden reasoning
-                                // tokens count against maxTokens and can consume the whole budget, leaving
-                                // no room for the actual JSON output. Disable it explicitly.
+                                .maxTokens(outputTokenBudget)
+                                // Stated, not left to the model: this model reasons at high effort
+                                // by default, and those tokens are charged against maxTokens, which
+                                // consumed the whole budget and returned empty content. Measured at
+                                // 0 reasoning tokens with an explicit effort of "none".
                                 .withRoutingAndReasoning(modelDef.provider, OpenRouterRouting.NO_REASONING)
                         )
                         .call()
                         .chatResponse()
                 }
+
+                logAbnormalFinishReason(chatResponse, outputTokenBudget)
 
                 val raw = chatResponse?.result?.output?.text?.takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Empty response from LLM for topic dedup filter")
@@ -139,8 +148,36 @@ class TopicDedupFilter(
     }
 
     /**
+     * Warns when the response did not stop normally, naming [outputTokenBudget].
+     *
+     * A response the model cut off at the cap and a transport fault are otherwise indistinguishable:
+     * both surface as `OpenAIInvalidDataException("Error reading response")`, which is why episode
+     * 200's five failed attempts gave no sign that the budget was the cause. The finish reason is
+     * the field that separates them, and it is only worth logging when it is not a normal stop.
+     */
+    private fun logAbnormalFinishReason(chatResponse: ChatResponse?, outputTokenBudget: Int) {
+        val finishReason = abnormalFinishReason(chatResponse) ?: return
+
+        log.warn("[Dedup] Response finished with '{}' against an output budget of {} tokens",
+            finishReason, outputTokenBudget)
+    }
+
+    /**
+     * [chatResponse]'s finish reason when it is worth warning about, else null.
+     *
+     * A normal stop is not worth warning about, and neither is a missing one: a provider that
+     * reports nothing tells us nothing about the budget, and warning on every such call would bury
+     * the `LENGTH` case this exists to surface.
+     */
+    internal fun abnormalFinishReason(chatResponse: ChatResponse?): String? =
+        chatResponse?.result?.metadata?.finishReason
+            ?.takeIf { it.isNotBlank() && !it.equals(NORMAL_FINISH_REASON, ignoreCase = true) }
+
+    /**
      * Output-token budget for a dedup call over [candidateCount] candidates, clamped to
      * [DEDUP_MIN_OUTPUT_TOKENS]..[DEDUP_MAX_OUTPUT_TOKENS].
+     *
+     * No headroom is added for reasoning: the stage asks for none explicitly and measures none.
      */
     internal fun dedupOutputTokenBudget(candidateCount: Int): Int =
         (candidateCount * DEDUP_TOKENS_PER_CANDIDATE)

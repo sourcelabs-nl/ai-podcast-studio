@@ -104,13 +104,24 @@ class OpenRouterRoutingTest {
     }
 
     @Test
-    fun `an effort of none sends no reasoning block at all`() {
+    fun `an effort of none is stated explicitly rather than omitted`() {
         val options = buildComposeOptions(model("openrouter"), podcast(), appProperties(effort = "none")).build()
 
-        // require_parameters restricts routing to endpoints supporting every parameter sent, so
-        // asking a deliberately non-reasoning model to acknowledge one risks leaving no endpoint.
-        assertNull(reasoningBlock(options.extraBody))
+        // Omitting the block does not mean "no reasoning" — OpenRouter infers the model's own
+        // default, and the dedup model's is high effort. Measured on the live API: no block cost 47
+        // reasoning tokens, effort "none" cost 0.
+        assertEquals("none", reasoningBlock(options.extraBody)?.get("effort"))
         assertEquals(true, providerBlock(options.extraBody)?.get("require_parameters"))
+    }
+
+    @Test
+    fun `the structured stages suppress reasoning alongside the floor`() {
+        // The stages that pass NO_REASONING must still carry the provider floor, not replace it.
+        val extraBody = OpenRouterRouting.extraBodyFor("openrouter", OpenRouterRouting.NO_REASONING)
+
+        assertEquals("none", reasoningBlock(extraBody)?.get("effort"))
+        assertEquals(true, reasoningBlock(extraBody)?.get("exclude"))
+        assertEquals(true, providerBlock(extraBody)?.get("require_parameters"))
     }
 
     @Test

@@ -10,6 +10,10 @@ import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.testRetryRegistry
 import io.mockk.mockk
+import org.springframework.ai.chat.messages.AssistantMessage
+import org.springframework.ai.chat.metadata.ChatGenerationMetadata
+import org.springframework.ai.chat.model.ChatResponse
+import org.springframework.ai.chat.model.Generation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -213,6 +217,38 @@ class TopicDedupFilterTest {
     @Test
     fun `budget is capped at the ceiling for a huge candidate set`() {
         assertEquals(32000, filter.dedupOutputTokenBudget(900))
+    }
+
+    // --- Finish reason -------------------------------------------------------------------------
+
+    private fun responseFinishing(finishReason: String?) = ChatResponse(
+        listOf(
+            Generation(
+                AssistantMessage("{}"),
+                ChatGenerationMetadata.builder().finishReason(finishReason).build()
+            )
+        )
+    )
+
+    @Test
+    fun `a response truncated at the token cap is reported`() {
+        // The signature that identified episode 200's cause: the cap was reached, not the network.
+        assertEquals("LENGTH", filter.abnormalFinishReason(responseFinishing("LENGTH")))
+        assertEquals("CONTENT_FILTER", filter.abnormalFinishReason(responseFinishing("CONTENT_FILTER")))
+    }
+
+    @Test
+    fun `a normal stop is not reported`() {
+        assertNull(filter.abnormalFinishReason(responseFinishing("STOP")))
+        assertNull(filter.abnormalFinishReason(responseFinishing("stop")))
+    }
+
+    @Test
+    fun `a missing finish reason is not reported`() {
+        // A provider that reports nothing tells us nothing; warning here would bury the LENGTH case.
+        assertNull(filter.abnormalFinishReason(responseFinishing(null)))
+        assertNull(filter.abnormalFinishReason(responseFinishing(" ")))
+        assertNull(filter.abnormalFinishReason(null))
     }
 
     // --- Salvaging a truncated response --------------------------------------------------------

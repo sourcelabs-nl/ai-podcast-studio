@@ -94,10 +94,15 @@ data class LlmProperties(
 
 /**
  * Request timeout per pipeline stage. One blanket value cannot serve them all: per-article scoring
- * returns in seconds and dedup has peaked at 3m06s, while composition over a large article set with
+ * returns in seconds and dedup in 21s to 1m44s, while composition over a large article set with
  * research and history tool calls has been observed from 1m03s up to 18m11s. A single ceiling sized
  * for compose let one hung scoring call stall a whole generation for 13 minutes; a ceiling sized for
  * scoring would fail a real compose run. Recap resolves the filter model and so takes [filter].
+ *
+ * Each is a hard wall-clock deadline for the whole call, not an idle timeout: `openai-java`'s
+ * client-level timeout maps onto okhttp's `callTimeout`, which covers connect, write and the entire
+ * response body read and is not reset by arriving bytes. Streaming a response would not extend it,
+ * and Spring AI exposes no per-call override, so this is the only lever.
  */
 data class StageTimeouts(
     val filter: Duration = Duration.ofMinutes(3),
@@ -112,7 +117,7 @@ data class ScoringProperties(
 /**
  * Bounds the historical context sent to the topic dedup filter. Dedup only needs recent topic
  * recall to flag continuations, so we cap how many historical articles (most recent first) are
- * embedded in the prompt — keeping the request small enough for a cheap, non-reasoning model.
+ * embedded in the prompt — keeping the request small enough for a cheap model.
  */
 data class DedupProperties(
     val maxHistoricalArticles: Int = 120

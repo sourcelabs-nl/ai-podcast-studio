@@ -28,12 +28,15 @@ import org.springframework.ai.openai.OpenAiChatOptions
  * instead. Sending the flat field here as well would be worse than useless: combined with
  * `require_parameters` it is an unsupported parameter and could steer routing on a field the
  * provider never reads.
+ *
+ * Every effort is stated, including "none". See [extraBodyFor] for why omitting the block is not the
+ * same as asking for no reasoning, and what it cost.
  */
 object OpenRouterRouting {
 
     const val PROVIDER = "openrouter"
 
-    /** No reasoning wanted; see [extraBodyFor] for why this sends no `reasoning` block at all. */
+    /** No reasoning wanted. Sent as a real `effort: "none"`; see [extraBodyFor]. */
     const val NO_REASONING = "none"
 
     /** Anything below fp8 loses too much precision to follow a long, format-sensitive prompt. */
@@ -43,11 +46,20 @@ object OpenRouterRouting {
      * Extra body for a request to [provider], or an empty map when the provider is not OpenRouter —
      * neither block means anything to the direct `openai` provider.
      *
-     * A `reasoning` block is sent only when reasoning is actually wanted. `require_parameters`
-     * restricts routing to endpoints that support every parameter supplied, so asking a
-     * deliberately non-reasoning model (the filter and dedup stages run on `deepseek-v4-flash`) to
-     * acknowledge a reasoning parameter risks leaving no eligible endpoint at all. Those stages get
-     * their non-reasoning behaviour from the model they run on, not from a flag.
+     * A `reasoning` block is sent whenever an effort is given, [NO_REASONING] included. Omitting the
+     * block does not mean "no reasoning": OpenRouter treats an absent parameter as inferred from the
+     * model's own default, and the dedup and filter model reports `default_enabled: true` at
+     * `default_effort: "high"`. Measured against the live API on that model, omitting the block cost
+     * 47 reasoning tokens on a one-line task, `effort: "low"` cost 22, and `effort: "none"` cost
+     * none. Sending nothing therefore bought high-effort reasoning, whose tokens are charged against
+     * `maxTokens`; on a real dedup prompt that consumed the entire output budget and returned empty
+     * content, failing episode 200 five times over.
+     *
+     * `effort: "none"` is not universally available: an endpoint that reports `mandatory: true`
+     * rejects it outright, as `z-ai/glm-5.3` does with *"Reasoning is mandatory for this endpoint and
+     * cannot be disabled"* (HTTP 400). That is deliberately left to surface. Configuring an effort
+     * the resolved model cannot honour is a configuration error, and a loud 400 says so, where
+     * silently sending nothing bought the model's high-effort default instead.
      *
      * `exclude` keeps the reasoning text out of the response. The tokens are billed either way, and
      * the client cannot read it regardless: reasoning comes back in `message.reasoning`, which
@@ -64,7 +76,7 @@ object OpenRouterRouting {
                 "require_parameters" to true,
             )
         )
-        if (reasoningEffort != null && reasoningEffort != NO_REASONING) {
+        if (reasoningEffort != null) {
             body["reasoning"] = mapOf(
                 "effort" to reasoningEffort,
                 "exclude" to true,
