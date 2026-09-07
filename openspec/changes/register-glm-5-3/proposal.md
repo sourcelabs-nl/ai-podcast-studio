@@ -4,7 +4,7 @@ Z.ai released GLM-5.3 and OpenRouter now serves it. The registry only knows GLM-
 
 ## What Changes
 
-- Add `z-ai/glm-5.3` to the `app.models.openrouter` registry as an LLM entry priced at 1.40 input and 4.40 output USD per million tokens, verified against the OpenRouter model and pricing pages rather than estimated.
+- Add `z-ai/glm-5.3` to the `app.models.openrouter` registry as an LLM entry priced at 1.12 input and 3.52 output USD per million tokens, being the cheapest endpoint that clears the routing quantization floor, verified against OpenRouter's model and endpoint APIs rather than estimated.
 - `z-ai/glm-5.2` stays registered, and the configured `compose` default stays on GLM-5.2. This change makes GLM-5.3 selectable; it does not switch any podcast onto it.
 
 ## Capabilities
