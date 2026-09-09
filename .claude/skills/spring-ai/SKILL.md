@@ -56,18 +56,23 @@ Spring AI 2.0 ships purpose-built structured-output reliability. Prefer it over 
   ```
 - `.entity(...)`/`.responseEntity(...)` are `.call()`-only (see SA1).
 - **Jackson**: this project is on Jackson 3.x (`tools.jackson.*`) and configures Jackson via `spring.jackson.*` in `application.yaml`, not programmatically. When a converter needs a mapper (as `BeanOutputConverter(Type::class.java, jsonMapper)` does today), **inject the Spring-managed `tools.jackson.databind.json.JsonMapper` bean** — never `new` a mapper. `CoveredTopicsExtractor` currently builds its own `jacksonObjectMapper()`; migrate it to the injected bean when touched.
-- When extending or fixing these services, migrate toward the native dials (`validateSchema()`, injected `JsonMapper`) rather than adding more manual retry plumbing.
+- When extending or fixing these services, migrate toward the native dials (`validateSchema()`, injected `JsonMapper`) rather than adding more manual retry plumbing. Three constraints decide whether that migration is actually available for a given stage:
+  - **Retry nesting is multiplicative.** `StructuredOutputValidationAdvisor` re-issues inside the call and defaults to `maxRepeatAttempts = 3`, which nests inside that stage's Resilience4j instance (`app.resilience.retry.instances.<stage>`, itself 3 attempts on `external-api`). Left at the defaults that is up to 9 model calls, each bounded only by the stage timeout (5m for dedup, 20m for compose). Whenever an advisor re-issues inside the call, lower the outer `max-attempts` to match, the way compose already does at 2 for `RoleTagValidationAdvisor` (`application.yaml`).
+  - **Pass the injected `JsonMapper` explicitly.** The advisor's builder defaults to `JacksonUtils.getDefaultJsonMapper()`, not the Spring-managed bean, so taking the default silently violates SB6.
+  - **Schema validation cannot express a partial result that is deliberately good enough.** `TopicDedupFilter` accepts a truncated response once it still selects `app.compose.max-articles` articles, because the discarded tail provably could not change the episode. Validation would reject it and buy a full extra dedup call (16s to 1m44s) for nothing. A stage with a salvage rule of that kind keeps its hand-rolled parse; a stage without one does not.
+- **A retry must never re-send the byte-identical prompt.** `CachingChatModel` keys on `USER`+`SYSTEM` prompt text and refuses only blank completions, so an unparseable-but-non-blank answer is cached and every identical retry replays it in milliseconds without reaching the model. This has cost two incidents: nine permanently unscorable articles, and episode 202 burning three dedup attempts at four milliseconds each. Where the native `validateSchema()` is used this is handled for you, since the advisor appends the validation error to the `UserMessage` and so changes the key. Where a stage still owns its retry loop, escalate the prompt per attempt as `ArticleScoreSummarizer.promptForAttempt` and `TopicDedupFilter.promptForAttempt` do: unchanged on attempt 1, then a correction naming the attempt number and restating the wanted shape.
 
 ---
 
-## Rule SA4: With reasoning ON, thinking must never pollute parsed content
+## Rule SA4: Never assume a parsed response is pure JSON
 
-If a stage is pointed at a reasoning-capable model (SA2):
+A model answers off-schema whether or not it reasons. Reasoning is one source of pollution; plain instruction drift is another, and turning reasoning off does not buy you a clean parse. Episode 202's dedup call ran with an explicit `effort: "none"`, measured at 0 reasoning tokens, and still returned complete, valid JSON behind a `**Output:**` lead-in, inside a ```json fence, as a bare array instead of the asked-for object.
 
-- Rely on the non-streaming `.call()` path so thinking is resolved server-side and stays out of `content`.
-- Keep any defensive extraction (delimited-block extraction like `TopicOrderExtractor`/`CoveredTopicsExtractor`, or a lenient converter) so leading prose/`<think>` text is peeled before parse.
-- Back structured parses with `validateSchema()` (SA3) so a residual thinking-leak triggers a self-correcting retry instead of a hard failure.
-- Never assume `chatResponse.result.output.text` is pure JSON — extract, then validate.
+- Never assume `chatResponse.result.output.text` is pure JSON. Extract, then validate.
+- Rely on the non-streaming `.call()` path so any thinking is resolved server-side and stays out of `content` (SA2, SA1).
+- Keep defensive extraction on every parsed stage, not only reasoning-capable ones: delimited-block extraction as in `TopicOrderExtractor`/`CoveredTopicsExtractor`, or a lenient parse as in `TopicDedupFilter.parseEitherShape`, which reads a single JSON value starting at the first brace or bracket so a lead-in, a closing fence and trailing chatter are all ignored. Locate only the start of the payload, never its end: scanning for the last closer lets a stray bracket in a sign-off truncate the parse, and on a genuinely truncated response the last closer sits inside the element that was cut off.
+- Tolerate the shapes a model actually returns (an object or the bare array inside it) where tolerating them is free. A shape the parser can accept costs nothing; a shape it rejects costs a full retry.
+- Back structured parses with `validateSchema()` (SA3) where that rule's constraints allow it, so a residual leak triggers a self-correcting retry instead of a hard failure.
 
 ---
 

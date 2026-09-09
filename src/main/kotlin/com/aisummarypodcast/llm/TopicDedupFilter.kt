@@ -8,11 +8,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.chat.model.ChatResponse
-import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
 import tools.jackson.core.JacksonException
 import tools.jackson.core.JsonToken
+import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.json.JsonMapper
 import kotlin.time.measureTimedValue
 
@@ -101,10 +101,15 @@ class TopicDedupFilter(
         val outputTokenBudget = dedupOutputTokenBudget(candidates.size)
         val retry = retryRegistry.retry("topic-dedup")
         val (result, elapsed) = measureTimedValue {
+            // Resilience4j owns the attempt count and backoff. The attempt number is still tracked
+            // here because each retry escalates the prompt with a "raw JSON only" correction, which
+            // the retry API does not expose.
+            var attempt = 0
             retry.executeSuspendFunction {
+                attempt++
                 val chatResponse = withContext(Dispatchers.IO) {
                     chatClient.prompt()
-                        .user(prompt)
+                        .user(promptForAttempt(prompt, attempt))
                         // maxTokens caps a degenerating response (e.g. a repetition loop emitting
                         // hundreds of near-duplicate clusters) so it is cut off instead of streaming
                         // until the request timeout. The budget scales with the candidate count so a
@@ -196,9 +201,9 @@ class TopicDedupFilter(
      * caps the compose input to that same number and would have dropped the surplus anyway. Below it
      * the truncation really did cost material, so the caller's retry gets a turn instead.
      */
-    private fun parseOrSalvage(raw: String, candidates: List<Article>): DedupResult {
+    internal fun parseOrSalvage(raw: String, candidates: List<Article>): DedupResult {
         val strict = try {
-            BeanOutputConverter(DedupResult::class.java, jsonMapper).convert(raw)
+            parseEitherShape(raw)
         } catch (e: JacksonException) {
             log.warn("[Dedup] Response did not parse ({}) — attempting to salvage the complete clusters", e.message)
             null
@@ -210,7 +215,7 @@ class TopicDedupFilter(
         val required = appProperties.compose.maxArticles
         if (selected < required) {
             throw IllegalStateException(
-                "Truncated dedup response salvaged only $selected selectable article(s) from " +
+                "Unparseable dedup response salvaged only $selected selectable article(s) from " +
                     "${salvaged.size} cluster(s), below the $required needed to compose"
             )
         }
@@ -222,17 +227,54 @@ class TopicDedupFilter(
     }
 
     /**
-     * Recovers the complete [DedupCluster] elements from a `clusters` array the model cut off
+     * Parses the JSON inside [raw] in either shape the model answers with: the `{ "clusters": [...] }`
+     * object the prompt asks for, or the bare cluster array some models emit instead. Null when [raw]
+     * holds no JSON at all.
+     *
+     * Episode 202's dedup response was complete, valid JSON — and still cost the episode, because it
+     * arrived as `**Output:**` followed by a ```json fence. Reading from the first brace or bracket
+     * ignores the lead-in, and reading a single value stops at the end of that value, so the closing
+     * fence and any trailing chatter are ignored without having to locate where they begin.
+     */
+    private fun parseEitherShape(raw: String): DedupResult? {
+        val start = jsonStart(raw) ?: return null
+
+        return jsonMapper.createParser(raw.substring(start)).use { parser ->
+            if (parser.nextToken() == JsonToken.START_ARRAY) {
+                DedupResult(parser.readValueAs(object : TypeReference<List<DedupCluster>>() {}))
+            } else {
+                parser.readValueAs(DedupResult::class.java)
+            }
+        }
+    }
+
+    /** Index of the first brace or bracket in [raw], or null when it holds no JSON at all. */
+    private fun jsonStart(raw: String): Int? {
+        val objectStart = raw.indexOf('{')
+        val arrayStart = raw.indexOf('[')
+        return when {
+            objectStart < 0 && arrayStart < 0 -> null
+            objectStart < 0 -> arrayStart
+            arrayStart < 0 -> objectStart
+            else -> minOf(objectStart, arrayStart)
+        }
+    }
+
+    /**
+     * Recovers the complete [DedupCluster] elements from a cluster array the model cut off
      * mid-element, by reading the array one element at a time and stopping where the JSON runs out.
      */
     internal fun salvageClusters(raw: String): List<DedupCluster> {
-        val start = raw.indexOf('{')
-        if (start < 0) return emptyList()
+        // Only the lead-in is dropped, never the tail: a truncated response's last closer sits
+        // inside the element it was cut off in, so trimming there would lose the complete elements
+        // before it. Reading from the start lets the parser run out where the JSON does.
+        val start = jsonStart(raw) ?: return emptyList()
 
         val clusters = mutableListOf<DedupCluster>()
         try {
             jsonMapper.createParser(raw.substring(start)).use { parser ->
-                var inClusters = false
+                // A bare array is the cluster array itself; an object carries it under "clusters".
+                var inClusters = parser.nextToken() == JsonToken.START_ARRAY
                 while (parser.nextToken() != null) {
                     if (!inClusters) {
                         val atClusters = parser.currentToken() == JsonToken.PROPERTY_NAME &&
@@ -291,6 +333,23 @@ class TopicDedupFilter(
 
         return DedupSelection(articles, duplicateSelections)
     }
+
+    /**
+     * Returns the prompt to send on [attempt], appending a correction from the second attempt on.
+     *
+     * A retry must never send the byte-identical prompt. [CachingChatModel] keys on prompt text, so
+     * a model that wrapped its JSON in prose has that unparseable answer cached: every retry would
+     * replay it from cache and fail identically in milliseconds, which is how episode 202 burned
+     * three attempts in four milliseconds each. Naming the attempt keeps every retry a real call,
+     * and telling the model what went wrong makes it likelier to answer in the asked-for shape.
+     */
+    internal fun promptForAttempt(prompt: String, attempt: Int): String =
+        if (attempt <= 1) prompt else "$prompt\n\n${jsonOnlyCorrection(attempt)}"
+
+    private fun jsonOnlyCorrection(attempt: Int): String =
+        "Retry $attempt: your previous response could not be parsed. Respond with the raw JSON " +
+            "object only, in the shape { \"clusters\": [ ... ] }. Do not include reasoning, " +
+            "commentary, or markdown code fences, and do not write anything before or after the JSON."
 
     internal fun buildPrompt(candidates: List<Article>, historicalArticles: List<Article>): String {
         val candidateBlock = candidates.mapIndexed { _, article ->

@@ -16,6 +16,7 @@ import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.model.Generation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
@@ -304,6 +305,20 @@ class TopicDedupFilterTest {
     }
 
     @Test
+    fun `salvages the clusters from a bare array cut off mid-element`() {
+        val truncated = """
+            [
+              {"topic":"Kept","status":"NEW","selectedArticleIds":[1,2]},
+              {"topic":"Cut off he
+        """.trimIndent()
+
+        val clusters = filter.salvageClusters(truncated)
+
+        assertEquals(1, clusters.size)
+        assertEquals("Kept", clusters[0].topic)
+    }
+
+    @Test
     fun `salvage drops an element truncated inside its id list`() {
         val truncated = """{"clusters":[{"topic":"Kept","status":"NEW","selectedArticleIds":[1,2]},{"topic":"Lost","status":"NEW","selectedArticleIds":[3,"""
 
@@ -311,5 +326,82 @@ class TopicDedupFilterTest {
 
         assertEquals(1, clusters.size)
         assertEquals("Kept", clusters[0].topic)
+    }
+
+    // --- Parsing an off-schema response ---------------------------------------------------------
+
+    @Test
+    fun `parses a response wrapped in prose and a json fence`() {
+        // Episode 202's shape: complete, valid JSON behind a prose lead-in and a code fence.
+        val raw = """
+             **Output:**
+
+            ```json
+            {"clusters":[{"topic":"A","status":"NEW","selectedArticleIds":[1]}]}
+            ```
+        """.trimIndent()
+
+        val result = filter.parseOrSalvage(raw, listOf(article(1, "One")))
+
+        assertEquals(listOf("A"), result.clusters.map { it.topic })
+    }
+
+    @Test
+    fun `parses a bare cluster array instead of the asked-for object`() {
+        val raw = """[{"topic":"A","status":"NEW","selectedArticleIds":[1]},{"topic":"B","status":"NEW","selectedArticleIds":[2]}]"""
+
+        val result = filter.parseOrSalvage(raw, listOf(article(1, "One"), article(2, "Two")))
+
+        assertEquals(listOf("A", "B"), result.clusters.map { it.topic })
+    }
+
+    @Test
+    fun `parses the plain object the prompt asks for`() {
+        val raw = """{"clusters":[{"topic":"A","status":"NEW","selectedArticleIds":[1]}]}"""
+
+        val result = filter.parseOrSalvage(raw, listOf(article(1, "One")))
+
+        assertEquals(listOf("A"), result.clusters.map { it.topic })
+    }
+
+    @Test
+    fun `a response holding no JSON at all fails rather than composing on nothing`() {
+        assertThrows(IllegalStateException::class.java) {
+            filter.parseOrSalvage("I could not complete that request.", listOf(article(1, "One")))
+        }
+    }
+
+    @Test
+    fun `parses a response with chatter after the JSON`() {
+        // A stray bracket in the sign-off must not be mistaken for the end of the payload.
+        val raw = """
+            {"clusters":[{"topic":"A","status":"NEW","selectedArticleIds":[1]}]}
+
+            Let me know if you need anything else]
+        """.trimIndent()
+
+        val result = filter.parseOrSalvage(raw, listOf(article(1, "One")))
+
+        assertEquals(listOf("A"), result.clusters.map { it.topic })
+    }
+
+    // --- Retry prompts --------------------------------------------------------------------------
+
+    @Test
+    fun `the first attempt sends the prompt unchanged`() {
+        assertEquals("PROMPT", filter.promptForAttempt("PROMPT", 1))
+    }
+
+    @Test
+    fun `a retry escalates the prompt so it is never replayed from cache`() {
+        // CachingChatModel keys on prompt text: a byte-identical retry would replay the cached
+        // unparseable answer instead of calling the model.
+        val second = filter.promptForAttempt("PROMPT", 2)
+        val third = filter.promptForAttempt("PROMPT", 3)
+
+        assertTrue(second.startsWith("PROMPT"))
+        assertTrue(second.contains("Retry 2"))
+        assertTrue(second.contains("clusters"))
+        assertTrue(third != second)
     }
 }
