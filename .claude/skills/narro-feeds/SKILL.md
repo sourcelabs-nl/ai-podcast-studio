@@ -32,7 +32,11 @@ click, not just automation. So a profile lives in exactly one feed while at the 
 reorganising means **moving**, never copying. Do not promise "seat-neutral, just drag it around" —
 that was wrong.
 
-Removing from a feed does free a seat immediately (`19/20 — 1 unassigned`).
+Removing from a feed does free a seat immediately (`19/20 — 1 unassigned`). A `DELETE` unassigns
+the profile rather than unfollowing it: the record stays in `GET /api/profiles` with **no `feed_id`
+key at all**, so `profiles.length` is *not* the seat count and will look like the delete failed.
+Count only the records that carry a `feed_id`, and re-assign later with a plain `POST /api/profiles`
+without having to re-add the account.
 
 ## API (what actually works)
 
