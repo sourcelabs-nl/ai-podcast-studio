@@ -120,6 +120,15 @@ app:
         type: llm
         input-cost-per-mtok: 1.12
         output-cost-per-mtok: 3.52
+      # 5 of 8 endpoints eligible; a live probe with the floor and the account's provider guardrails
+      # applied routed to Novita, whose price this is. DeepSeek's own endpoint is cheaper overall at
+      # $0.15/$0.60 but reports quantization "unknown", so the floor rejects it, as it does Fireworks
+      # (unknown) and Morph (fp4). Only a fallback, like the entries above: OpenRouter reports the
+      # real cost per call and the pipeline uses that wherever it is present.
+      "[deepseek/deepseek-v4.1-flash]":
+        type: llm
+        input-cost-per-mtok: 0.30
+        output-cost-per-mtok: 1.20
     openai:
       "[tts-1-hd]":
         type: tts
@@ -145,25 +154,29 @@ app:
     # endpoints found". The previous filter default openai/gpt-5.4-nano (0 of 4 endpoints eligible)
     # was unroutable for that reason.
     defaults:
+      # Every stage runs DeepSeek v4.1 Flash. It is dearer per token than v4-flash-0731 ($0.30/$1.20
+      # against $0.05/$0.16), which on real episode traffic works out at roughly a cent more per
+      # episode across scoring, dedup and recap, largely paid back by compose leaving GLM-5.3.
       filter:
         provider: openrouter
-        model: deepseek/deepseek-v4-flash-0731
+        model: deepseek/deepseek-v4.1-flash
       # Dedup clusters today's candidates against recent (title-only, capped) historical articles
-      # and emits structured JSON. deepseek-v4-flash reasons by default on OpenRouter (its model
-      # metadata reports default_enabled: true at default_effort: high), and those tokens are charged
-      # against the output cap, so TopicDedupFilter states an explicit effort of "none" — measured at
-      # 0 reasoning tokens, where sending no reasoning block at all cost 47.
+      # and emits structured JSON. Reasoning tokens are charged against the output cap, and a model
+      # left to its own default reasoning consumed that entire budget and returned empty content,
+      # failing episode 200 five times over. Both this stage and scoring therefore state an explicit
+      # effort of "none"; v4.1 Flash honours it, measured at 0 reasoning tokens.
       dedup:
         provider: openrouter
-        model: deepseek/deepseek-v4-flash-0731
-      # GLM-5.3 over v4-pro-0813 and glm-5.3-flash on Artificial Analysis: intelligence 48.6 vs 42.1
-      # and 46.2, coding 74.8 vs 68.8 and 71.5, agentic 53.6 vs 42.5 and 51.5. It is the strongest
-      # model that clears the floor without reaching vendor-native pricing (gpt-6-astra and
-      # claude-fable-5.1 are $10/$50). glm-5.3-flash would cut output cost ~14x for roughly 5% lower
-      # benchmarks, but those indices measure reasoning and code, not the prose this stage writes.
+        model: deepseek/deepseek-v4.1-flash
+      # DeepSeek v4.1 Flash writes better prose here than GLM-5.3, which held this stage before it.
+      # It is also cheaper through the routing floor ($0.30/$1.20 against $1.12/$3.52) and carries a
+      # 1M context on four of its five eligible endpoints, so a large article set with tool calls has
+      # room. Compose is judged on prose, not on the reasoning and coding indices that ranked
+      # GLM-5.3 highest. Probed live at the stage's own medium effort: it honours the reasoning block
+      # (58 reasoning tokens, not a runaway default) and returns a proper finish_reason.
       compose:
         provider: openrouter
-        model: z-ai/glm-5.3
+        model: deepseek/deepseek-v4.1-flash
     max-cost-cents: 200
     # Request timeout per stage. One blanket value cannot serve them all: scoring returns in seconds
     # and dedup in 21s-1m44s, while compose over a large article set with tool calls has run from

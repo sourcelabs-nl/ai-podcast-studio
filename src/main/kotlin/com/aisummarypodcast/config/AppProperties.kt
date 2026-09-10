@@ -181,10 +181,13 @@ data class LlmModelOverrides(
  * exactly that reason.
  */
 data class StageDefaults(
-    val filter: ModelReference = ModelReference("openrouter", "deepseek/deepseek-v4-flash-0731"),
-    val dedup: ModelReference = ModelReference("openrouter", "deepseek/deepseek-v4-flash-0731"),
-    val compose: ModelReference = ModelReference("openrouter", "z-ai/glm-5.3")
+    val filter: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL),
+    val dedup: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL),
+    val compose: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL)
 )
+
+/** The model every stage defaults to. Kept in step with `app.llm.defaults` in `application.yaml`. */
+private const val DEFAULT_STAGE_MODEL = "deepseek/deepseek-v4.1-flash"
 
 data class BriefingProperties(
     val targetWords: Int = 1500,
