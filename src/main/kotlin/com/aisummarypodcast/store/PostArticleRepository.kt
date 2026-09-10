@@ -3,7 +3,7 @@ package com.aisummarypodcast.store
 import org.springframework.data.jdbc.repository.query.Query
 import org.springframework.data.repository.CrudRepository
 
-interface PostArticleRepository : CrudRepository<PostArticle, Long> {
+interface PostArticleRepository : CrudRepository<PostArticle, Long>, PostArticleRepositoryCustom {
 
     fun findByArticleId(articleId: Long): List<PostArticle>
 

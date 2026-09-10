@@ -60,6 +60,17 @@ class ArticlePostThreadTest {
         postArticleRepository.save(PostArticle(postId = postId, articleId = articleId))
 
     @Test
+    fun `linking the same post twice leaves a single link`() {
+        val article = article("A thread", "h-thread")
+        val post = post("only", "p-only", "2026-08-31T10:00:00Z")
+
+        postArticleRepository.linkIfAbsent(postId = post.id!!, articleId = article.id!!)
+        postArticleRepository.linkIfAbsent(postId = post.id!!, articleId = article.id!!)
+
+        assertEquals(1, postArticleRepository.countByArticleId(article.id!!))
+    }
+
+    @Test
     fun `episode article reports how many posts it was aggregated from`() {
         val thread = article("A 3-post thread", "h-thread")
         val single = article("A lone post", "h-single")

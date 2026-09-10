@@ -19,7 +19,21 @@ data class AppProperties(
     val research: ResearchProperties = ResearchProperties(),
     val compose: ComposeProperties = ComposeProperties(),
     val backup: BackupProperties = BackupProperties(),
-    val previewAudio: PreviewAudioProperties = PreviewAudioProperties()
+    val previewAudio: PreviewAudioProperties = PreviewAudioProperties(),
+    val publishing: PublishingProperties = PublishingProperties()
+)
+
+/**
+ * Publishing behaviour that is not target-specific.
+ *
+ * [minArticles] is the floor below which an episode is not auto-published. An episode built from
+ * almost no articles is the visible symptom of an upstream fault (episode 204 went out with 1 of
+ * 138 candidates after the dedup model returned empty clusters), and auto-publishing it turns a
+ * recoverable internal failure into a public one. The floor applies to automatic publishing only;
+ * a manual publish of the same episode still succeeds, leaving that call with the user.
+ */
+data class PublishingProperties(
+    val minArticles: Int = 5
 )
 
 /**

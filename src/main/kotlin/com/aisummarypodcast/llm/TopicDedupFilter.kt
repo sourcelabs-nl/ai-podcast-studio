@@ -40,6 +40,11 @@ private const val HISTORICAL_TITLE_MAX_CHARS = 150
 // reports "STOP" and a response cut off at maxTokens reports "LENGTH".
 private const val NORMAL_FINISH_REASON = "STOP"
 
+// The one cluster status for which an empty selection is a contract violation. The prompt allows a
+// CONTINUATION to select nothing ("no genuinely new information"); a NEW cluster must keep all its
+// articles, or the three most comprehensive.
+private const val NEW_CLUSTER_STATUS = "NEW"
+
 data class DedupCandidate(
     val id: Long,
     val title: String,
@@ -208,9 +213,9 @@ class TopicDedupFilter(
             log.warn("[Dedup] Response did not parse ({}) — attempting to salvage the complete clusters", e.message)
             null
         }
-        if (strict != null) return strict
+        if (strict != null) return DedupResult(requireUsableClusters(strict.clusters))
 
-        val salvaged = salvageClusters(raw)
+        val salvaged = requireUsableClusters(salvageClusters(raw))
         val selected = selectArticles(salvaged, candidates).articles.size
         val required = appProperties.compose.maxArticles
         if (selected < required) {
@@ -224,6 +229,39 @@ class TopicDedupFilter(
             "the lost tail is beyond the compose cap of {} and cannot change the episode",
             salvaged.size, selected, required)
         return DedupResult(salvaged)
+    }
+
+    /**
+     * Drops the `NEW` clusters that selected nothing, rejecting the whole response when they are the
+     * majority.
+     *
+     * A response can parse cleanly and still be unusable. The prompt permits an empty
+     * `selectedArticleIds` only for a `CONTINUATION` with no new information, so an empty `NEW`
+     * cluster breaks the contract it was asked to follow. Episode 204 was composed from 1 article
+     * because 33 of its 34 `NEW` clusters named a topic and selected nothing, and nothing checked a
+     * parsed response the way a salvaged one is checked.
+     *
+     * Keying on `NEW` clusters is what separates this from the legitimate quiet day, where every
+     * cluster is a `CONTINUATION` selecting nothing and zero articles is the right answer. A
+     * minority of empty `NEW` clusters costs only those topics and is logged rather than failing an
+     * episode over one sloppy cluster; a majority means the response is degenerate and the caller's
+     * retry gets a turn.
+     */
+    internal fun requireUsableClusters(clusters: List<DedupCluster>): List<DedupCluster> {
+        val newClusters = clusters.filter { it.status.equals(NEW_CLUSTER_STATUS, ignoreCase = true) }
+        val emptyNew = newClusters.filter { it.selectedArticleIds.filterNotNull().isEmpty() }
+        if (emptyNew.isEmpty()) return clusters
+
+        if (emptyNew.size * 2 > newClusters.size) {
+            throw IllegalStateException(
+                "Degenerate dedup response: ${emptyNew.size} of ${newClusters.size} NEW cluster(s) " +
+                    "selected no article"
+            )
+        }
+
+        log.warn("[Dedup] Dropped {} of {} NEW cluster(s) that selected no article: {}",
+            emptyNew.size, newClusters.size, emptyNew.joinToString(", ") { it.topic })
+        return clusters - emptyNew.toSet()
     }
 
     /**

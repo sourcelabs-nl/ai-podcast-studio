@@ -190,6 +190,12 @@ app:
     cost-buffer-cents: 5
     tavily:
       cost-per-call-cents: 1
+  publishing:
+    # Floor below which an episode is not auto-published: an episode built from almost no articles
+    # is the symptom of an upstream fault, not a quiet day. It stays GENERATED for manual review.
+    # A manual publish is never blocked by this floor.
+    min-articles: 5
+
   compose:
     rapid-fire-budget-fraction: 0.15
     rapid-fire-max-items: 6

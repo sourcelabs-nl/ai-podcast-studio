@@ -1,5 +1,7 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.config.PublishingProperties
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.podcast.PodcastService
@@ -22,7 +24,11 @@ class AutoPublishListenerTest {
     private val episodeService = mockk<EpisodeService>()
     private val targetService = mockk<PodcastPublicationTargetService>()
     private val publishingService = mockk<PublishingService>()
-    private val listener = AutoPublishListener(podcastService, episodeService, targetService, publishingService)
+    private val appProperties = mockk<AppProperties> {
+        every { publishing } returns PublishingProperties(minArticles = 5)
+    }
+    private val listener =
+        AutoPublishListener(podcastService, episodeService, targetService, publishingService, appProperties)
 
     private val podcast = Podcast(id = "pod1", userId = "user1", name = "Test Pod", topic = "tech")
     private val episode = Episode(
@@ -46,6 +52,7 @@ class AutoPublishListenerTest {
         )
         every { podcastService.findById("pod1") } returns podcast
         every { episodeService.findById(1L) } returns episode
+        every { episodeService.countArticles(1L) } returns 12
         coEvery { publishingService.publish(episode, podcast, "user1", "ftp") } returns publication
 
         listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
@@ -70,5 +77,34 @@ class AutoPublishListenerTest {
         listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
 
         coVerify(exactly = 0) { publishingService.publish(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `does not auto-publish an episode below the article floor`() {
+        every { targetService.list("pod1") } returns listOf(
+            PodcastPublicationTarget(podcastId = "pod1", target = "ftp", enabled = true, autoPublish = true)
+        )
+        every { podcastService.findById("pod1") } returns podcast
+        every { episodeService.findById(1L) } returns episode
+        every { episodeService.countArticles(1L) } returns 1
+
+        listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
+
+        coVerify(exactly = 0) { publishingService.publish(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `auto-publishes an episode exactly at the article floor`() {
+        every { targetService.list("pod1") } returns listOf(
+            PodcastPublicationTarget(podcastId = "pod1", target = "ftp", enabled = true, autoPublish = true)
+        )
+        every { podcastService.findById("pod1") } returns podcast
+        every { episodeService.findById(1L) } returns episode
+        every { episodeService.countArticles(1L) } returns 5
+        coEvery { publishingService.publish(episode, podcast, "user1", "ftp") } returns publication
+
+        listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
+
+        coVerify(timeout = 2000) { publishingService.publish(episode, podcast, "user1", "ftp") }
     }
 }

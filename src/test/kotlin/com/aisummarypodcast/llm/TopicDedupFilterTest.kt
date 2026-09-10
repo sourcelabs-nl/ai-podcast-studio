@@ -404,4 +404,63 @@ class TopicDedupFilterTest {
         assertTrue(second.contains("clusters"))
         assertTrue(third != second)
     }
+
+    // --- Rejecting a degenerate response -------------------------------------------------------
+
+    private fun cluster(topic: String, status: String, ids: List<Int>) =
+        DedupCluster(topic = topic, status = status, selectedArticleIds = ids)
+
+    @Test
+    fun `rejects a response whose NEW clusters mostly select nothing`() {
+        // Episode 204's shape: 34 NEW clusters, 33 of them naming a topic and selecting no article.
+        val clusters = listOf(cluster("Mantis", "NEW", listOf(248317))) +
+            (1..33).map { cluster("Topic $it", "NEW", emptyList()) }
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            filter.requireUsableClusters(clusters)
+        }
+
+        assertTrue(error.message!!.contains("33 of 34"), error.message)
+    }
+
+    @Test
+    fun `drops a minority of empty NEW clusters and keeps the rest`() {
+        val clusters = (1..28).map { cluster("Kept $it", "NEW", listOf(it)) } +
+            listOf(cluster("Dropped A", "NEW", emptyList()), cluster("Dropped B", "NEW", emptyList()))
+
+        val usable = filter.requireUsableClusters(clusters)
+
+        assertEquals(28, usable.size)
+        assertTrue(usable.none { it.topic.startsWith("Dropped") })
+    }
+
+    @Test
+    fun `accepts continuations that select nothing`() {
+        val clusters = (1..5).map { cluster("Covered $it", "CONTINUATION", emptyList()) }
+
+        val usable = filter.requireUsableClusters(clusters)
+
+        assertEquals(5, usable.size)
+    }
+
+    @Test
+    fun `a degenerate response that parses cleanly is still rejected`() {
+        val raw = """{"clusters":[{"topic":"A","status":"NEW","selectedArticleIds":[1]},""" +
+            """{"topic":"B","status":"NEW","selectedArticleIds":[]},""" +
+            """{"topic":"C","status":"NEW","selectedArticleIds":[]}]}"""
+
+        assertThrows(IllegalStateException::class.java) {
+            filter.parseOrSalvage(raw, listOf(article(1, "A")))
+        }
+    }
+
+    @Test
+    fun `a healthy response that parses cleanly is returned unchanged`() {
+        val raw = """{"clusters":[{"topic":"A","status":"NEW","selectedArticleIds":[1]},""" +
+            """{"topic":"B","status":"NEW","selectedArticleIds":[2]}]}"""
+
+        val result = filter.parseOrSalvage(raw, listOf(article(1, "A"), article(2, "B")))
+
+        assertEquals(2, result.clusters.size)
+    }
 }

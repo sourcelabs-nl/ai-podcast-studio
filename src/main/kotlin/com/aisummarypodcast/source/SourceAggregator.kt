@@ -3,10 +3,10 @@ package com.aisummarypodcast.source
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Post
-import com.aisummarypodcast.store.PostArticle
 import com.aisummarypodcast.store.PostArticleRepository
 import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceType
+import com.aisummarypodcast.util.isConstraintViolation
 import com.aisummarypodcast.util.sha256
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -43,20 +43,39 @@ class SourceAggregator(
         }
 
         val savedArticles = articles.map { (article, threadPosts) ->
-            val existing = articleRepository.findBySourceIdAndContentHash(source.id, article.contentHash)
-            val saved = existing ?: articleRepository.save(article)
-            saved to threadPosts
+            saveOrFindArticle(article, source) to threadPosts
         }
 
         for ((article, threadPosts) in savedArticles) {
             for (post in threadPosts) {
-                postArticleRepository.save(PostArticle(postId = post.id!!, articleId = article.id!!))
+                postArticleRepository.linkIfAbsent(postId = post.id!!, articleId = article.id!!)
             }
         }
 
         val result = savedArticles.map { it.first }
         log.info("[Aggregator] Created {} articles from {} posts for source {}", result.size, posts.size, source.id)
         return result
+    }
+
+    /**
+     * Persists an article, returning the row already stored when this content was aggregated
+     * before. The insert can still lose a race on `UNIQUE(source_id, content_hash)` with a
+     * concurrent aggregation of the same posts, so a duplicate is resolved by re-reading rather
+     * than failing the run.
+     *
+     * The violation is recognised by its SQLite error code rather than by catching
+     * `DataIntegrityViolationException`, which SQLite never produces here. See
+     * [isConstraintViolation]. A re-read that finds nothing means the failure was not this race,
+     * so the original exception is rethrown.
+     */
+    private fun saveOrFindArticle(article: Article, source: Source): Article {
+        articleRepository.findBySourceIdAndContentHash(source.id, article.contentHash)?.let { return it }
+        return try {
+            articleRepository.save(article)
+        } catch (e: RuntimeException) {
+            if (!isConstraintViolation(e)) throw e
+            articleRepository.findBySourceIdAndContentHash(source.id, article.contentHash) ?: throw e
+        }
     }
 
     internal fun shouldAggregate(source: Source): Boolean {

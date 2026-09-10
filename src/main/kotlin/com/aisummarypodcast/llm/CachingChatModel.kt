@@ -2,6 +2,7 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.store.LlmCache
 import com.aisummarypodcast.store.LlmCacheRepository
+import com.aisummarypodcast.util.isConstraintViolation
 import org.slf4j.LoggerFactory
 import org.springframework.ai.chat.messages.AssistantMessage
 import org.springframework.ai.chat.messages.MessageType
@@ -12,14 +13,9 @@ import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.model.Generation
 import org.springframework.ai.chat.prompt.ChatOptions
 import org.springframework.ai.chat.prompt.Prompt
-import org.springframework.core.NestedExceptionUtils
 import reactor.core.publisher.Flux
 import java.security.MessageDigest
-import java.sql.SQLException
 import java.time.Instant
-
-/** SQLite's generic constraint-failure code (`SQLITE_CONSTRAINT`). */
-private const val SQLITE_CONSTRAINT_ERROR_CODE = 19
 
 /**
  * Wraps the underlying [ChatModel] with a SQLite-backed cache. Safe under Spring AI
@@ -99,23 +95,12 @@ class CachingChatModel(
             llmCacheRepository.save(entry)
             log.debug("LLM cache miss — stored for model={} hash={}", entry.model, entry.promptHash.take(12))
         } catch (e: RuntimeException) {
-            if (!isUniqueConstraintViolation(e)) throw e
+            if (!isConstraintViolation(e)) throw e
             log.debug(
                 "LLM cache entry for model={} hash={} was already written by a concurrent call",
                 entry.model, entry.promptHash.take(12)
             )
         }
-    }
-
-    /**
-     * SQLite's exception translator leaves constraint failures uncategorized (they arrive as
-     * `UncategorizedSQLException`, not `DataIntegrityViolationException`), so the SQLite error code
-     * is inspected directly. Code 19 covers every constraint kind, and `UNIQUE (prompt_hash, model)`
-     * is the only one an `llm_cache` insert can break.
-     */
-    private fun isUniqueConstraintViolation(e: RuntimeException): Boolean {
-        val cause = NestedExceptionUtils.getMostSpecificCause(e)
-        return cause is SQLException && cause.errorCode == SQLITE_CONSTRAINT_ERROR_CODE
     }
 
     private fun userPromptText(prompt: Prompt): String =

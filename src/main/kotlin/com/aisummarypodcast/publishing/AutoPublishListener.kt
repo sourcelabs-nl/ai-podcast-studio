@@ -1,5 +1,6 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.podcast.PodcastService
@@ -17,13 +18,20 @@ import org.springframework.stereotype.Component
  * stays decoupled from publishing. Each target is published independently on a [Dispatchers.IO]
  * coroutine: one target failing does not block the others, and `PublishingService.publish` already
  * records a `FAILED` publication and emits a failure event, so here we only log.
+ *
+ * An episode carrying fewer than `app.publishing.min-articles` articles is not published at all.
+ * Such an episode is the visible symptom of an upstream fault rather than a quiet day, and this is
+ * the last gate before listeners see it. The floor is deliberately here and not in
+ * [PublishingService]: a manual publish of the same episode must still succeed, because deciding to
+ * ship a thin episode is the user's call to make.
  */
 @Component
 class AutoPublishListener(
     private val podcastService: PodcastService,
     private val episodeService: EpisodeService,
     private val targetService: PodcastPublicationTargetService,
-    private val publishingService: PublishingService
+    private val publishingService: PublishingService,
+    private val appProperties: AppProperties
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -48,6 +56,17 @@ class AutoPublishListener(
             val episode = episodeService.findById(episodeId)
             if (episode == null) {
                 log.warn("Auto-publish skipped: episode {} not found for podcast {}", episodeId, podcastId)
+                return@launch
+            }
+
+            val articleCount = episodeService.countArticles(episodeId)
+            val minArticles = appProperties.publishing.minArticles
+            if (articleCount < minArticles) {
+                log.warn(
+                    "Auto-publish skipped: episode {} has {} article(s), below the minimum of {}. " +
+                        "It stays GENERATED for manual review.",
+                    episodeId, articleCount, minArticles
+                )
                 return@launch
             }
 
