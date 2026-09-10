@@ -270,7 +270,41 @@ class PublishingService(
         val activeTrackIds = trackIds.filter { it !in staleTrackIds }
         require(activeTrackIds.isNotEmpty()) { "No active SoundCloud tracks found after filtering stale tracks" }
         soundCloudPublisher.rebuildPlaylist(podcast, userId, activeTrackIds)
+        markStaleTracksUnpublished(publications, staleTrackIds)
         log.info("Updated permalinks and rebuilt SoundCloud playlist for podcast {} with {} tracks ({} stale skipped)", podcast.id, activeTrackIds.size, staleTrackIds.size)
         return trackIds
+    }
+
+    /**
+     * Records that [staleTrackIds] no longer exist on SoundCloud, so a later rebuild stops asking
+     * about them.
+     *
+     * Freeing upload quota deletes this podcast's oldest tracks without touching their publication
+     * rows, so those rows keep a `PUBLISHED` status and a dead track id forever. Every rebuild then
+     * re-requested each one and logged a 404: 101 dead ids produced 1,180 warnings over eight days,
+     * drowning the log in noise that hid real failures. A 404 from SoundCloud is proof the track is
+     * gone, which makes the episode genuinely no longer published there, so the row is corrected to
+     * say so and the user can republish if they want it back.
+     *
+     * Deliberately not `@Transactional`: the caller holds no transaction because it makes SoundCloud
+     * calls, and each row here is an independent, idempotent correction. A partial failure leaves
+     * the remaining rows for the next rebuild to fix.
+     */
+    private fun markStaleTracksUnpublished(
+        publications: List<EpisodePublication>,
+        staleTrackIds: Set<Long>
+    ) {
+        if (staleTrackIds.isEmpty()) return
+
+        val stale = publications.filter { it.externalId?.toLongOrNull() in staleTrackIds }
+        for (publication in stale) {
+            publicationRepository.save(
+                publication.copy(status = PublicationStatus.UNPUBLISHED, externalId = null)
+            )
+        }
+        log.info(
+            "Marked {} SoundCloud publication(s) unpublished for podcast tracks that no longer exist",
+            stale.size
+        )
     }
 }

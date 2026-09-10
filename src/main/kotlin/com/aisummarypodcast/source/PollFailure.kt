@@ -34,14 +34,22 @@ sealed class PollFailure(val message: String, val label: String) {
             }
         }
 
+        /**
+         * A 4xx is permanent unless the status itself says to come back later.
+         *
+         * Listing the permanent statuses instead and defaulting to transient is what let a lapsed
+         * Narro subscription (`402 Payment Required`) retry silently for hours on 2026-09-10 while
+         * the podcast lost all its X content: a status nobody had enumerated fell through to
+         * transient, and a transient failure never disables a source or marks it as needing
+         * attention. A client error means the request was wrong or is refused, which retrying does
+         * not change, so the default belongs on the permanent side and the exceptions are the two
+         * statuses that explicitly ask for a retry.
+         */
         private fun classifyClientError(e: HttpClientErrorException): PollFailure {
             return when (e.statusCode.value()) {
-                404 -> Permanent("HTTP 404 Not Found")
-                410 -> Permanent("HTTP 410 Gone")
-                401 -> Permanent("HTTP 401 Unauthorized")
-                403 -> Permanent("HTTP 403 Forbidden")
+                408 -> Transient("HTTP 408 Request Timeout")
                 429 -> Transient("HTTP 429 Rate Limited")
-                else -> Transient("HTTP ${e.statusCode.value()}")
+                else -> Permanent("HTTP ${e.statusCode.value()} ${e.statusText}".trim())
             }
         }
     }

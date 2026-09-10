@@ -83,4 +83,24 @@ class PollFailureTest {
         val wrapper = RuntimeException("Fetch failed", cause)
         assertInstanceOf(PollFailure.Permanent::class.java, PollFailure.classify(wrapper))
     }
+
+    @Test
+    fun `HTTP 402 is classified as permanent`() {
+        // A lapsed subscription: the exact status that fell through to transient and let the Narro
+        // feeds retry silently for hours on 2026-09-10.
+        val exception = HttpClientErrorException(HttpStatus.PAYMENT_REQUIRED)
+        assertInstanceOf(PollFailure.Permanent::class.java, PollFailure.classify(exception))
+    }
+
+    @Test
+    fun `an unenumerated client error is classified as permanent`() {
+        val exception = HttpClientErrorException(HttpStatus.I_AM_A_TEAPOT)
+        assertInstanceOf(PollFailure.Permanent::class.java, PollFailure.classify(exception))
+    }
+
+    @Test
+    fun `HTTP 408 is classified as transient`() {
+        val exception = HttpClientErrorException(HttpStatus.REQUEST_TIMEOUT)
+        assertInstanceOf(PollFailure.Transient::class.java, PollFailure.classify(exception))
+    }
 }

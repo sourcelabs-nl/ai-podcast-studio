@@ -10,9 +10,12 @@ import com.aisummarypodcast.store.PublicationStatus
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.data.repository.findByIdOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -265,5 +268,50 @@ class PublishingServiceTest {
         assertThrows<IllegalArgumentException> {
             service.unpublish(episode, podcast, "user1", "youtube")
         }
+    }
+
+    @Test
+    fun `a rebuild marks publications whose SoundCloud track is gone`() {
+        val live = EpisodePublication(
+            id = 10L, episodeId = 1L, target = "soundcloud", externalId = "111",
+            status = PublicationStatus.PUBLISHED, createdAt = "2026-02-13T10:00:00Z"
+        )
+        val gone = EpisodePublication(
+            id = 11L, episodeId = 2L, target = "soundcloud", externalId = "222",
+            status = PublicationStatus.PUBLISHED, createdAt = "2026-02-12T10:00:00Z"
+        )
+        val olderEpisode = episode.copy(id = 2L, generatedAt = "2026-02-12T10:00:00Z")
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(live, gone)
+        every { episodeRepository.findByIdOrNull(1L) } returns episode
+        every { episodeRepository.findByIdOrNull(2L) } returns olderEpisode
+        every { soundCloudPublisher.updateTrackPermalinks(any(), any(), any(), any()) } returns setOf(222L)
+        every { soundCloudPublisher.rebuildPlaylist(any(), any(), any()) } returns Unit
+        val saved = mutableListOf<EpisodePublication>()
+        every { publicationRepository.save(capture(saved)) } answers { firstArg() }
+
+        service.rebuildSoundCloudPlaylist(podcast, "user1")
+
+        // Only the dead track's row is corrected; the live one is left alone.
+        assertEquals(1, saved.size)
+        assertEquals(11L, saved.single().id)
+        assertEquals(PublicationStatus.UNPUBLISHED, saved.single().status)
+        assertNull(saved.single().externalId)
+        verify { soundCloudPublisher.rebuildPlaylist(podcast, "user1", listOf(111L)) }
+    }
+
+    @Test
+    fun `a rebuild with no stale tracks writes nothing`() {
+        val live = EpisodePublication(
+            id = 10L, episodeId = 1L, target = "soundcloud", externalId = "111",
+            status = PublicationStatus.PUBLISHED, createdAt = "2026-02-13T10:00:00Z"
+        )
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(live)
+        every { episodeRepository.findByIdOrNull(1L) } returns episode
+        every { soundCloudPublisher.updateTrackPermalinks(any(), any(), any(), any()) } returns emptySet()
+        every { soundCloudPublisher.rebuildPlaylist(any(), any(), any()) } returns Unit
+
+        service.rebuildSoundCloudPlaylist(podcast, "user1")
+
+        verify(exactly = 0) { publicationRepository.save(any()) }
     }
 }
