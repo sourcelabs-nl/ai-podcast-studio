@@ -1,5 +1,6 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodePublication
 import com.aisummarypodcast.store.EpisodePublicationRepository
@@ -226,6 +227,81 @@ class PublishingServiceTest {
         assertThrows<RuntimeException> {
             runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
         }
+    }
+
+    @Test
+    fun `publish keeps the publication PUBLISHED when a post-publish step fails`() {
+        // The upload already landed, so a broken side effect must not overwrite the row: doing so
+        // dropped episode 202's SoundCloud track id and left the track behind, blocking the
+        // same-day replacement of its successor over a taken permalink.
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        coEvery { publisher.publish(episode, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+        every { publisher.postPublish(any(), any()) } throws RuntimeException("hook exploded")
+
+        val result = runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
+
+        assertEquals(PublicationStatus.PUBLISHED, result.status)
+        assertEquals("sc-123", result.externalId)
+        verify(exactly = 0) { publicationRepository.save(match { it.status == PublicationStatus.FAILED }) }
+        verify { eventPublisher.publishEvent(match<PodcastEvent> { it.event == "episode.published" }) }
+        verify(exactly = 0) { eventPublisher.publishEvent(match<PodcastEvent> { it.event == "episode.publish.failed" }) }
+    }
+
+    @Test
+    fun `publish keeps the publication PUBLISHED when the feed export fails`() {
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        coEvery { publisher.publish(episode, podcast, "user1") } returns PublishResult("sc-123", "https://soundcloud.com/track/123")
+        every { staticFeedExporter.export(podcast) } throws RuntimeException("disk full")
+
+        val result = runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
+
+        assertEquals(PublicationStatus.PUBLISHED, result.status)
+        verify(exactly = 0) { publicationRepository.save(match { it.status == PublicationStatus.FAILED }) }
+    }
+
+    @Test
+    fun `publish leaves the publication PENDING when the upload is cancelled`() {
+        // A cancelled call proves nothing about whether the upload landed. Recording FAILED with a
+        // null external id would assert something we do not know.
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        coEvery { publisher.publish(episode, podcast, "user1") } throws CancellationException("MonoCoroutine was cancelled")
+
+        assertThrows<CancellationException> {
+            runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
+        }
+
+        verify(exactly = 0) { publicationRepository.save(match { it.status == PublicationStatus.FAILED }) }
+        verify { publicationRepository.save(match { it.status == PublicationStatus.PENDING }) }
+    }
+
+    @Test
+    fun `an update keeps its new external id when a post-publish step fails`() {
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        val existing = EpisodePublication(
+            id = 5L,
+            episodeId = 1L,
+            target = "soundcloud",
+            status = PublicationStatus.PUBLISHED,
+            externalId = "sc-123",
+            externalUrl = "https://soundcloud.com/old",
+            createdAt = "2026-02-13T10:00:00Z"
+        )
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns existing
+        coEvery { publisher.update(episode, podcast, "user1", "sc-123") } returns
+            PublishResult("sc-999", "https://soundcloud.com/replacement")
+        every { publicationRepository.save(any()) } answers { firstArg() }
+        every { publisher.postPublish(any(), any()) } throws RuntimeException("hook exploded")
+
+        val result = runBlocking { service.publish(episode, podcast, "user1", "soundcloud") }
+
+        assertEquals("sc-999", result.externalId)
+        verify(exactly = 0) { publicationRepository.save(match { it.errorMessage != null }) }
     }
 
     // --- unpublish tests ---

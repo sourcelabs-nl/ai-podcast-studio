@@ -9,6 +9,7 @@ import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PublicationStatus
 import com.aisummarypodcast.podcast.PodcastEvent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -87,33 +88,17 @@ class PublishingService(
             )
         )
 
-        return try {
+        // Only the upload itself decides whether this publication failed. Everything after it runs
+        // outside the catch, so a broken side effect can no longer stamp FAILED over a row that
+        // holds a live external id.
+        val result = try {
             log.info("Publishing episode {} to {}", episode.id, target)
-            val result = publisher.publish(episode, podcast, userId)
-
-            val published = publicationRepository.save(
-                publication.copy(
-                    status = PublicationStatus.PUBLISHED,
-                    externalId = result.externalId,
-                    externalUrl = result.externalUrl,
-                    publishedAt = Instant.now().toString()
-                )
-            )
-            log.info("Episode {} published to {} (externalId={})", episode.id, target, result.externalId)
-            withContext(Dispatchers.IO) { publisher.postPublish(podcast, userId) }
-            if (target == SoundCloudPublisher.TARGET_NAME) {
-                try {
-                    withContext(Dispatchers.IO) { rebuildSoundCloudPlaylist(podcast, userId) }
-                } catch (e: Exception) {
-                    log.warn("Failed to rebuild SoundCloud playlist after publish: {}", e.message)
-                }
-            }
-            withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
-            eventPublisher.publishEvent(
-                PodcastEvent(this, podcast.id, "publication", episode.id!!, "episode.published",
-                    mapOf("episodeNumber" to episode.id, "target" to target))
-            )
-            published
+            publisher.publish(episode, podcast, userId)
+        } catch (e: CancellationException) {
+            // A cancelled call proves nothing about whether the upload landed, so the claim is left
+            // PENDING rather than recorded as a failure.
+            log.warn("Publishing episode {} to {} was cancelled; leaving the publication PENDING", episode.id, target)
+            throw e
         } catch (e: Exception) {
             log.error("Failed to publish episode {} to {}: {}", episode.id, target, e.message, e)
             publicationRepository.save(
@@ -128,6 +113,57 @@ class PublishingService(
             )
             throw e
         }
+
+        val published = publicationRepository.save(
+            publication.copy(
+                status = PublicationStatus.PUBLISHED,
+                externalId = result.externalId,
+                externalUrl = result.externalUrl,
+                publishedAt = Instant.now().toString(),
+                errorMessage = null
+            )
+        )
+        log.info("Episode {} published to {} (externalId={})", episode.id, target, result.externalId)
+
+        runPostPublishSideEffects(publisher, podcast, userId, target)
+        eventPublisher.publishEvent(
+            PodcastEvent(this, podcast.id, "publication", episode.id!!, "episode.published",
+                mapOf("episodeNumber" to episode.id, "target" to target))
+        )
+        return published
+    }
+
+    /**
+     * The bookkeeping that follows a successful publish or update: the publisher's own hook, the
+     * SoundCloud playlist, and the static feed.
+     *
+     * None of it can undo the upload, so a failure here is logged and the publication keeps the
+     * external id it just earned. Marking the row FAILED instead is what lost episode 202's
+     * SoundCloud track id: the upload had succeeded, a later step was cancelled, and the catch wrote
+     * a stale pre-publish snapshot over the row. With the id gone, the next same-day publish could
+     * not clean up the old track and SoundCloud rejected the new one over a taken permalink.
+     */
+    private suspend fun runPostPublishSideEffects(
+        publisher: EpisodePublisher,
+        podcast: Podcast,
+        userId: String,
+        target: String
+    ) {
+        runSideEffect(target, "Post-publish hook") { publisher.postPublish(podcast, userId) }
+        if (target == SoundCloudPublisher.TARGET_NAME) {
+            runSideEffect(target, "SoundCloud playlist rebuild") { rebuildSoundCloudPlaylist(podcast, userId) }
+        }
+        runSideEffect(target, "Static feed export") { staticFeedExporter.export(podcast) }
+    }
+
+    private suspend fun runSideEffect(target: String, description: String, block: () -> Unit) {
+        try {
+            withContext(Dispatchers.IO) { block() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.warn("{} failed after publishing to {}: {}", description, target, e.message)
+        }
     }
 
     private suspend fun updateExisting(
@@ -137,43 +173,38 @@ class PublishingService(
         userId: String,
         existing: EpisodePublication
     ): EpisodePublication {
-        return try {
+        val result = try {
             log.info("Updating episode {} on {} (externalId={})", episode.id, existing.target, existing.externalId)
-            val result = publisher.update(episode, podcast, userId, existing.externalId!!)
-            // Persist the id the publisher came back with, not the one we went in with. An update is
-            // not obliged to keep the same external identity: SoundCloud cannot replace a track's
-            // audio in place so it returns a new track id, and the FTP id is derived from the audio
-            // filename so it changes whenever the episode is re-synthesized. Keeping the old id left
-            // the row pointing at a track that no longer exists, or at a superseded MP3 filename.
-            val updated = publicationRepository.save(
-                existing.copy(
-                    externalId = result.externalId,
-                    externalUrl = result.externalUrl,
-                    publishedAt = Instant.now().toString(),
-                    errorMessage = null
-                )
-            )
-            log.info("Episode {} updated on {} (externalId={})", episode.id, existing.target, result.externalId)
-            withContext(Dispatchers.IO) { publisher.postPublish(podcast, userId) }
-            if (existing.target == SoundCloudPublisher.TARGET_NAME) {
-                try {
-                    withContext(Dispatchers.IO) { rebuildSoundCloudPlaylist(podcast, userId) }
-                } catch (e: Exception) {
-                    log.warn("Failed to rebuild SoundCloud playlist after update: {}", e.message)
-                }
-            }
-            withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
-            updated
+            publisher.update(episode, podcast, userId, existing.externalId!!)
         } catch (e: UnsupportedOperationException) {
             log.warn("Publisher {} does not support updates: {}", existing.target, e.message)
             throw e
+        } catch (e: CancellationException) {
+            log.warn("Updating episode {} on {} was cancelled; leaving the publication untouched", episode.id, existing.target)
+            throw e
         } catch (e: Exception) {
             log.error("Failed to update episode {} on {}: {}", episode.id, existing.target, e.message, e)
-            publicationRepository.save(
-                existing.copy(errorMessage = e.message)
-            )
+            publicationRepository.save(existing.copy(errorMessage = e.message))
             throw e
         }
+
+        // Persist the id the publisher came back with, not the one we went in with. An update is
+        // not obliged to keep the same external identity: SoundCloud cannot replace a track's
+        // audio in place so it returns a new track id, and the FTP id is derived from the audio
+        // filename so it changes whenever the episode is re-synthesized. Keeping the old id left
+        // the row pointing at a track that no longer exists, or at a superseded MP3 filename.
+        val updated = publicationRepository.save(
+            existing.copy(
+                externalId = result.externalId,
+                externalUrl = result.externalUrl,
+                publishedAt = Instant.now().toString(),
+                errorMessage = null
+            )
+        )
+        log.info("Episode {} updated on {} (externalId={})", episode.id, existing.target, result.externalId)
+
+        runPostPublishSideEffects(publisher, podcast, userId, existing.target)
+        return updated
     }
 
     fun unpublish(episode: Episode, podcast: Podcast, userId: String, target: String): EpisodePublication {
