@@ -158,3 +158,21 @@ private val appName: String
 @Value($$"${app.name}")
 private val appName: String
 ```
+---
+
+## Rule K10: Cancellation Is Not a Failure
+
+`CancellationException` is how coroutines unwind, not an error the code was written to handle. A broad `catch (e: Exception)` in a `suspend` function catches it, so any such block that records an error, marks a row failed, or swallows the exception both lies about what happened and breaks structured concurrency: the coroutine keeps running after it was cancelled.
+
+Catch `CancellationException` explicitly before the general catch and rethrow it without recording anything. A cancelled operation also proves nothing about whether its external effect landed, so leave the record in the state that says "unknown" (a pending claim, or untouched) rather than asserting a failure.
+
+**Violations to flag:**
+- A `catch (e: Exception)` in a `suspend` function that persists a failure state, with no `CancellationException` branch ahead of it
+- A guarded side effect (`try { ... } catch (e: Exception) { log.warn(...) }`) inside a `suspend` function that swallows cancellation
+- `catch (e: Throwable)` around suspending work
+- Storing a cancellation's message as an error reason (`"MonoCoroutine was cancelled"` in an `error_message` column is the symptom)
+
+**Not a violation:**
+- A `catch (e: Exception)` that only logs and rethrows
+- A non-`suspend` function with no coroutine in its call path
+- Catching `CancellationException` to run cleanup, provided it is rethrown

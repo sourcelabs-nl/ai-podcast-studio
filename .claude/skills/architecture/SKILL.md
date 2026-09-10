@@ -176,3 +176,21 @@ A single point of user **consent** (e.g. confirming a destructive action) may st
 **Correct pattern:**
 - Server: one endpoint / service method encapsulates the full workflow (compute plan, mutate, retry, return result). Reused by every entry point.
 - Client: calls the single endpoint; on a "needs confirmation" response, shows the server-computed plan and, on consent, calls the one follow-up endpoint that performs it.
+---
+
+## Rule A9: Failure Handling Must Not Overwrite What Succeeded
+
+A `catch` block must not persist state captured before the operation it guards, and must not span steps that cannot undo each other. When a `try` covers an external effect (an upload, a remote call, a payment) plus the bookkeeping that follows it, a failure in the bookkeeping runs a catch written for the effect: it saves a pre-effect snapshot, discarding the identifiers the effect produced, and the record then denies something that really happened. Nothing in the application can recover from that, because every later decision reads the record rather than the external system.
+
+Guard the effect on its own. Persist its result immediately after it returns. Run everything that follows outside that block, each step guarded individually, and let a failure there be logged rather than allowed to revoke the result.
+
+**Violations to flag:**
+- A `catch` that saves an entity variable captured before the `try`, when the body reassigns or re-saves that entity (the catch silently reverts the successful write)
+- A single `try` spanning an external side effect and follow-up work (cache invalidation, feed export, notification, playlist rebuild) where the catch records failure for the whole thing
+- A failure path that clears an external identifier (`externalId = null`) without having removed the external resource
+- Follow-up work that can flip a completed operation's status to a failed one
+
+**Not a violation:**
+- A single `try` around steps that all belong to the same all-or-nothing write, especially under `@Transactional`
+- Logging and rethrowing without persisting anything
+- A catch that saves a failure state built from the *current* entity rather than a stale snapshot
