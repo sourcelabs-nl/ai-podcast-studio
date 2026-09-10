@@ -36,6 +36,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Instant
 
 class PodcastServiceTest {
 
@@ -50,6 +51,9 @@ class PodcastServiceTest {
     private val episodeService = mockk<EpisodeService>()
     private val eventPublisher = mockk<ApplicationEventPublisher>(relaxed = true)
     private val sourceAggregator = mockk<SourceAggregator>(relaxed = true)
+    private val episodeWindowResolver = mockk<EpisodeWindowResolver> {
+        every { windowOf(any()) } answers { window }
+    }
     private val appProperties = AppProperties(
         llm = LlmProperties(),
         briefing = BriefingProperties(),
@@ -62,7 +66,7 @@ class PodcastServiceTest {
     private val podcastService = PodcastService(
         podcastRepository, sourceRepository, articleRepository, postRepository,
         postArticleRepository, episodeArticleRepository, episodeRepository, appProperties, llmPipeline, episodeService,
-        eventPublisher, sourceAggregator
+        eventPublisher, sourceAggregator, episodeWindowResolver
     )
 
     private val podcast = Podcast(
@@ -177,10 +181,81 @@ class PodcastServiceTest {
 
     // --- Regeneration guard --------------------------------------------------------------------
 
+    private val window = EpisodeWindow(
+        start = Instant.parse("2026-08-30T13:00:00Z"),
+        end = Instant.parse("2026-08-31T13:00:00Z")
+    )
+
     private val sourceEpisode = Episode(
         id = 191, podcastId = "p1", scriptText = "script",
-        status = EpisodeStatus.FAILED, generatedAt = "2026-08-31T13:00:00Z"
+        status = EpisodeStatus.FAILED, generatedAt = "2026-08-31T13:00:00Z",
+        windowStart = window.startIso, windowEnd = window.endIso
     )
+
+    // --- Re-running a past window ---------------------------------------------------------------
+
+    @Test
+    fun `re-run creates a fresh episode covering the source episode's window`() {
+        val discarded = sourceEpisode.copy(status = EpisodeStatus.DISCARDED)
+        val rerun = Episode(
+            id = 206, podcastId = "p1", scriptText = "",
+            status = EpisodeStatus.GENERATING, generatedAt = "2026-09-01T09:00:00Z"
+        )
+        every { episodeWindowResolver.windowOf(discarded) } returns window
+        // The re-run must not satisfy today's cron slot, hence updateLastGenerated = false.
+        every { episodeService.createGeneratingEpisode(podcast, window, false) } returns rerun
+        every { episodeService.updatePipelineStage(any(), any()) } returns Unit
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, any()) } returns null
+        every { episodeService.deleteGeneratingEpisode(any()) } returns Unit
+
+        val result = podcastService.rerunEpisodeAsync(discarded, podcast)
+
+        assertEquals(206, result.id)
+        verify { episodeService.createGeneratingEpisode(podcast, window, false) }
+    }
+
+    @Test
+    fun `re-run is rejected for an episode that is neither failed nor discarded`() {
+        val published = sourceEpisode.copy(status = EpisodeStatus.GENERATED)
+
+        val error = assertThrows(EpisodeNotRerunnableException::class.java) {
+            podcastService.rerunEpisodeAsync(published, podcast)
+        }
+
+        assertTrue(error.message!!.contains("discard this one first"))
+        verify(exactly = 0) { episodeService.createGeneratingEpisode(any(), any(), any()) }
+    }
+
+    @Test
+    fun `re-run is rejected for an episode that carries no window`() {
+        val withoutWindow = sourceEpisode.copy(
+            status = EpisodeStatus.DISCARDED, windowStart = null, windowEnd = null
+        )
+        every { episodeWindowResolver.windowOf(withoutWindow) } returns null
+
+        val error = assertThrows(EpisodeNotRerunnableException::class.java) {
+            podcastService.rerunEpisodeAsync(withoutWindow, podcast)
+        }
+
+        assertTrue(error.message!!.contains("no article window"))
+        verify(exactly = 0) { episodeService.createGeneratingEpisode(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a retry reselects from the episode's own window`() {
+        val failed = sourceEpisode.copy(scriptText = "", status = EpisodeStatus.FAILED)
+        every { episodeWindowResolver.windowOf(failed) } returns window
+        every { episodeArticleRepository.findByEpisodeId(191) } returns emptyList()
+        every { episodeService.resetForRetry(failed) } returns failed
+        every { episodeService.updatePipelineStage(any(), any()) } returns Unit
+        every { episodeService.failEpisode(any(), any(), any()) } returns failed
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, any()) } returns null
+
+        podcastService.retryEpisode(failed, podcast)
+
+        // The retry runs in the background, so the call is awaited rather than asserted inline.
+        coVerify(timeout = 2_000) { llmPipeline.aggregateScoreAndFilter(podcast, window, any()) }
+    }
 
     @Test
     fun `regenerate rejects an episode with no linked articles and creates no episode`() {
@@ -192,7 +267,7 @@ class PodcastServiceTest {
         }
 
         assertTrue(error.message!!.contains("no linked articles"))
-        verify(exactly = 0) { episodeService.createGeneratingEpisode(any(), any()) }
+        verify(exactly = 0) { episodeService.createGeneratingEpisode(any(), any(), any()) }
     }
 
     @Test
@@ -207,7 +282,7 @@ class PodcastServiceTest {
         )
         every { episodeService.findLinkedArticlesAndTopics(191) } returns
             LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"))
-        every { episodeService.createGeneratingEpisode(podcast, false) } returns generating
+        every { episodeService.createGeneratingEpisode(podcast, window, false) } returns generating
         // Stubbed so the background recompose this launches completes quietly.
         coEvery { llmPipeline.recompose(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
         coEvery {
@@ -217,7 +292,7 @@ class PodcastServiceTest {
         val result = podcastService.regenerateEpisodeAsync(sourceEpisode, podcast)
 
         assertEquals(192, result.id)
-        verify { episodeService.createGeneratingEpisode(podcast, false) }
+        verify { episodeService.createGeneratingEpisode(podcast, window, false) }
     }
 
     @Test
@@ -233,7 +308,7 @@ class PodcastServiceTest {
         val annotations = mapOf(1L to "Covered the launch in a recent episode")
         every { episodeService.findLinkedArticlesAndTopics(191) } returns
             LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"), annotations)
-        every { episodeService.createGeneratingEpisode(podcast, false) } returns generating
+        every { episodeService.createGeneratingEpisode(podcast, window, false) } returns generating
         coEvery { llmPipeline.recompose(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
         coEvery {
             episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any())

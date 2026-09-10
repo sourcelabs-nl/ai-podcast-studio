@@ -39,4 +39,21 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
     fun findRecentGeneratedByPodcastId(podcastId: String, limit: Int): List<Episode>
 
     fun findByStatus(status: EpisodeStatus): List<Episode>
+
+    /**
+     * Where the podcast's article coverage ends at or before [windowEnd]: the latest `window_end` of
+     * an episode that carries a window and was neither failed nor discarded. A failed or discarded
+     * episode covered nothing, so its window must stay claimable by a later run.
+     */
+    // Status values must match EpisodeStatus enum names
+    @Query("""
+        SELECT window_end FROM episodes
+        WHERE podcast_id = :podcastId
+          AND window_end IS NOT NULL
+          AND window_end <= :windowEnd
+          AND status NOT IN ('FAILED', 'DISCARDED')
+        ORDER BY window_end DESC
+        LIMIT 1
+    """)
+    fun findLatestCoveredWindowEnd(podcastId: String, windowEnd: String): String?
 }

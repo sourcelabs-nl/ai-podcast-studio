@@ -37,6 +37,30 @@ class SourceService(
     }
 
     /**
+     * The podcast's enabled sources whose polling does not cover an article window ending at
+     * [windowEnd], so composing now would miss whatever they published inside it.
+     *
+     * A source covers the window when its last poll succeeded and happened no longer than its own
+     * poll interval before [windowEnd]: that is the most recent poll the source was ever going to
+     * make in time, so nothing is missing. A source that last polled before that, or whose last
+     * poll failed, is behind and has content still to fetch.
+     *
+     * `lastPolled` is written on a failed poll too, hence the failure check: a source stuck on a
+     * failing host would otherwise look freshly polled.
+     */
+    fun findSourcesBehindWindow(podcastId: String, windowEnd: Instant): List<Source> {
+        return sourceRepository.findByPodcastId(podcastId)
+            .filter { it.enabled }
+            .filter { source ->
+                if (source.consecutiveFailures > 0) return@filter true
+                val lastPolled = source.lastPolled?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                    ?: return@filter true
+                val covers = windowEnd.minus(source.pollIntervalMinutes.toLong(), ChronoUnit.MINUTES)
+                lastPolled.isBefore(covers)
+            }
+    }
+
+    /**
      * Clears the failure state of [sources], used when a host's circuit breaker closes because a
      * poll of one of its sources succeeded.
      *

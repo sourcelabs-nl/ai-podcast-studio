@@ -67,12 +67,18 @@ class EpisodeService(
     }
 
     @Transactional
-    fun createGeneratingEpisode(podcast: Podcast, updateLastGenerated: Boolean = true): Episode {
+    fun createGeneratingEpisode(
+        podcast: Podcast,
+        window: EpisodeWindow,
+        updateLastGenerated: Boolean = true
+    ): Episode {
         val now = Instant.now().toString()
         val episode = episodeRepository.save(
             Episode(
                 podcastId = podcast.id,
                 generatedAt = now,
+                windowStart = window.startIso,
+                windowEnd = window.endIso,
                 scriptText = "",
                 status = EpisodeStatus.GENERATING
             )
@@ -82,7 +88,8 @@ class EpisodeService(
         if (updateLastGenerated) {
             podcastRepository.save(podcast.copy(lastGeneratedAt = now))
         }
-        log.info("[Pipeline] Created GENERATING episode {} for podcast '{}' ({})", episode.id, podcast.name, podcast.id)
+        log.info("[Pipeline] Created GENERATING episode {} for podcast '{}' ({}) covering window {}",
+            episode.id, podcast.name, podcast.id, window)
         eventPublisher.publishEvent(
             PodcastEvent(this, podcast.id, "episode", episode.id!!, "episode.generating", emptyMap())
         )

@@ -59,6 +59,64 @@ class SourceServiceTest {
         consecutiveFailures = failures, lastFailureType = failureType
     )
 
+    // --- Window coverage ------------------------------------------------------------------------
+
+    private val windowEnd = Instant.parse("2026-09-08T13:00:00Z")
+
+    private fun polled(
+        id: String,
+        lastPolled: String?,
+        intervalMinutes: Int = 30,
+        failures: Int = 0,
+        enabled: Boolean = true
+    ) = Source(
+        id = id, podcastId = "p1", type = SourceType.RSS, url = "https://example.com/$id",
+        pollIntervalMinutes = intervalMinutes, lastPolled = lastPolled,
+        consecutiveFailures = failures, enabled = enabled
+    )
+
+    @Test
+    fun `a source polled within its own interval of the window end covers the window`() {
+        // Polled at 12:50 with a 30-minute interval: the last poll it was ever going to make in
+        // time, so it has nothing outstanding even though the poll predates the window end.
+        every { sourceRepository.findByPodcastId("p1") } returns
+            listOf(polled("s1", lastPolled = "2026-09-08T12:50:00Z"))
+
+        assertTrue(service.findSourcesBehindWindow("p1", windowEnd).isEmpty())
+    }
+
+    @Test
+    fun `a source that has not polled for hours is behind the window`() {
+        every { sourceRepository.findByPodcastId("p1") } returns
+            listOf(polled("s1", lastPolled = "2026-09-08T05:00:00Z"))
+
+        assertEquals(listOf("s1"), service.findSourcesBehindWindow("p1", windowEnd).map { it.id })
+    }
+
+    @Test
+    fun `a source whose last poll failed is behind the window`() {
+        // lastPolled is written on a failed poll too, so freshness alone would hide the gap.
+        every { sourceRepository.findByPodcastId("p1") } returns
+            listOf(polled("s1", lastPolled = "2026-09-08T12:59:00Z", failures = 3))
+
+        assertEquals(listOf("s1"), service.findSourcesBehindWindow("p1", windowEnd).map { it.id })
+    }
+
+    @Test
+    fun `a source that has never polled is behind the window`() {
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(polled("s1", lastPolled = null))
+
+        assertEquals(listOf("s1"), service.findSourcesBehindWindow("p1", windowEnd).map { it.id })
+    }
+
+    @Test
+    fun `a disabled source is never behind the window`() {
+        every { sourceRepository.findByPodcastId("p1") } returns
+            listOf(polled("s1", lastPolled = null, enabled = false))
+
+        assertTrue(service.findSourcesBehindWindow("p1", windowEnd).isEmpty())
+    }
+
     @Test
     fun `resetFailureState clears counters only for sources that have failures`() {
         val saved = mutableListOf<Source>()

@@ -10,6 +10,8 @@ import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.config.SourceProperties
+import com.aisummarypodcast.podcast.EpisodeWindow
+import com.aisummarypodcast.podcast.EpisodeWindowResolver
 import com.aisummarypodcast.source.SourceAggregator
 import com.aisummarypodcast.testComposeRetryRegistry
 import com.aisummarypodcast.testRetryRegistry
@@ -37,6 +39,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import java.time.Instant
 
 class LlmPipelineTest {
 
@@ -60,6 +63,14 @@ class LlmPipelineTest {
     private val articleEligibilityService = mockk<ArticleEligibilityService>()
     private val topicDedupFilter = mockk<TopicDedupFilter>()
 
+    private val window = EpisodeWindow(
+        start = Instant.parse("2026-03-17T14:00:00Z"),
+        end = Instant.parse("2026-03-18T14:00:00Z")
+    )
+    private val episodeWindowResolver = mockk<EpisodeWindowResolver> {
+        every { resolveForNow(any()) } returns window
+    }
+
     private val appProperties = AppProperties(
         llm = LlmProperties(),
         briefing = BriefingProperties(),
@@ -75,7 +86,7 @@ class LlmPipelineTest {
     private val pipeline = LlmPipeline(
         articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
         sourceRepository, postRepository, sourceAggregator, appProperties, ttsProviderFactory,
-        articleEligibilityService, topicDedupFilter, testRetryRegistry()
+        articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
     )
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Tech Daily", topic = "tech", relevanceThreshold = 5)
@@ -93,7 +104,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
-        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns articles
+        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns articles
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
         coEvery { topicDedupFilter.filter(articles, emptyList(), podcast.userId, filterModelDef) } returns
             DedupFilterResult(articles.map { FilteredArticle(it) }, TokenUsage(100, 50))
@@ -118,7 +129,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
-        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns emptyList()
+        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns emptyList()
 
         runTest {
             val result = pipeline.run(podcast)
@@ -161,7 +172,7 @@ class LlmPipelineTest {
         every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
         coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) } returns listOf(scored)
-        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns listOf(scored)
+        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns listOf(scored)
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
         coEvery { topicDedupFilter.filter(listOf(scored), emptyList(), "u1", filterModelDef) } returns
             DedupFilterResult(listOf(FilteredArticle(scored)), TokenUsage(100, 50))
@@ -208,7 +219,7 @@ class LlmPipelineTest {
 
         runTest { pipeline.run(podcast) }
 
-        verify { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) }
+        verify { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) }
         verify { articleEligibilityService.findHistoricalArticles(podcast) }
     }
 
@@ -218,7 +229,7 @@ class LlmPipelineTest {
         val cappedPipeline = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
         )
 
         val low = scoredArticle.copy(id = 1, relevanceScore = 5)
@@ -246,7 +257,7 @@ class LlmPipelineTest {
         val cappedPipeline = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
         )
 
         val low = scoredArticle.copy(id = 1, relevanceScore = 5)
@@ -396,7 +407,7 @@ class LlmPipelineTest {
         val pipelineWithLowThreshold = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, lowThresholdProps, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
         )
 
         val articles = (1..100).map { articleWithBody(10000) }
@@ -422,7 +433,7 @@ class LlmPipelineTest {
         setupBasicPipeline()
         coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        val eligible = pipeline.aggregateScoreAndFilter(podcast)
+        val eligible = pipeline.aggregateScoreAndFilter(podcast, window)
 
         assertNotNull(eligible)
         assertEquals(1, eligible!!.size)
@@ -437,9 +448,9 @@ class LlmPipelineTest {
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
-        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast) } returns emptyList()
+        every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns emptyList()
 
-        val eligible = pipeline.aggregateScoreAndFilter(podcast)
+        val eligible = pipeline.aggregateScoreAndFilter(podcast, window)
 
         assertNull(eligible)
     }
@@ -571,7 +582,7 @@ class LlmPipelineTest {
         val pipelineWithLowThreshold = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, lowThresholdProps, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
         )
         val articles = (1..100).map { articleWithBody(10000) }
 
@@ -606,7 +617,8 @@ class LlmPipelineTest {
     private val retryingPipeline = LlmPipeline(
         articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver,
         articleRepository, sourceRepository, postRepository, sourceAggregator, appProperties,
-        ttsProviderFactory, articleEligibilityService, topicDedupFilter, testComposeRetryRegistry()
+        ttsProviderFactory, articleEligibilityService, topicDedupFilter, episodeWindowResolver,
+        testComposeRetryRegistry()
     )
 
     @Test

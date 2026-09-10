@@ -4,6 +4,8 @@ import com.aisummarypodcast.config.AppProperties
 import io.github.resilience4j.kotlin.retry.executeSuspendFunction
 import io.github.resilience4j.retry.RetryRegistry
 import com.aisummarypodcast.source.SourceAggregator
+import com.aisummarypodcast.podcast.EpisodeWindow
+import com.aisummarypodcast.podcast.EpisodeWindowResolver
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Podcast
@@ -100,13 +102,20 @@ class LlmPipeline(
     private val ttsProviderFactory: TtsProviderFactory,
     private val articleEligibilityService: ArticleEligibilityService,
     private val topicDedupFilter: TopicDedupFilter,
+    private val episodeWindowResolver: EpisodeWindowResolver,
     private val retryRegistry: RetryRegistry
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /**
+     * Aggregates, scores and selects the candidate articles for a run inside [window]. The window
+     * is the run's input: it is decided and persisted by the caller before this is called, never
+     * derived here.
+     */
     suspend fun aggregateScoreAndFilter(
         podcast: Podcast,
+        window: EpisodeWindow,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): List<Article>? {
         val sources = sourceRepository.findByPodcastId(podcast.id)
@@ -171,7 +180,7 @@ class LlmPipeline(
         }
 
         // Step 3: Find eligible articles
-        val eligible = articleEligibilityService.findEligibleArticles(sourceIds, podcast)
+        val eligible = articleEligibilityService.findEligibleArticles(sourceIds, podcast, window)
         if (eligible.isEmpty()) {
             log.info("[LLM] No eligible articles for podcast '{}' ({}) — skipping briefing generation", podcast.name, podcast.id)
             return null
@@ -376,7 +385,7 @@ class LlmPipeline(
     }
 
     suspend fun run(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult? {
-        val eligible = aggregateScoreAndFilter(podcast, onProgress) ?: return null
+        val eligible = aggregateScoreAndFilter(podcast, episodeWindowResolver.resolveForNow(podcast), onProgress) ?: return null
         val dedupStageResult = dedup(eligible, podcast, onProgress) ?: return null
         val composeStageResult = compose(
             dedupStageResult.filteredArticles, podcast,
@@ -521,7 +530,7 @@ class LlmPipeline(
         }
 
         // Step 3: Find eligible articles and run dedup filter
-        val eligible = articleEligibilityService.findEligibleArticles(sourceIds, podcast)
+        val eligible = articleEligibilityService.findEligibleArticles(sourceIds, podcast, episodeWindowResolver.resolveForNow(podcast))
         if (eligible.isEmpty()) {
             log.info("[LLM Preview] No eligible articles for podcast '{}' ({})", podcast.name, podcast.id)
             return null

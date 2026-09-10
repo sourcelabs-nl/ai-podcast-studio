@@ -1,7 +1,10 @@
 package com.aisummarypodcast.scheduler
 
 import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.podcast.EpisodeWindow
+import com.aisummarypodcast.podcast.EpisodeWindowResolver
 import com.aisummarypodcast.podcast.PodcastService
+import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CoroutineScope
@@ -21,14 +24,15 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 import kotlin.time.TimeSource
 
 @Component
 class BriefingGenerationScheduler(
     private val podcastService: PodcastService,
     private val sourcePollingScheduler: SourcePollingScheduler,
+    private val sourceService: SourceService,
+    private val episodeWindowResolver: EpisodeWindowResolver,
     private val appProperties: AppProperties,
     private val clock: Clock = Clock.systemUTC()
 ) {
@@ -60,12 +64,7 @@ class BriefingGenerationScheduler(
 
         for (podcast in podcasts) {
             try {
-                val zone = try {
-                    ZoneId.of(podcast.timezone)
-                } catch (_: Exception) {
-                    log.warn("[Pipeline] Invalid timezone '{}' for podcast '{}' ({}), falling back to UTC", podcast.timezone, podcast.name, podcast.id)
-                    ZoneOffset.UTC
-                }
+                val zone = episodeWindowResolver.zoneOf(podcast)
                 val now = LocalDateTime.now(clock.withZone(zone))
                 val cronExpression = CronExpression.parse(podcast.cron)
                 val lastGenerated = podcast.lastGeneratedAt?.let {
@@ -90,7 +89,14 @@ class BriefingGenerationScheduler(
                 if (nextExecution != null && !nextExecution.isAfter(now)) {
                     log.info("[Pipeline] Podcast '{}' ({}) is due for briefing generation", podcast.name, podcast.id)
                     ensureFreshPolling(podcast)
-                    generateBriefing(podcast)
+
+                    // The window ends at the slot being served, not at "now": a run that starts late
+                    // still covers the period the slot stands for.
+                    val slot = nextExecution.atZone(zone).toInstant()
+                    val window = episodeWindowResolver.resolve(podcast, slot)
+                    if (isWindowCovered(podcast, window, slot)) {
+                        generateBriefing(podcast, window)
+                    }
                 }
             } catch (e: Exception) {
                 log.error("[Pipeline] Error checking/generating briefing for podcast '{}' ({}): {}", podcast.name, podcast.id, e.message, e)
@@ -121,11 +127,45 @@ class BriefingGenerationScheduler(
         }
     }
 
-    private suspend fun generateBriefing(podcast: Podcast) {
-        log.info("[Pipeline] Starting briefing generation for podcast '{}' ({})", podcast.name, podcast.id)
+    /**
+     * Whether the pollers have caught up enough with [window] to compose against it.
+     *
+     * A window that just closed is only worth composing once every source has fetched what it
+     * published inside it. When some are still behind, generation is deferred and the next tick of
+     * the loop re-checks: nothing is created yet, so the slot stays due and no state is touched.
+     * The deferral is bounded by [EpisodeProperties.pollCoverageDeadlineMinutes], after which the
+     * episode is generated anyway and the sources still behind are named in the log, because an
+     * incomplete episode beats no episode at all.
+     */
+    private fun isWindowCovered(podcast: Podcast, window: EpisodeWindow, slot: Instant): Boolean {
+        val behind = sourceService.findSourcesBehindWindow(podcast.id, window.end)
+        if (behind.isEmpty()) return true
+
+        val deadline = slot.plus(appProperties.episode.pollCoverageDeadlineMinutes.toLong(), ChronoUnit.MINUTES)
+        val labels = behind.joinToString(", ") { it.label ?: it.url }
+        if (clock.instant().isBefore(deadline)) {
+            log.info(
+                "[Pipeline] Deferring generation for podcast '{}' ({}): {} source(s) have not polled the " +
+                    "window {} yet ({}). Waiting until {}.",
+                podcast.name, podcast.id, behind.size, window, labels, deadline
+            )
+            return false
+        }
+
+        log.warn(
+            "[Pipeline] Generating for podcast '{}' ({}) with {} source(s) still behind window {} after " +
+                "waiting until {}: {}. The episode may be missing their content.",
+            podcast.name, podcast.id, behind.size, window, deadline, labels
+        )
+        return true
+    }
+
+    private suspend fun generateBriefing(podcast: Podcast, window: EpisodeWindow) {
+        log.info("[Pipeline] Starting briefing generation for podcast '{}' ({}) over window {}",
+            podcast.name, podcast.id, window)
         val mark = TimeSource.Monotonic.markNow()
 
-        val result = podcastService.generateBriefing(podcast)
+        val result = podcastService.generateBriefing(podcast, window)
         if (result.failed) {
             log.error("[Pipeline] Briefing generation failed for podcast '{}' ({}): {} — total {}", podcast.name, podcast.id, result.errorMessage, mark.elapsedNow())
             return

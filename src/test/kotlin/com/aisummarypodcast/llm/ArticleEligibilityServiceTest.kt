@@ -9,6 +9,7 @@ import com.aisummarypodcast.config.EpisodesProperties
 import com.aisummarypodcast.config.FeedProperties
 import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.SourceProperties
+import com.aisummarypodcast.podcast.EpisodeWindow
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Episode
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.Optional
 
 class ArticleEligibilityServiceTest {
@@ -70,43 +72,82 @@ class ArticleEligibilityServiceTest {
         publishedAt = publishedAt
     )
 
+    private val window = EpisodeWindow(
+        start = Instant.parse("2026-03-17T14:00:00Z"),
+        end = Instant.parse("2026-03-18T14:00:00Z")
+    )
+
     @Test
-    fun `findEligibleArticles returns all candidates when no published episodes exist`() {
+    fun `findEligibleArticles keeps every candidate inside the window`() {
         val candidates = listOf(article(1), article(2))
         every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns candidates
-        every { episodeRepository.findLatestPublishedByPodcastId("pod-1") } returns null
 
-        val result = service.findEligibleArticles(listOf("src-1"), podcast)
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
 
         assertEquals(2, result.size)
     }
 
     @Test
-    fun `findEligibleArticles filters articles older than latest published episode`() {
-        val oldArticle = article(1, publishedAt = "2026-03-16T10:00:00Z")
-        val newArticle = article(2, publishedAt = "2026-03-18T10:00:00Z")
-        every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns listOf(oldArticle, newArticle)
-        every { episodeRepository.findLatestPublishedByPodcastId("pod-1") } returns Episode(
-            id = 10, podcastId = "pod-1", generatedAt = "2026-03-17T15:00:00Z",
-            scriptText = "test", status = EpisodeStatus.GENERATED
-        )
+    fun `findEligibleArticles drops articles published before the window`() {
+        val before = article(1, publishedAt = "2026-03-16T10:00:00Z")
+        val inside = article(2, publishedAt = "2026-03-18T10:00:00Z")
+        every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns listOf(before, inside)
 
-        val result = service.findEligibleArticles(listOf("src-1"), podcast)
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(2L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticles drops articles published after the window`() {
+        val inside = article(1, publishedAt = "2026-03-18T10:00:00Z")
+        val after = article(2, publishedAt = "2026-03-18T15:00:00Z")
+        every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns listOf(inside, after)
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticles treats the window as half-open`() {
+        val atStart = article(1, publishedAt = "2026-03-17T14:00:00Z")
+        val atEnd = article(2, publishedAt = "2026-03-18T14:00:00Z")
+        every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns listOf(atStart, atEnd)
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticles compares instants rather than strings`() {
+        // Same instant as the window start, written with an offset instead of Z. A lexicographic
+        // comparison would place it before the window and drop it.
+        val offsetForm = article(1, publishedAt = "2026-03-17T15:00:00+01:00")
+        every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns listOf(offsetForm)
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
 
         assertEquals(1, result.size)
-        assertEquals(2L, result[0].id)
     }
 
     @Test
     fun `findEligibleArticles keeps articles without publishedAt`() {
         val articleNoDate = article(1, publishedAt = null)
         every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns listOf(articleNoDate)
-        every { episodeRepository.findLatestPublishedByPodcastId("pod-1") } returns Episode(
-            id = 10, podcastId = "pod-1", generatedAt = "2026-03-17T15:00:00Z",
-            scriptText = "test", status = EpisodeStatus.GENERATED
-        )
 
-        val result = service.findEligibleArticles(listOf("src-1"), podcast)
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(1, result.size)
+    }
+
+    @Test
+    fun `findEligibleArticles keeps an article whose publishedAt cannot be parsed`() {
+        val unparseable = article(1, publishedAt = "not-a-date")
+        every { articleRepository.findRelevantUnprocessedBySourceIds(any(), any()) } returns listOf(unparseable)
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
 
         assertEquals(1, result.size)
     }

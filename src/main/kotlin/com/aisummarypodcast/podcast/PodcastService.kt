@@ -36,7 +36,8 @@ class PodcastService(
     private val llmPipeline: LlmPipeline,
     private val episodeService: EpisodeService,
     private val eventPublisher: ApplicationEventPublisher,
-    private val sourceAggregator: SourceAggregator
+    private val sourceAggregator: SourceAggregator,
+    private val episodeWindowResolver: EpisodeWindowResolver
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -98,8 +99,11 @@ class PodcastService(
 
         when (resumePoint) {
             ResumePoint.FULL_PIPELINE -> {
-                val eligible = llmPipeline.aggregateScoreAndFilter(podcast, onProgress)
-                    ?: throw IllegalStateException("No eligible articles for retry")
+                // The episode's own window, so a retry reselects from the same period the run
+                // started with. An episode from before windows were recorded falls back to now.
+                val window = episodeWindowResolver.windowOf(episode) ?: episodeWindowResolver.resolveForNow(podcast)
+                val eligible = llmPipeline.aggregateScoreAndFilter(podcast, window, onProgress)
+                    ?: throw IllegalStateException("No eligible articles for retry in window $window")
 
                 val dedupResult = llmPipeline.dedup(eligible, podcast, onProgress)
                     ?: throw IllegalStateException("All articles filtered as duplicates during retry")
@@ -234,14 +238,21 @@ class PodcastService(
         return llmPipeline.preview(podcast, onProgress)
     }
 
-    suspend fun generateBriefing(podcast: Podcast): GenerateBriefingResult {
+    /**
+     * Generates a briefing for [window]. The caller decides the window, because only it knows which
+     * scheduled slot is being served; [EpisodeWindowResolver.resolveForNow] covers an ad-hoc run.
+     */
+    suspend fun generateBriefing(
+        podcast: Podcast,
+        window: EpisodeWindow = episodeWindowResolver.resolveForNow(podcast)
+    ): GenerateBriefingResult {
         if (episodeService.hasActiveEpisode(podcast.id)) {
             log.info("Podcast '{}' ({}) has an active episode (generating/pending/approved) — skipping generation", podcast.name, podcast.id)
             return GenerateBriefingResult(episode = null)
         }
 
-        val generatingEpisode = episodeService.createGeneratingEpisode(podcast)
-        return runGenerationPipeline(podcast, generatingEpisode)
+        val generatingEpisode = episodeService.createGeneratingEpisode(podcast, window)
+        return runGenerationPipeline(podcast, generatingEpisode, window)
     }
 
     /**
@@ -255,12 +266,17 @@ class PodcastService(
             log.info("Podcast '{}' ({}) has an active episode — skipping manual generation", podcast.name, podcast.id)
             return null
         }
-        val generatingEpisode = episodeService.createGeneratingEpisode(podcast)
-        pipelineScope.launch { runGenerationPipeline(podcast, generatingEpisode) }
+        val window = episodeWindowResolver.resolveForNow(podcast)
+        val generatingEpisode = episodeService.createGeneratingEpisode(podcast, window)
+        pipelineScope.launch { runGenerationPipeline(podcast, generatingEpisode, window) }
         return generatingEpisode
     }
 
-    private suspend fun runGenerationPipeline(podcast: Podcast, generatingEpisode: Episode): GenerateBriefingResult {
+    private suspend fun runGenerationPipeline(
+        podcast: Podcast,
+        generatingEpisode: Episode,
+        window: EpisodeWindow
+    ): GenerateBriefingResult {
         return try {
             // Only persist the pipeline stage on an actual transition; per-article scoring progress
             // reports "scoring" repeatedly. Always emit the event so the frontend shows live progress.
@@ -277,7 +293,7 @@ class PodcastService(
             }
 
             // Stage 1-2: Aggregate, score, find eligible articles
-            val eligible = llmPipeline.aggregateScoreAndFilter(podcast, onProgress) ?: run {
+            val eligible = llmPipeline.aggregateScoreAndFilter(podcast, window, onProgress) ?: run {
                 episodeService.deleteGeneratingEpisode(generatingEpisode.id!!)
                 return GenerateBriefingResult(episode = null)
             }
@@ -328,6 +344,41 @@ class PodcastService(
     }
 
     /**
+     * Re-runs the article window of an existing failed or discarded episode as a fresh episode,
+     * returning the new GENERATING episode immediately.
+     *
+     * This is how a past day is reproduced. The window comes from the source episode, so the run
+     * selects the same period rather than whatever period is current, and the source episode is
+     * left untouched: the re-run is a new episode with its own status and publications.
+     *
+     * Selection still requires the articles to be unused, which discarding an episode restores, so
+     * only a failed or discarded episode can be re-run and a published day has to be discarded
+     * first.
+     *
+     * `updateLastGenerated = false`: a re-run of a past window must not satisfy today's cron slot.
+     */
+    fun rerunEpisodeAsync(sourceEpisode: Episode, podcast: Podcast): Episode {
+        if (sourceEpisode.status != EpisodeStatus.FAILED && sourceEpisode.status != EpisodeStatus.DISCARDED) {
+            throw EpisodeNotRerunnableException(
+                "Episode ${sourceEpisode.id} is ${sourceEpisode.status}; only a failed or discarded " +
+                    "episode can be re-run, so discard this one first"
+            )
+        }
+
+        val window = episodeWindowResolver.windowOf(sourceEpisode)
+            ?: throw EpisodeNotRerunnableException(
+                "Episode ${sourceEpisode.id} carries no article window, so the period it covered is " +
+                    "unknown, so generate a new episode instead"
+            )
+
+        val generatingEpisode = episodeService.createGeneratingEpisode(podcast, window, updateLastGenerated = false)
+        log.info("[Pipeline] Re-running window {} of episode {} as episode {} for podcast '{}' ({})",
+            window, sourceEpisode.id, generatingEpisode.id, podcast.name, podcast.id)
+        pipelineScope.launch { runGenerationPipeline(podcast, generatingEpisode, window) }
+        return generatingEpisode
+    }
+
+    /**
      * Starts episode regeneration in the background and returns the GENERATING episode immediately.
      * Like [generateBriefingAsync], this decouples the recompose + TTS work from the HTTP request so
      * a request timeout cannot cancel it. `updateLastGenerated = false`: regeneration must not bump
@@ -345,7 +396,9 @@ class PodcastService(
             )
         }
 
-        val generatingEpisode = episodeService.createGeneratingEpisode(podcast, updateLastGenerated = false)
+        // The regenerated episode covers the same period as the one it recomposes.
+        val window = episodeWindowResolver.windowOf(sourceEpisode) ?: episodeWindowResolver.resolveForNow(podcast)
+        val generatingEpisode = episodeService.createGeneratingEpisode(podcast, window, updateLastGenerated = false)
         pipelineScope.launch {
             try {
                 runRegeneration(linked, podcast, generatingEpisode, sourceEpisode.generatedAt)

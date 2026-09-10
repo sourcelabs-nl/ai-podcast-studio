@@ -87,6 +87,8 @@ internal fun Episode.toResponse(
     id = id!!,
     podcastId = podcastId,
     generatedAt = generatedAt,
+    windowStart = windowStart,
+    windowEnd = windowEnd,
     scriptText = scriptText,
     status = status.name,
     publishApproved = publishApproved,

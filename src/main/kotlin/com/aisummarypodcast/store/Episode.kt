@@ -17,6 +17,14 @@ data class Episode(
     @Id val id: Long? = null,
     val podcastId: String,
     val generatedAt: String,
+    /**
+     * The article window this episode was generated for, as ISO-8601 instants: articles published
+     * in `[windowStart, windowEnd)` are its candidates. Written once when the episode is created
+     * and never recomputed, so a retry or a re-run selects from the same window the run started
+     * with. Null for episodes generated before the window was recorded.
+     */
+    val windowStart: String? = null,
+    val windowEnd: String? = null,
     val scriptText: String,
     val status: EpisodeStatus = EpisodeStatus.GENERATED,
     val publishApproved: Boolean = true,

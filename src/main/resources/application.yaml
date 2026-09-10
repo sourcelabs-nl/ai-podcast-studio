@@ -186,6 +186,10 @@ app:
     target-words: 1500
   episode:
     recap-lookback-episodes: 7
+    # Upper bound on how far an article window reaches back, however long the podcast was idle.
+    max-window-days: 7
+    # How long generation waits for the pollers to cover the window before composing anyway.
+    poll-coverage-deadline-minutes: 30
   research:
     cost-buffer-cents: 5
     tavily:

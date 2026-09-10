@@ -466,4 +466,60 @@ class EpisodeControllerTest {
         mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes/1/articles"))
             .andExpect(status().isNotFound)
     }
+
+    // --- Re-run a past window ---------------------------------------------------------------------
+
+    private val discardedEpisode = Episode(
+        id = 3L, podcastId = podcastId, generatedAt = "2025-01-01T00:00:00Z",
+        windowStart = "2024-12-31T14:00:00Z", windowEnd = "2025-01-01T14:00:00Z",
+        scriptText = "Test script", status = EpisodeStatus.DISCARDED
+    )
+
+    @Test
+    fun `rerun returns the new episode`() {
+        val rerun = discardedEpisode.copy(id = 4L, status = EpisodeStatus.GENERATING)
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(3L) } returns discardedEpisode
+        every { podcastService.rerunEpisodeAsync(discardedEpisode, podcast) } returns rerun
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/3/rerun"))
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.id").value(4))
+            .andExpect(jsonPath("$.windowStart").value("2024-12-31T14:00:00Z"))
+            .andExpect(jsonPath("$.windowEnd").value("2025-01-01T14:00:00Z"))
+    }
+
+    @Test
+    fun `rerun of an episode that cannot be re-run returns 409`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(2L) } returns generatedEpisode
+        every { podcastService.rerunEpisodeAsync(generatedEpisode, podcast) } throws
+            EpisodeNotRerunnableException("Episode 2 is GENERATED; discard this one first")
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/rerun"))
+            .andExpect(status().isConflict)
+            .andExpect(jsonPath("$.code").value("episode_not_rerunnable"))
+    }
+
+    @Test
+    fun `rerun of a non-existing episode returns 404`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(99L) } returns null
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/99/rerun"))
+            .andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `rerun of an episode in another podcast returns 404`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(3L) } returns discardedEpisode.copy(podcastId = "other-podcast")
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/3/rerun"))
+            .andExpect(status().isNotFound)
+    }
 }

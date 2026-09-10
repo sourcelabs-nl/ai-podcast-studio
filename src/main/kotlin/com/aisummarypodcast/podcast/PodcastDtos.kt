@@ -100,6 +100,9 @@ data class EpisodeResponse(
     val id: Long,
     val podcastId: String,
     val generatedAt: String,
+    /** The article window this episode covers; null for episodes generated before it was recorded. */
+    val windowStart: String?,
+    val windowEnd: String?,
     val scriptText: String,
     val status: String,
     val publishApproved: Boolean,

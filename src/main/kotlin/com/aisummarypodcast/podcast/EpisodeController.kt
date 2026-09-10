@@ -222,6 +222,29 @@ class EpisodeController(
         ))
     }
 
+    /**
+     * Re-runs the article window of a failed or discarded episode as a fresh episode, so a past day
+     * can be reproduced. The new episode is returned immediately while the pipeline runs in the
+     * background.
+     */
+    @PostMapping("/{episodeId}/rerun")
+    fun rerun(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @PathVariable episodeId: Long
+    ): ResponseEntity<Any> {
+        userService.findById(userId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
+        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+
+        val episode = episodeService.findById(episodeId)
+            ?: return ResponseEntity.notFound().build()
+        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+
+        val rerun = podcastService.rerunEpisodeAsync(episode, podcast)
+        return ResponseEntity.accepted().body(rerun.toResponse())
+    }
+
     @PostMapping("/{episodeId}/regenerate-audio")
     fun regenerateAudio(
         @PathVariable userId: String,

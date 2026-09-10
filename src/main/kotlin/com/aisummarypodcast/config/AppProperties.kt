@@ -254,5 +254,12 @@ data class XProperties(
 )
 
 data class EpisodeProperties(
-    val recapLookbackEpisodes: Int = 7
+    val recapLookbackEpisodes: Int = 7,
+    // Upper bound on how far an article window may reach back, however long the podcast has been
+    // idle or how large a gap an earlier episode left behind.
+    val maxWindowDays: Int = 7,
+    // How long generation waits for every source to have polled past the window before composing
+    // anyway. Covers the case where the machine was offline through part of the window: the pollers
+    // need time to catch up, and an episode composed before they have is missing that content.
+    val pollCoverageDeadlineMinutes: Int = 30
 )
