@@ -96,8 +96,8 @@ class RoleTagValidationAdvisor(
      * Reports whether the script uses the speaker-tag format at all, by looking for an opener of
      * any allowed role. Deliberately accepts a square-bracketed opener (`[expert]`) and an opener
      * with no matching closer: [normalizeSquareBracketSpeakerTags] recovers the former downstream
-     * and [SPEAKER_TURN_PATTERN] tolerates the latter, so treating either as "no tags" would
-     * retry a script the pipeline can already use.
+     * and [closeUnterminatedFinalTurn] the latter, so treating either as "no tags" would retry a
+     * script the pipeline can already use.
      */
     private fun hasSpeakerTag(text: String): Boolean =
         allowedRoles.any { text.contains("<$it>") || text.contains("[$it]") }

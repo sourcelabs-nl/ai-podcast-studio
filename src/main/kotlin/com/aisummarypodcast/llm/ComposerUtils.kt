@@ -288,6 +288,39 @@ fun normalizeSquareBracketSpeakerTags(script: String, roles: Set<String>): Strin
 }
 
 /**
+ * Closes a final speaker turn the compose LLM opened but never closed, for the [roles] this podcast
+ * actually uses.
+ *
+ * [SPEAKER_TURN_PATTERN] requires both tags, so an unclosed last turn matches nothing:
+ * [stripOutsideSpeakerTags] then reads it as text sitting after the script and drops the whole
+ * turn. Episode 202 lost its 517-character closing that way, on a turn the model had written
+ * correctly and only failed to close.
+ *
+ * Deliberately narrow, like [normalizeSquareBracketSpeakerTags]. Only the tail after the last
+ * complete turn is considered, it must begin with an opener of one of [roles], and its body must
+ * contain no further speaker tag, so a genuinely malformed run of several turns is still left to be
+ * discarded and logged rather than glued into one turn. Delivery markup inside the body, such as
+ * `<break time="1s" />`, is not a speaker tag and does not block the recovery.
+ *
+ * A turn the model cut off mid-sentence is recovered as it stands: half a sentence spoken is a
+ * smaller loss than a closing paragraph silently deleted, and the WARN says how much was recovered.
+ */
+fun closeUnterminatedFinalTurn(script: String, roles: Set<String>): String {
+    val turns = SPEAKER_TURN_PATTERN.findAll(script).toList()
+    val tailStart = if (turns.isEmpty()) 0 else turns.last().range.last + 1
+    val tail = script.substring(tailStart).trim()
+    if (tail.isEmpty()) return script
+
+    val role = roles.firstOrNull { tail.startsWith("<$it>") } ?: return script
+    val body = tail.removePrefix("<$role>")
+    if (body.isBlank()) return script
+    if (roles.any { body.contains("<$it>") || body.contains("</$it>") }) return script
+
+    log.warn("Compose LLM left the final <{}> turn unclosed; recovered {} characters", role, body.trim().length)
+    return script.substring(0, tailStart) + "\n<$role>" + body + "</$role>"
+}
+
+/**
  * The set of speaker roles a compose-stage script is allowed to use, derived from the podcast's
  * configured TTS voices. Shared by prompt-building (so the model is told the valid tags) and
  * [RoleTagValidationAdvisor] (so a leaked tag outside this set is rejected before TTS ever sees it).

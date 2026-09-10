@@ -192,4 +192,92 @@ class ScriptCleanupTest {
 
         assertEquals(script, normalizeSquareBracketSpeakerTags(script, emptySet()))
     }
+
+    // --- closeUnterminatedFinalTurn ---------------------------------------------------------------
+
+    private val roles = setOf("interviewer", "expert")
+
+    @Test
+    fun `closeUnterminatedFinalTurn closes an unclosed last turn`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>So, closing the loop on that question."
+
+        val result = closeUnterminatedFinalTurn(script, roles)
+
+        assertEquals(
+            "<interviewer>Welcome.</interviewer>\n<expert>So, closing the loop on that question.</expert>",
+            result
+        )
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn rescues a closing that strip would otherwise drop`() {
+        // Episode 202: the model wrote its closing paragraph and only forgot the closing tag, and
+        // the whole turn was discarded as untagged trailing text.
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>And that is where we leave it today."
+
+        val stripped = stripOutsideSpeakerTags(closeUnterminatedFinalTurn(script, roles))
+
+        assertTrue(stripped.contains("And that is where we leave it today."))
+    }
+
+    @Test
+    fun `stripOutsideSpeakerTags without the recovery drops the unclosed closing`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>And that is where we leave it today."
+
+        val stripped = stripOutsideSpeakerTags(script)
+
+        assertEquals("<interviewer>Welcome.</interviewer>", stripped)
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn keeps delivery markup inside the recovered turn`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>One last thing.<break time=\"1s\" /> Thanks for listening."
+
+        val result = closeUnterminatedFinalTurn(script, roles)
+
+        assertTrue(result.endsWith("Thanks for listening.</expert>"))
+        assertTrue(result.contains("<break time=\"1s\" />"))
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn leaves a well-formed script alone`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>Glad to be here.</expert>"
+
+        assertEquals(script, closeUnterminatedFinalTurn(script, roles))
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn leaves plain trailing commentary alone`() {
+        val script = "<interviewer>Welcome.</interviewer>\nThat is the script, let me know if you want changes."
+
+        assertEquals(script, closeUnterminatedFinalTurn(script, roles))
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn does not glue several malformed turns into one`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>First point.<interviewer>Second point."
+
+        assertEquals(script, closeUnterminatedFinalTurn(script, roles))
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn ignores a role this podcast does not use`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<narrator>Unclosed and unknown."
+
+        assertEquals(script, closeUnterminatedFinalTurn(script, roles))
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn recovers a script that is one unclosed turn`() {
+        val script = "<expert>The only thing anyone said today."
+
+        assertEquals("\n<expert>The only thing anyone said today.</expert>", closeUnterminatedFinalTurn(script, roles))
+    }
+
+    @Test
+    fun `closeUnterminatedFinalTurn leaves an empty trailing turn alone`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>   "
+
+        assertEquals(script, closeUnterminatedFinalTurn(script, roles))
+    }
 }
