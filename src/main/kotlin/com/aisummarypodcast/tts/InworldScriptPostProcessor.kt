@@ -10,6 +10,36 @@ object InworldScriptPostProcessor {
     private val SOUND_TAGS = setOf("sigh", "laugh", "breathe", "cough", "clear throat", "yawn")
 
     /**
+     * Near-misses the composer reaches for, mapped to the documented name they meant.
+     *
+     * A tag outside [SOUND_TAGS] is not ignored: it becomes a steering instruction, which governs the
+     * whole rest of the turn and is re-emitted onto every later chunk of it. So `[laughs]` does not
+     * cost a laugh, it asks for the turn to be *read* laughing. Episode 207 shipped three of these
+     * (`[laughs]` twice, `[chuckles]` once) from a composer that had produced correct `[laugh]` tags
+     * on another model, so the plural is a spelling slip rather than a different intent, and folding
+     * it onto the documented name is closer to what was asked for than a turn-long mood.
+     */
+    private val SOUND_TAG_ALIASES = mapOf(
+        "laughs" to "laugh",
+        "laughing" to "laugh",
+        "laughter" to "laugh",
+        "chuckle" to "laugh",
+        "chuckles" to "laugh",
+        "chuckling" to "laugh",
+        "sighs" to "sigh",
+        "sighing" to "sigh",
+        "breathes" to "breathe",
+        "breathing" to "breathe",
+        "breath" to "breathe",
+        "coughs" to "cough",
+        "coughing" to "cough",
+        "clears throat" to "clear throat",
+        "throat clear" to "clear throat",
+        "yawns" to "yawn",
+        "yawning" to "yawn",
+    )
+
+    /**
      * Instruction words asking for a delivery that removes expression or reduces audibility. The
      * engine obeys a steering instruction literally, so these are dropped rather than forwarded.
      *
@@ -100,8 +130,10 @@ object InworldScriptPostProcessor {
     }
 
     /** Returns the documented spelling of a sound name, or null when the tag is not a sound. */
-    fun normalizeSoundName(tag: String): String? =
-        tag.trim().lowercase().replace('_', ' ').takeIf { it in SOUND_TAGS }
+    fun normalizeSoundName(tag: String): String? {
+        val name = tag.trim().lowercase().replace('_', ' ')
+        return if (name in SOUND_TAGS) name else SOUND_TAG_ALIASES[name]
+    }
 
     /**
      * True when a steering instruction asks for a flattened or distorted delivery, so it should be

@@ -65,6 +65,48 @@ class InworldScriptPostProcessorTest {
     }
 
     @Test
+    fun `folds a plural sound name onto the documented spelling`() {
+        // Episode 207 shipped [laughs] and [chuckles]. Neither is a documented name, so both became
+        // steering instructions: instead of one laugh, the whole turn was read laughing, and the
+        // direction was re-emitted onto every later chunk of that turn.
+        assertEquals("[laugh] Right, because why not.", InworldScriptPostProcessor.process("[laughs] Right, because why not.", retainSteeringInstructions = true))
+        assertEquals("[laugh] Included, and that's why.", InworldScriptPostProcessor.process("[chuckles] Included, and that's why.", retainSteeringInstructions = true))
+    }
+
+    @Test
+    fun `folds every known sound name variant`() {
+        val variants = mapOf(
+            "laughs" to "laugh", "laughing" to "laugh", "laughter" to "laugh",
+            "chuckle" to "laugh", "chuckles" to "laugh", "chuckling" to "laugh",
+            "sighs" to "sigh", "sighing" to "sigh",
+            "breathes" to "breathe", "breathing" to "breathe", "breath" to "breathe",
+            "coughs" to "cough", "coughing" to "cough",
+            "clears throat" to "clear throat", "throat clear" to "clear throat",
+            "yawns" to "yawn", "yawning" to "yawn"
+        )
+        for ((variant, documented) in variants) {
+            assertEquals(documented, InworldScriptPostProcessor.normalizeSoundName(variant), "[$variant] should fold to [$documented]")
+        }
+    }
+
+    @Test
+    fun `a folded sound name is a sound rather than a steering instruction`() {
+        // The distinction that matters: a sound survives on every model, while an instruction is
+        // stripped on the models that would read it out loud instead of acting on it.
+        assertFalse(InworldScriptPostProcessor.isSteeringInstruction("laughs"))
+        assertEquals("[laugh] Right, because why not.", InworldScriptPostProcessor.process("[laughs] Right, because why not."))
+        assertEquals("Right, because why not.", InworldScriptPostProcessor.process("[amused] Right, because why not."))
+    }
+
+    @Test
+    fun `a genuine delivery direction is still an instruction`() {
+        // The fold is narrow: only near-misses of the documented names, never prose.
+        assertTrue(InworldScriptPostProcessor.isSteeringInstruction("warm and conversational"))
+        assertEquals(null, InworldScriptPostProcessor.normalizeSoundName("warm and conversational"))
+        assertEquals(null, InworldScriptPostProcessor.normalizeSoundName("light"))
+    }
+
+    @Test
     fun `rewrites the legacy underscore spelling of clear throat`() {
         assertEquals("[clear throat] Right, moving on.", InworldScriptPostProcessor.process("[clear_throat] Right, moving on."))
     }
