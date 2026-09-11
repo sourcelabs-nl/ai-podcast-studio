@@ -7,6 +7,7 @@ import com.aisummarypodcast.config.EpisodesProperties
 import com.aisummarypodcast.config.FeedProperties
 import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.SourceProperties
+import com.aisummarypodcast.llm.ComposeContext
 import com.aisummarypodcast.llm.LlmPipeline
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
+import java.time.LocalDate
 
 class PodcastServiceTest {
 
@@ -53,6 +55,7 @@ class PodcastServiceTest {
     private val sourceAggregator = mockk<SourceAggregator>(relaxed = true)
     private val episodeWindowResolver = mockk<EpisodeWindowResolver> {
         every { windowOf(any()) } answers { window }
+        every { episodeDateOf(any(), any()) } answers { episodeDate }
     }
     private val appProperties = AppProperties(
         llm = LlmProperties(),
@@ -186,6 +189,8 @@ class PodcastServiceTest {
         end = Instant.parse("2026-08-31T13:00:00Z")
     )
 
+    private val episodeDate = LocalDate.of(2026, 8, 31)
+
     private val sourceEpisode = Episode(
         id = 191, podcastId = "p1", scriptText = "script",
         status = EpisodeStatus.FAILED, generatedAt = "2026-08-31T13:00:00Z",
@@ -284,7 +289,7 @@ class PodcastServiceTest {
             LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"))
         every { episodeService.createGeneratingEpisode(podcast, window, false) } returns generating
         // Stubbed so the background recompose this launches completes quietly.
-        coEvery { llmPipeline.recompose(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
+        coEvery { llmPipeline.recompose(any(), any(), any(), any()) } returns mockk(relaxed = true)
         coEvery {
             episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any())
         } returns generating
@@ -309,7 +314,7 @@ class PodcastServiceTest {
         every { episodeService.findLinkedArticlesAndTopics(191) } returns
             LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"), annotations)
         every { episodeService.createGeneratingEpisode(podcast, window, false) } returns generating
-        coEvery { llmPipeline.recompose(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
+        coEvery { llmPipeline.recompose(any(), any(), any(), any()) } returns mockk(relaxed = true)
         coEvery {
             episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any())
         } returns generating
@@ -319,7 +324,11 @@ class PodcastServiceTest {
         // Without this the composer has no continuity signal and falls back on the history tool,
         // which demoted a launch story on an unrelated keyword match.
         coVerify(timeout = 5000) {
-            llmPipeline.recompose(listOf(article), podcast, listOf("Topic"), annotations, any())
+            llmPipeline.recompose(
+                listOf(article), podcast,
+                ComposeContext(followUpAnnotations = annotations, topicLabels = listOf("Topic"), episodeDate = episodeDate),
+                any()
+            )
         }
     }
 

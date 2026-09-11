@@ -9,7 +9,6 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
-import java.time.LocalDate
 import kotlin.time.measureTimedValue
 
 data class CompositionResult(
@@ -36,16 +35,16 @@ class BriefingComposer(
         PodcastStyle.EXECUTIVE_SUMMARY to "You are creating a concise executive summary. Be fact-focused with minimal commentary. Get straight to the point."
     )
 
-    suspend fun compose(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): CompositionResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
-        return compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        return compose(articles, podcast, composeModelDef, context)
     }
 
-    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing briefing from {} articles for podcast '{}' ({}) (style: {})", articles.size, podcast.name, podcast.id, podcast.style)
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
-        val prompt = buildPrompt(articles, podcast, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        val prompt = buildPrompt(articles, podcast, context)
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
@@ -74,7 +73,7 @@ class BriefingComposer(
         return result
     }
 
-    internal fun buildPrompt(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): String {
+    internal fun buildPrompt(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): String {
         val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
         val stylePrompt = stylePrompts[podcast.style] ?: stylePrompts[PodcastStyle.NEWS_BRIEFING]!!
 
@@ -90,17 +89,17 @@ class BriefingComposer(
         val articleSubtopics = plan?.articleSubtopics ?: emptyMap()
         val subtopicPlanBlock = plan?.let { buildSubtopicPlanBlock(it, RapidFireStyle.BRIEFING) } ?: ""
 
-        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, followUpAnnotations, articleSubtopics)
+        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, context.followUpAnnotations, articleSubtopics)
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
-        val currentDate = buildCurrentDate(podcast.language)
-        val humorBlock = buildHumorBlock()
+        val episodeDateLabel = buildEpisodeDate(podcast.language, context.episodeDate)
+        val humorBlock = buildHumorBlock(context.episodeDate)
         val languageInstruction = buildLanguageInstruction(podcast.language, "script")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor)
-        val ttsGuidelinesBlock = buildTtsGuidelinesBlock(ttsScriptGuidelines)
-        val topicOrderBlock = buildTopicOrderBlock(topicLabels)
+        val ttsGuidelinesBlock = buildTtsGuidelinesBlock(context.ttsScriptGuidelines)
+        val topicOrderBlock = buildTopicOrderBlock(context.topicLabels)
 
-        val variety = varietyPicker.pick(podcast.id, LocalDate.now())
+        val variety = varietyPicker.pick(podcast.id, context.episodeDate)
         val openingDirective = PromptVarietyDescriptors.describe(variety.openingStyle)
         val transitionsDirective = PromptVarietyDescriptors.describe(variety.transitionVocab)
         val signOffDirective = PromptVarietyDescriptors.describe(variety.signOffShape)
@@ -112,7 +111,7 @@ class BriefingComposer(
 
             Podcast: ${podcast.name}
             Topic: ${podcast.topic}
-            Date: $currentDate
+            Date: $episodeDateLabel
 
             Requirements:
             - Use natural spoken language, not written style

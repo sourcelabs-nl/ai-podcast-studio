@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 
 class EpisodeWindowResolverTest {
@@ -160,4 +161,27 @@ class EpisodeWindowResolverTest {
         scriptText = "script",
         status = EpisodeStatus.GENERATED
     )
+
+    @Test
+    fun `the episode date is the window end read in the podcast timezone`() {
+        noCoverage()
+
+        val window = resolver().resolve(podcast, tuesdaySlot)
+
+        assertEquals(LocalDate.of(2026, 9, 8), resolver().episodeDateOf(podcast, window))
+    }
+
+    @Test
+    fun `the episode date follows the podcast timezone across the UTC date boundary`() {
+        noCoverage()
+
+        // A slot at 00:30 Amsterdam time on 10 September is 22:30Z on 9 September: the podcast's
+        // own day is the one the episode is about, not the UTC one.
+        val window = EpisodeWindow(
+            start = Instant.parse("2026-09-08T22:30:00Z"),
+            end = Instant.parse("2026-09-09T22:30:00Z")
+        )
+
+        assertEquals(LocalDate.of(2026, 9, 10), resolver().episodeDateOf(podcast, window))
+    }
 }

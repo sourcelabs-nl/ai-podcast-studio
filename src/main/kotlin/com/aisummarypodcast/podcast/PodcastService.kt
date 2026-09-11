@@ -1,6 +1,7 @@
 package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.llm.ComposeContext
 import com.aisummarypodcast.llm.FilteredArticle
 import com.aisummarypodcast.llm.LlmPipeline
 import com.aisummarypodcast.llm.PreviewResult
@@ -112,7 +113,12 @@ class PodcastService(
 
                 val composeResult = llmPipeline.compose(
                     dedupResult.filteredArticles, podcast,
-                    dedupResult.followUpAnnotations, dedupResult.topicLabels, onProgress
+                    ComposeContext(
+                        followUpAnnotations = dedupResult.followUpAnnotations,
+                        topicLabels = dedupResult.topicLabels,
+                        episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+                    ),
+                    onProgress
                 )
                 episodeService.saveComposeResult(episode, composeResult)
                 episodeService.finalizeEpisode(episode, podcast, composeResult.topicOrder)
@@ -123,7 +129,17 @@ class PodcastService(
                     FilteredArticle(article, topic = articleTopics[article.id])
                 }
 
-                val composeResult = llmPipeline.compose(filteredArticles, podcast, topicLabels = topicLabels, onProgress = onProgress)
+                // The episode's own window, so the recomposed script announces the day the episode
+                // covers rather than the day the retry happens.
+                val window = episodeWindowResolver.windowOf(episode) ?: episodeWindowResolver.resolveForNow(podcast)
+                val composeResult = llmPipeline.compose(
+                    filteredArticles, podcast,
+                    ComposeContext(
+                        topicLabels = topicLabels,
+                        episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+                    ),
+                    onProgress
+                )
                 episodeService.saveComposeResult(episode, composeResult)
                 episodeService.finalizeEpisode(episode, podcast, composeResult.topicOrder)
             }
@@ -314,7 +330,12 @@ class PodcastService(
             // Stage 4: Compose script
             val composeResult = llmPipeline.compose(
                 dedupResult.filteredArticles, podcast,
-                dedupResult.followUpAnnotations, dedupResult.topicLabels, onProgress
+                ComposeContext(
+                    followUpAnnotations = dedupResult.followUpAnnotations,
+                    topicLabels = dedupResult.topicLabels,
+                    episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+                ),
+                onProgress
             )
 
             // Persist script
@@ -401,7 +422,7 @@ class PodcastService(
         val generatingEpisode = episodeService.createGeneratingEpisode(podcast, window, updateLastGenerated = false)
         pipelineScope.launch {
             try {
-                runRegeneration(linked, podcast, generatingEpisode, sourceEpisode.generatedAt)
+                runRegeneration(linked, podcast, generatingEpisode, sourceEpisode.generatedAt, window)
             } catch (e: Exception) {
                 log.error("[Pipeline] Regeneration failed for episode {} (podcast '{}' ({})): {}", generatingEpisode.id, podcast.name, podcast.id, e.message, e)
                 episodeService.failEpisode(podcast, e.message ?: "Unknown error", generatingEpisode)
@@ -414,11 +435,17 @@ class PodcastService(
         linked: LinkedArticlesResult,
         podcast: Podcast,
         generatingEpisode: Episode,
-        sourceGeneratedAt: String
+        sourceGeneratedAt: String,
+        window: EpisodeWindow
     ): Episode {
         val (articles, topicLabels, articleTopics, followUpAnnotations) = linked
 
-        val result = llmPipeline.recompose(articles, podcast, topicLabels, followUpAnnotations) { stage, detail ->
+        val context = ComposeContext(
+            followUpAnnotations = followUpAnnotations,
+            topicLabels = topicLabels,
+            episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+        )
+        val result = llmPipeline.recompose(articles, podcast, context) { stage, detail ->
             eventPublisher.publishEvent(
                 PodcastEvent(this, podcast.id, "episode", generatingEpisode.id!!, "episode.stage",
                     detail + ("stage" to stage))

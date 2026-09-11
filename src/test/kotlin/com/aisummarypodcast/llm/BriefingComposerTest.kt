@@ -17,6 +17,9 @@ import org.springframework.ai.chat.metadata.ChatResponseMetadata
 import org.springframework.ai.chat.metadata.DefaultUsage
 import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.model.Generation
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class BriefingComposerTest {
 
@@ -296,7 +299,7 @@ class BriefingComposerTest {
     fun `buildPrompt includes follow-up annotation for continuation articles`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
         val annotations = mapOf(1L to "Previously covered Gemini 2.5 release and benchmarks")
-        val prompt = composer.buildPrompt(sampleArticles, podcast, followUpAnnotations = annotations)
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(followUpAnnotations = annotations))
         assertTrue(prompt.contains("[FOLLOW-UP: Previously covered Gemini 2.5 release and benchmarks]"))
     }
 
@@ -471,7 +474,7 @@ class BriefingComposerTest {
     fun `buildPrompt includes TTS guidelines when provided`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
         val guidelines = "Use *word* for emphasis and [laugh] for non-verbal cues."
-        val prompt = composer.buildPrompt(sampleArticles, podcast, ttsScriptGuidelines = guidelines)
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(ttsScriptGuidelines = guidelines))
         assertTrue(prompt.contains("TTS script formatting:"))
         assertTrue(prompt.contains("Use *word* for emphasis"))
     }
@@ -479,7 +482,7 @@ class BriefingComposerTest {
     @Test
     fun `buildPrompt omits TTS guidelines when empty`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
-        val prompt = composer.buildPrompt(sampleArticles, podcast, ttsScriptGuidelines = "")
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(ttsScriptGuidelines = ""))
         assertFalse(prompt.contains("TTS script formatting:"))
     }
 
@@ -577,5 +580,48 @@ class BriefingComposerTest {
         assertTrue(prompt.contains("ONLY for stories you will cover in a full segment"))
         assertTrue(prompt.contains("preferring higher-weight subtopics"))
         assertTrue(prompt.contains("episode-wide budget of 3 calls"))
+    }
+
+    @Test
+    fun `buildPrompt states the episode date, not the day the run happens`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", language = "en")
+        // A week back rather than a fixed date, so the day under test can never coincide with the
+        // day the suite happens to run and let the assertion pass for the wrong reason.
+        val episodeDate = LocalDate.now().minusWeeks(1)
+        val dateFormat = DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.ENGLISH)
+
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(episodeDate = episodeDate))
+
+        assertTrue(
+            prompt.contains("Date: ${episodeDate.format(dateFormat)}"),
+            "Expected the episode's own date in the prompt"
+        )
+        assertFalse(
+            prompt.contains(LocalDate.now().format(dateFormat)),
+            "Expected today's date to be absent from a prompt for another day"
+        )
+    }
+
+    @Test
+    fun `buildPrompt asks for the Friday beat on the episode's Friday, not the run's`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", language = "en")
+
+        val fridayPrompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(episodeDate = LocalDate.of(2026, 9, 11)))
+        val wednesdayPrompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(episodeDate = LocalDate.of(2026, 9, 9)))
+
+        assertTrue(fridayPrompt.contains("Today is FRIDAY"))
+        assertFalse(wednesdayPrompt.contains("Today is FRIDAY"))
+    }
+
+    @Test
+    fun `buildPrompt picks the prompt variety of the episode date`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", language = "en")
+        val episodeDate = LocalDate.of(2026, 9, 9)
+        val expected = PromptVarietyPicker().pick(podcast.id, episodeDate)
+
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(episodeDate = episodeDate))
+
+        assertTrue(prompt.contains(PromptVarietyDescriptors.describe(expected.openingStyle)))
+        assertTrue(prompt.contains(PromptVarietyDescriptors.describe(expected.signOffShape)))
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.scheduling.support.CronExpression
 import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -57,6 +58,15 @@ class EpisodeWindowResolver(
             null
         }
     }
+
+    /**
+     * The day an episode covering [window] is about: the date its window ends, read in the
+     * podcast's own timezone. The window ends at the scheduled slot being served, which is the day
+     * the episode is published for, so a re-run or a regeneration of a past window announces that
+     * day rather than the day the run happens.
+     */
+    fun episodeDateOf(podcast: Podcast, window: EpisodeWindow): LocalDate =
+        LocalDate.ofInstant(window.end, zoneOf(podcast))
 
     /** The window for the scheduled slot at [windowEnd]. */
     fun resolve(podcast: Podcast, windowEnd: Instant): EpisodeWindow {

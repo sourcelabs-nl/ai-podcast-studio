@@ -8,7 +8,6 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
-import java.time.LocalDate
 import kotlin.time.measureTimedValue
 
 @Component
@@ -21,16 +20,16 @@ class DialogueComposer(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    suspend fun compose(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): CompositionResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
-        return compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        return compose(articles, podcast, composeModelDef, context)
     }
 
-    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing dialogue from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
-        val prompt = buildPrompt(articles, podcast, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        val prompt = buildPrompt(articles, podcast, context)
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
@@ -63,7 +62,7 @@ class DialogueComposer(
         return result
     }
 
-    internal fun buildPrompt(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): String {
+    internal fun buildPrompt(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): String {
         val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
         val speakerRoles = resolveSpeakerRoles(podcast).toList()
         val tagExamples = speakerRoles.joinToString("\n            ") { role -> "<$role>Example text</$role>" }
@@ -87,17 +86,17 @@ class DialogueComposer(
         val articleSubtopics = plan?.articleSubtopics ?: emptyMap()
         val subtopicPlanBlock = plan?.let { buildSubtopicPlanBlock(it, RapidFireStyle.DIALOGUE) } ?: ""
 
-        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, followUpAnnotations, articleSubtopics)
+        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, context.followUpAnnotations, articleSubtopics)
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
-        val currentDate = buildCurrentDate(podcast.language)
-        val humorBlock = buildHumorBlock()
+        val episodeDateLabel = buildEpisodeDate(podcast.language, context.episodeDate)
+        val humorBlock = buildHumorBlock(context.episodeDate)
         val languageInstruction = buildLanguageInstruction(podcast.language, "dialogue")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor)
-        val ttsGuidelinesBlock = buildTtsGuidelinesBlock(ttsScriptGuidelines)
-        val topicOrderBlock = buildTopicOrderBlock(topicLabels)
+        val ttsGuidelinesBlock = buildTtsGuidelinesBlock(context.ttsScriptGuidelines)
+        val topicOrderBlock = buildTopicOrderBlock(context.topicLabels)
 
-        val variety = varietyPicker.pick(podcast.id, LocalDate.now())
+        val variety = varietyPicker.pick(podcast.id, context.episodeDate)
         val openingDirective = PromptVarietyDescriptors.describe(variety.openingStyle)
         val transitionsDirective = PromptVarietyDescriptors.describe(variety.transitionVocab)
         val signOffDirective = PromptVarietyDescriptors.describe(variety.signOffShape)
@@ -109,7 +108,7 @@ class DialogueComposer(
 
             Podcast: ${podcast.name}
             Topic: ${podcast.topic}
-            Date: $currentDate
+            Date: $episodeDateLabel
             Speakers: ${speakerRoles.joinToString(", ")}
 
             Requirements:

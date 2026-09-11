@@ -1,0 +1,25 @@
+package com.aisummarypodcast.llm
+
+import java.time.LocalDate
+
+/**
+ * Everything a compose-stage prompt needs beyond the articles, the podcast and the model.
+ *
+ * These travel together through every compose path (a generation, a retry, a re-run, a
+ * regeneration and a preview), and the set grows as the prompt learns about more of the run, so
+ * they are one object rather than a tail of optional positional arguments.
+ *
+ * [ttsScriptGuidelines] is resolved by the pipeline from the podcast's TTS provider, so callers
+ * upstream of it leave it empty and the pipeline fills it in.
+ *
+ * [episodeDate] is the day the episode is about, which is the date its article window ends read in
+ * the podcast's timezone (see `EpisodeWindowResolver.episodeDateOf`). It decides the date the script
+ * announces, whether the end-of-week humor beat applies, and the prompt-variety rotation, so a
+ * re-run or a regeneration of a past day must pass that day rather than rely on the default.
+ */
+data class ComposeContext(
+    val ttsScriptGuidelines: String = "",
+    val followUpAnnotations: Map<Long, String> = emptyMap(),
+    val topicLabels: List<String> = emptyList(),
+    val episodeDate: LocalDate = LocalDate.now()
+)

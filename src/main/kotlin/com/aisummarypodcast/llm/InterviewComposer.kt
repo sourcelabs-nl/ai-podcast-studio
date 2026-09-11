@@ -8,7 +8,6 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
-import java.time.LocalDate
 import kotlin.time.measureTimedValue
 
 @Component
@@ -25,16 +24,16 @@ class InterviewComposer(
         private val INTERVIEW_ROLES = setOf("interviewer", "expert")
     }
 
-    suspend fun compose(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): CompositionResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
-        return compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        return compose(articles, podcast, composeModelDef, context)
     }
 
-    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): CompositionResult {
+    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing interview from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
-        val prompt = buildPrompt(articles, podcast, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+        val prompt = buildPrompt(articles, podcast, context)
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
@@ -67,7 +66,7 @@ class InterviewComposer(
         return result
     }
 
-    internal fun buildPrompt(articles: List<Article>, podcast: Podcast, ttsScriptGuidelines: String = "", followUpAnnotations: Map<Long, String> = emptyMap(), topicLabels: List<String> = emptyList()): String {
+    internal fun buildPrompt(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): String {
         val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
 
         val interviewerName = podcast.speakerNames?.get("interviewer")
@@ -91,15 +90,15 @@ class InterviewComposer(
         val articleSubtopics = plan?.articleSubtopics ?: emptyMap()
         val subtopicPlanBlock = plan?.let { buildSubtopicPlanBlock(it, RapidFireStyle.INTERVIEW) } ?: ""
 
-        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, followUpAnnotations, articleSubtopics)
+        val summaryBlock = buildArticleSummaryBlock(articles, useFullBody, context.followUpAnnotations, articleSubtopics)
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
-        val currentDate = buildCurrentDate(podcast.language)
-        val humorBlock = buildHumorBlock()
+        val episodeDateLabel = buildEpisodeDate(podcast.language, context.episodeDate)
+        val humorBlock = buildHumorBlock(context.episodeDate)
         val languageInstruction = buildLanguageInstruction(podcast.language, "interview")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor, speakerPrefix = "the interviewer should ")
 
-        val variety = varietyPicker.pick(podcast.id, LocalDate.now())
+        val variety = varietyPicker.pick(podcast.id, context.episodeDate)
         val openingDirective = PromptVarietyDescriptors.describe(variety.openingStyle)
         val transitionsDirective = PromptVarietyDescriptors.describe(variety.transitionVocab)
         val signOffDirective = PromptVarietyDescriptors.describe(variety.signOffShape)
@@ -112,15 +111,15 @@ class InterviewComposer(
             "\n            - TEASER: $placement, the interviewer previews the most interesting topics. $teaserDirective Keep the entire teaser under 25 words. Create curiosity without spoiling the punchlines."
         } else ""
 
-        val ttsGuidelinesBlock = buildTtsGuidelinesBlock(ttsScriptGuidelines)
-        val topicOrderBlock = buildTopicOrderBlock(topicLabels)
+        val ttsGuidelinesBlock = buildTtsGuidelinesBlock(context.ttsScriptGuidelines)
+        val topicOrderBlock = buildTopicOrderBlock(context.topicLabels)
 
         return """
             You are writing an interview-style podcast script between an interviewer and an expert. The interviewer acts as an audience surrogate, asking questions, bridging topics, and providing brief reactions. The expert delivers the news content, context, and analysis.
 
             Podcast: ${podcast.name}
             Topic: ${podcast.topic}
-            Date: $currentDate
+            Date: $episodeDateLabel
 
             Requirements:
             - The interviewer (~35% of words) asks questions, bridges between topics, reacts, challenges, and provides commentary

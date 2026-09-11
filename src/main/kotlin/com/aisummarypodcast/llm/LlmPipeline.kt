@@ -16,6 +16,7 @@ import com.aisummarypodcast.tts.TtsProviderFactory
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.time.Instant
+import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 import kotlin.time.measureTimedValue
@@ -328,11 +329,17 @@ class LlmPipeline(
         return distinct
     }
 
+    /**
+     * Composes the script for the articles selected for a run. The caller decides everything about
+     * the prompt that is not derived from the articles themselves, including
+     * [ComposeContext.episodeDate]: a retry, a re-run or a regeneration of a past day must state
+     * that day rather than the day the run happens. The TTS guidelines are resolved here from the
+     * podcast's provider and filled into the context.
+     */
     suspend fun compose(
         filteredArticles: List<FilteredArticle>,
         podcast: Podcast,
-        followUpAnnotations: Map<Long, String> = emptyMap(),
-        topicLabels: List<String> = emptyList(),
+        context: ComposeContext = ComposeContext(),
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): ComposeStageResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
@@ -349,7 +356,9 @@ class LlmPipeline(
         onProgress("composing", mapOf("articleCount" to toCompose.size))
 
         val ttsProvider = ttsProviderFactory.resolve(podcast)
-        val ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
+        val composeContext = context.copy(
+            ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
+        )
 
         // Retried only on a transient provider fault (see the `compose` instance): an invalid or
         // incomplete completion, or an I/O failure. A speaker-tag failure must NOT land here —
@@ -359,9 +368,9 @@ class LlmPipeline(
         // generation and failed the episode, while every cheaper stage around it retried.
         val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
             when (podcast.style) {
-                PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-                PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-                else -> briefingComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, composeContext)
+                PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, composeContext)
+                else -> briefingComposer.compose(toCompose, podcast, composeModelDef, composeContext)
             }
         }
 
@@ -385,11 +394,17 @@ class LlmPipeline(
     }
 
     suspend fun run(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult? {
-        val eligible = aggregateScoreAndFilter(podcast, episodeWindowResolver.resolveForNow(podcast), onProgress) ?: return null
+        val window = episodeWindowResolver.resolveForNow(podcast)
+        val eligible = aggregateScoreAndFilter(podcast, window, onProgress) ?: return null
         val dedupStageResult = dedup(eligible, podcast, onProgress) ?: return null
         val composeStageResult = compose(
             dedupStageResult.filteredArticles, podcast,
-            dedupStageResult.followUpAnnotations, dedupStageResult.topicLabels, onProgress
+            ComposeContext(
+                followUpAnnotations = dedupStageResult.followUpAnnotations,
+                topicLabels = dedupStageResult.topicLabels,
+                episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+            ),
+            onProgress
         )
 
         val processedArticleIds = dedupStageResult.filteredArticles.map { it.article.id!! }
@@ -432,16 +447,22 @@ class LlmPipeline(
         )
     }
 
+    /**
+     * Recomposes an episode from articles that were already selected and scored. The context's
+     * [ComposeContext.episodeDate] is the day the source episode covered, not the day the
+     * regeneration runs.
+     */
     suspend fun recompose(
         articles: List<Article>,
         podcast: Podcast,
-        topicLabels: List<String> = emptyList(),
-        followUpAnnotations: Map<Long, String> = emptyMap(),
+        context: ComposeContext = ComposeContext(),
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): PipelineResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
         val ttsProvider = ttsProviderFactory.resolve(podcast)
-        val ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
+        val composeContext = context.copy(
+            ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
+        )
 
         onProgress("composing", mapOf("articleCount" to articles.size))
 
@@ -450,9 +471,9 @@ class LlmPipeline(
         // searchPastEpisodes tool, which demoted a launch story on an unrelated keyword match.
         val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
             when (podcast.style) {
-                PodcastStyle.DIALOGUE -> dialogueComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-                PodcastStyle.INTERVIEW -> interviewComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-                else -> briefingComposer.compose(articles, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                PodcastStyle.DIALOGUE -> dialogueComposer.compose(articles, podcast, composeModelDef, composeContext)
+                PodcastStyle.INTERVIEW -> interviewComposer.compose(articles, podcast, composeModelDef, composeContext)
+                else -> briefingComposer.compose(articles, podcast, composeModelDef, composeContext)
             }
         }
 
@@ -480,7 +501,7 @@ class LlmPipeline(
             llmCostCents = costCents,
             llmCostSource = LlmCostSource.aggregate(listOf(scoreCost.source, composeCost.source)),
             processedArticleIds = articles.map { it.id!! },
-            followUpAnnotations = followUpAnnotations,
+            followUpAnnotations = context.followUpAnnotations,
             topicOrder = compositionResult.topicOrder,
             researchCalls = compositionResult.researchCalls,
             researchCostCents = researchCostCents,
@@ -530,7 +551,9 @@ class LlmPipeline(
         }
 
         // Step 3: Find eligible articles and run dedup filter
-        val eligible = articleEligibilityService.findEligibleArticles(sourceIds, podcast, episodeWindowResolver.resolveForNow(podcast))
+        val window = episodeWindowResolver.resolveForNow(podcast)
+        val episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+        val eligible = articleEligibilityService.findEligibleArticles(sourceIds, podcast, window)
         if (eligible.isEmpty()) {
             log.info("[LLM Preview] No eligible articles for podcast '{}' ({})", podcast.name, podcast.id)
             return null
@@ -554,17 +577,20 @@ class LlmPipeline(
         onProgress("composing", mapOf("articleCount" to toCompose.size))
 
         val ttsProvider = ttsProviderFactory.resolve(podcast)
-        val ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
-
         val followUpAnnotations = buildFollowUpAnnotations(dedupResult.filteredArticles)
-        val topicLabels = dedupResult.filteredArticles.mapNotNull { it.topic }.distinct()
+        val composeContext = ComposeContext(
+            ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
+            followUpAnnotations = followUpAnnotations,
+            topicLabels = dedupResult.filteredArticles.mapNotNull { it.topic }.distinct(),
+            episodeDate = episodeDate
+        )
 
         // Same transient-fault retry as the compose stage above.
         val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
             when (podcast.style) {
-                PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-                PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
-                else -> briefingComposer.compose(toCompose, podcast, composeModelDef, ttsScriptGuidelines, followUpAnnotations, topicLabels)
+                PodcastStyle.DIALOGUE -> dialogueComposer.compose(toCompose, podcast, composeModelDef, composeContext)
+                PodcastStyle.INTERVIEW -> interviewComposer.compose(toCompose, podcast, composeModelDef, composeContext)
+                else -> briefingComposer.compose(toCompose, podcast, composeModelDef, composeContext)
             }
         }
 

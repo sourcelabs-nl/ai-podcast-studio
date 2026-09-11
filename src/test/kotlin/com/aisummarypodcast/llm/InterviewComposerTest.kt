@@ -136,7 +136,7 @@ class InterviewComposerTest {
     @Test
     fun `prompt includes follow-up annotation for continuation articles`() {
         val annotations = mapOf(1L to "Previously covered release details")
-        val prompt = composer.buildPrompt(articles, podcast, followUpAnnotations = annotations)
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(followUpAnnotations = annotations))
 
         assertTrue(prompt.contains("[FOLLOW-UP: Previously covered release details]"))
     }
@@ -240,7 +240,7 @@ class InterviewComposerTest {
     @Test
     fun `prompt includes TTS guidelines when provided`() {
         val guidelines = "You MAY include emotion cues in square brackets."
-        val prompt = composer.buildPrompt(articles, podcast, ttsScriptGuidelines = guidelines)
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(ttsScriptGuidelines = guidelines))
 
         assertTrue(prompt.contains("TTS script formatting:"))
         assertTrue(prompt.contains("emotion cues in square brackets"))
@@ -248,7 +248,7 @@ class InterviewComposerTest {
 
     @Test
     fun `prompt omits TTS guidelines when empty`() {
-        val prompt = composer.buildPrompt(articles, podcast, ttsScriptGuidelines = "")
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(ttsScriptGuidelines = ""))
 
         assertFalse(prompt.contains("TTS script formatting:"))
     }

@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.time.Instant
+import java.time.LocalDate
 
 class LlmPipelineTest {
 
@@ -69,6 +70,7 @@ class LlmPipelineTest {
     )
     private val episodeWindowResolver = mockk<EpisodeWindowResolver> {
         every { resolveForNow(any()) } returns window
+        every { episodeDateOf(any(), any()) } returns LocalDate.of(2026, 3, 18)
     }
 
     private val appProperties = AppProperties(
@@ -176,7 +178,7 @@ class LlmPipelineTest {
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
         coEvery { topicDedupFilter.filter(listOf(scored), emptyList(), "u1", filterModelDef) } returns
             DedupFilterResult(listOf(FilteredArticle(scored)), TokenUsage(100, 50))
-        coEvery { briefingComposer.compose(listOf(scored), podcast, composeModelDef, "", emptyMap()) } returns compositionResult
+        coEvery { briefingComposer.compose(listOf(scored), podcast, composeModelDef, any()) } returns compositionResult
 
         runTest {
             val result = pipeline.run(podcast)
@@ -202,7 +204,7 @@ class LlmPipelineTest {
 
         val composed = slot<List<Article>>()
         coEvery {
-            briefingComposer.compose(capture(composed), any(), any(), any(), any<Map<Long, String>>())
+            briefingComposer.compose(capture(composed), any(), any(), any())
         } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest {
@@ -215,7 +217,7 @@ class LlmPipelineTest {
     @Test
     fun `delegates article selection to ArticleEligibilityService`() {
         setupBasicPipeline()
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest { pipeline.run(podcast) }
 
@@ -268,7 +270,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         val composedArticles = slot<List<Article>>()
         coEvery {
-            briefingComposer.compose(capture(composedArticles), podcast, composeModelDef, "", any<Map<Long, String>>(), any())
+            briefingComposer.compose(capture(composedArticles), podcast, composeModelDef, any())
         } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest {
@@ -285,7 +287,7 @@ class LlmPipelineTest {
         every { articleEligibilityService.findHistoricalArticles(podcast) } returns historical
         coEvery { topicDedupFilter.filter(listOf(scoredArticle), historical, "u1", filterModelDef) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle)), TokenUsage(100, 50))
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest { pipeline.run(podcast) }
 
@@ -297,14 +299,14 @@ class LlmPipelineTest {
         setupBasicPipeline()
         coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle, "Previously covered release")), TokenUsage(100, 50))
-        coEvery { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, "", mapOf(1L to "Previously covered release")) } returns
+        coEvery { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, match { it.followUpAnnotations == mapOf(1L to "Previously covered release") }) } returns
             CompositionResult("Script with follow-up", TokenUsage(500, 200))
 
         runTest {
             val result = pipeline.run(podcast)
 
             assertNotNull(result)
-            coVerify { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, "", mapOf(1L to "Previously covered release")) }
+            coVerify { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, match { it.followUpAnnotations == mapOf(1L to "Previously covered release") }) }
         }
     }
 
@@ -312,14 +314,14 @@ class LlmPipelineTest {
     fun `uses dialogueComposer for dialogue style podcast`() {
         val dialoguePodcast = podcast.copy(style = PodcastStyle.DIALOGUE, ttsProvider = TtsProviderType.ELEVENLABS, ttsVoices = mapOf("host" to "v1", "cohost" to "v2"))
         setupBasicPipeline(podcast = dialoguePodcast)
-        coEvery { dialogueComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("<host>Hello!</host>", TokenUsage(500, 200))
+        coEvery { dialogueComposer.compose(any(), any(), any(), any()) } returns CompositionResult("<host>Hello!</host>", TokenUsage(500, 200))
 
         runTest {
             val result = pipeline.run(dialoguePodcast)
 
             assertNotNull(result)
-            coVerify { dialogueComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
-            coVerify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+            coVerify { dialogueComposer.compose(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any()) }
         }
     }
 
@@ -327,14 +329,14 @@ class LlmPipelineTest {
     fun `uses interviewComposer for interview style podcast`() {
         val interviewPodcast = podcast.copy(style = PodcastStyle.INTERVIEW, ttsProvider = TtsProviderType.ELEVENLABS, ttsVoices = mapOf("interviewer" to "v1", "expert" to "v2"))
         setupBasicPipeline(podcast = interviewPodcast)
-        coEvery { interviewComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("<interviewer>Q?</interviewer>", TokenUsage(500, 200))
+        coEvery { interviewComposer.compose(any(), any(), any(), any()) } returns CompositionResult("<interviewer>Q?</interviewer>", TokenUsage(500, 200))
 
         runTest {
             val result = pipeline.run(interviewPodcast)
 
             assertNotNull(result)
-            coVerify { interviewComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
-            coVerify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) }
+            coVerify { interviewComposer.compose(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { briefingComposer.compose(any(), any(), any(), any()) }
         }
     }
 
@@ -343,7 +345,7 @@ class LlmPipelineTest {
         setupBasicPipeline()
         coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle)), TokenUsage(200, 100))
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns
             CompositionResult("Script", TokenUsage(500, 300))
 
         runTest {
@@ -358,7 +360,7 @@ class LlmPipelineTest {
     @Test
     fun `does not mark articles as processed`() {
         setupBasicPipeline()
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest { pipeline.run(podcast) }
 
@@ -369,7 +371,7 @@ class LlmPipelineTest {
     fun `passes pronunciations to scriptGuidelines`() {
         val podcastWithPronunciations = podcast.copy(pronunciations = mapOf("Anthropic" to "/ænˈθɹɒpɪk/"))
         setupBasicPipeline(podcast = podcastWithPronunciations)
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest { pipeline.run(podcastWithPronunciations) }
 
@@ -431,7 +433,7 @@ class LlmPipelineTest {
     @Test
     fun `aggregateScoreAndFilter returns eligible articles`() = runTest {
         setupBasicPipeline()
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } returns CompositionResult("Script", TokenUsage(500, 200))
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
         val eligible = pipeline.aggregateScoreAndFilter(podcast, window)
 
@@ -507,10 +509,10 @@ class LlmPipelineTest {
     fun `compose returns script with topic order`() = runTest {
         val filteredArticle = FilteredArticle(scoredArticle, topic = "AI Safety")
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
-        coEvery { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, "", emptyMap(), listOf("AI Safety")) } returns
+        coEvery { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, match { it.topicLabels == listOf("AI Safety") }) } returns
             CompositionResult("Today in tech...", TokenUsage(500, 200), listOf("AI Safety"))
 
-        val result = pipeline.compose(listOf(filteredArticle), podcast, topicLabels = listOf("AI Safety"))
+        val result = pipeline.compose(listOf(filteredArticle), podcast, ComposeContext(topicLabels = listOf("AI Safety")))
 
         assertEquals("Today in tech...", result.script)
         assertEquals(composeModelDef.model, result.composeModel)
@@ -602,13 +604,13 @@ class LlmPipelineTest {
         val article = scoredArticle
         every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
-        coEvery { briefingComposer.compose(listOf(article), podcast, composeModelDef, "", emptyMap()) } returns
+        coEvery { briefingComposer.compose(listOf(article), podcast, composeModelDef, any()) } returns
             CompositionResult("Recomposed script", TokenUsage(500, 200))
 
         val result = pipeline.recompose(listOf(article), podcast)
 
         assertNotNull(result)
-        coVerify { briefingComposer.compose(listOf(article), podcast, composeModelDef, "", emptyMap()) }
+        coVerify { briefingComposer.compose(listOf(article), podcast, composeModelDef, any()) }
     }
 
     // --- Compose retry -------------------------------------------------------------------------
@@ -625,7 +627,7 @@ class LlmPipelineTest {
     fun `a transient provider fault is retried rather than failing the episode`() {
         setupBasicPipeline()
         var attempts = 0
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } answers {
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } answers {
             attempts++
             // What episode 197 hit: the provider returned a completion with no finish_reason.
             if (attempts == 1) throw com.openai.errors.OpenAIInvalidDataException("`finish_reason` is null")
@@ -643,7 +645,7 @@ class LlmPipelineTest {
     fun `a speaker-tag failure is not retried by the compose retry`() {
         setupBasicPipeline()
         var attempts = 0
-        coEvery { briefingComposer.compose(any(), any(), any(), any(), any<Map<Long, String>>()) } answers {
+        coEvery { briefingComposer.compose(any(), any(), any(), any()) } answers {
             attempts++
             // RoleTagValidationAdvisor has already exhausted its own attempts inside the call.
             throw IllegalStateException("Compose LLM produced a script with no speaker tags")
