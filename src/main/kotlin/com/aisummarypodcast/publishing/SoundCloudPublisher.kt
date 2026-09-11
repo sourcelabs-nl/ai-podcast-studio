@@ -43,38 +43,48 @@ class SoundCloudPublisher(
 
     override fun targetName(): String = TARGET_NAME
 
+    /**
+     * Uploads the episode, freeing upload quota only if a first attempt has actually been refused.
+     *
+     * The order matters. Freeing quota deletes published episodes for good, so it must never run on
+     * a prediction: an upload the account was going to refuse for a reason no deletion can fix would
+     * cost the back catalogue and publish nothing. A [SoundCloudUploadNotPermittedException] is
+     * exactly that reason and is not an [HttpClientErrorException], so it leaves every track intact.
+     *
+     * The cost of attempting first is one wasted upload on a genuinely full account, once per run.
+     */
     override suspend fun publish(episode: Episode, podcast: Podcast, userId: String): PublishResult = withContext(Dispatchers.IO) {
         val accessToken = tokenManager.getValidAccessToken(userId)
+        val upload = buildUploadRequest(episode, podcast)
 
-        // Make room first when the account's remaining quota is too small for this episode: delete
-        // the oldest tracks for this podcast, then wait for SoundCloud to register the freed space.
-        freeQuotaIfNeeded(accessToken, podcast, episode)
-
-        val episodeDate = LocalDate.parse(
-            episode.generatedAt,
-            DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
-        )
-        val title = "${podcast.name} - $episodeDate"
-        val permalink = buildPermalink(podcast.name, episodeDate)
-        val description = buildDescription(episode, podcast)
-        val tagList = buildTagList(podcast.topic)
-
-        val response = soundCloudClient.uploadTrack(
-            accessToken = accessToken,
-            request = TrackUploadRequest(
-                title = title,
-                description = description,
-                tagList = tagList,
-                permalink = permalink,
-                audioFilePath = Path.of(episode.audioFilePath!!)
-            )
-        )
+        val response = try {
+            soundCloudClient.uploadTrack(accessToken, upload)
+        } catch (e: HttpClientErrorException) {
+            if (!freeQuotaIfNeeded(accessToken, podcast, episode)) throw e
+            soundCloudClient.uploadTrack(accessToken, upload)
+        }
 
         PublishResult(
             externalId = response.id.toString(),
             externalUrl = response.permalinkUrl
         )
     }
+
+    private fun buildUploadRequest(episode: Episode, podcast: Podcast): TrackUploadRequest {
+        val episodeDate = episodeDate(episode)
+        return TrackUploadRequest(
+            title = "${podcast.name} - $episodeDate",
+            description = buildDescription(episode, podcast),
+            tagList = buildTagList(podcast.topic),
+            permalink = buildPermalink(podcast.name, episodeDate),
+            audioFilePath = Path.of(episode.audioFilePath!!)
+        )
+    }
+
+    private fun episodeDate(episode: Episode): LocalDate = LocalDate.parse(
+        episode.generatedAt,
+        DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC)
+    )
 
     override fun unpublish(userId: String, externalId: String) {
         val accessToken = tokenManager.getValidAccessToken(userId)
@@ -90,10 +100,13 @@ class SoundCloudPublisher(
      * `durationSeconds` defines how much headroom is needed; when it is unknown the legacy rule (any
      * remaining quota is enough) applies. Deletes oldest-first, just enough (plus a safety buffer)
      * to fit, so we keep as much recent history as possible.
+     *
+     * Returns true when at least one track was deleted, meaning a retry now has room it did not have
+     * before. Returns false when nothing was deleted, so the caller knows a retry would be pointless.
      */
-    private suspend fun freeQuotaIfNeeded(accessToken: String, podcast: Podcast, episode: Episode) {
+    private suspend fun freeQuotaIfNeeded(accessToken: String, podcast: Podcast, episode: Episode): Boolean {
         val quota = soundCloudClient.getMe(accessToken).quota
-        if (quota == null || quota.unlimitedUploadQuota) return
+        if (quota == null || quota.unlimitedUploadQuota) return false
 
         val requiredSeconds = episode.durationSeconds?.toLong()
         val exceeded = if (requiredSeconds != null) {
@@ -101,7 +114,7 @@ class SoundCloudPublisher(
         } else {
             quota.uploadSecondsLeft <= 0
         }
-        if (!exceeded) return
+        if (!exceeded) return false
 
         val secondsToFree = (requiredSeconds ?: 1L) - quota.uploadSecondsLeft + QUOTA_BUFFER_SECONDS
 
@@ -124,7 +137,7 @@ class SoundCloudPublisher(
                 "SoundCloud upload quota exceeded (need ~{}s) but no deletable tracks found for podcast {}",
                 secondsToFree, podcast.id
             )
-            return
+            return false
         }
 
         log.info(
@@ -132,6 +145,7 @@ class SoundCloudPublisher(
             freed, deleted, QUOTA_SETTLE_MILLIS
         )
         delay(QUOTA_SETTLE_MILLIS)
+        return true
     }
 
     /**
@@ -143,15 +157,17 @@ class SoundCloudPublisher(
      * listeners. Episode 184 kept its truncated opening on SoundCloud after both its script and its
      * audio had been repaired, and the log line claimed the update had worked.
      *
-     * Deleting before uploading is deliberate on two counts. SoundCloud holds a permalink for as
-     * long as the track exists, so freeing it first lets the replacement claim the same canonical
-     * URL instead of a suffixed variant. It also returns the old track's seconds to the upload
-     * quota, which is why the [QUOTA_SETTLE_MILLIS] pause belongs here and not only in
-     * [freeQuotaIfNeeded]: without it [publish] reads a quota that has not yet registered this
-     * deletion and deletes further, older episodes to make room that already exists.
+     * The replacement is uploaded before the old track is deleted, so a refused upload leaves the
+     * episode published rather than removing it and putting nothing back. That ordering costs one
+     * step: SoundCloud holds the canonical permalink for as long as the old track exists, so the
+     * replacement is created under a suffixed variant and claims the canonical slug once the old
+     * track is gone. Deleting also returns the old track's seconds to the upload quota, which is why
+     * the [QUOTA_SETTLE_MILLIS] pause belongs here: without it a following [publish] reads a quota
+     * that has not yet registered this deletion and deletes further, older episodes to make room
+     * that already exists.
      *
      * A republish is idempotent: [SoundCloudClient.deleteTrack] treats an already-deleted track as
-     * done, so an attempt that deleted the track and then failed to upload can simply be retried.
+     * done, so an attempt that uploaded the replacement and then failed can simply be retried.
      *
      * Returns the NEW track id; the one passed in is dead once this returns.
      */
@@ -159,13 +175,22 @@ class SoundCloudPublisher(
         val accessToken = tokenManager.getValidAccessToken(userId)
         val trackId = externalId.toLong()
 
+        val uploaded = publish(episode, podcast, userId)
+
         withContext(Dispatchers.IO) { soundCloudClient.deleteTrack(accessToken, trackId) }
-        log.info("Deleted SoundCloud track {} to replace episode {}'s audio", trackId, episode.id)
+        log.info("Deleted SoundCloud track {} after replacing episode {}'s audio", trackId, episode.id)
         delay(QUOTA_SETTLE_MILLIS)
 
-        val result = publish(episode, podcast, userId)
-        log.info("Replaced SoundCloud track {} with {} for episode {}", trackId, result.externalId, episode.id)
-        return result
+        val claimed = withContext(Dispatchers.IO) {
+            soundCloudClient.updateTrack(
+                accessToken = accessToken,
+                trackId = uploaded.externalId.toLong(),
+                permalink = buildPermalink(podcast.name, episodeDate(episode))
+            )
+        }
+
+        log.info("Replaced SoundCloud track {} with {} for episode {}", trackId, uploaded.externalId, episode.id)
+        return uploaded.copy(externalUrl = claimed.permalinkUrl)
     }
 
     private fun getPlaylistId(podcastId: String): Long? {

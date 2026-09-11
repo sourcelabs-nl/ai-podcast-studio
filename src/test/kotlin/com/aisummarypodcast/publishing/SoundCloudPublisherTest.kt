@@ -71,6 +71,9 @@ class SoundCloudPublisherTest {
     )
 
     private val trackResponse = SoundCloudTrackResponse(id = 456, permalinkUrl = "https://soundcloud.com/user/tech-news")
+
+    /** What the replacement looks like once it has claimed the canonical slug the old track held. */
+    private val reclaimedTrackResponse = SoundCloudTrackResponse(id = 456, permalinkUrl = "https://soundcloud.com/user/tech-news-2026-02-13")
     private val playlistResponse = SoundCloudPlaylistResponse(id = 789)
 
     @Test
@@ -218,21 +221,38 @@ class SoundCloudPublisherTest {
     }
 
     @Test
-    fun `update replaces the audio by deleting the old track then uploading`() = runTest {
+    fun `update uploads the replacement before deleting the track it replaces`() = runTest {
         // SoundCloud cannot swap a track's audio in place, so a regenerated episode only reaches
         // listeners as a fresh upload. Updating metadata alone used to report success while the
-        // previous audio stayed live (episode 184).
+        // previous audio stayed live (episode 184). The replacement goes up first so a refused
+        // upload leaves the episode published instead of removing it and putting nothing back.
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.deleteTrack("access-token", 999) } returns Unit
         every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+        every { soundCloudClient.updateTrack("access-token", 456, any(), any()) } returns reclaimedTrackResponse
 
         publisher.update(episode, podcast, "user1", "999")
 
         verifyOrder {
-            soundCloudClient.deleteTrack("access-token", 999)
             soundCloudClient.uploadTrack("access-token", any())
+            soundCloudClient.deleteTrack("access-token", 999)
+            soundCloudClient.updateTrack("access-token", 456, any(), any())
         }
-        verify(exactly = 0) { soundCloudClient.updateTrack(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `update keeps the published track when the replacement upload is refused`() = runTest {
+        // The failure that motivated the ordering: SoundCloud began refusing uploads outright, and
+        // deleting first would have taken the live episode down in exchange for nothing.
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.uploadTrack("access-token", any()) } throws
+            SoundCloudUploadNotPermittedException("SoundCloud refused the upload")
+
+        assertThrows<SoundCloudUploadNotPermittedException> {
+            runBlocking { publisher.update(episode, podcast, "user1", "999") }
+        }
+
+        verify(exactly = 0) { soundCloudClient.deleteTrack(any(), any()) }
     }
 
     @Test
@@ -240,26 +260,33 @@ class SoundCloudPublisherTest {
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.deleteTrack("access-token", 999) } returns Unit
         every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+        every { soundCloudClient.updateTrack("access-token", 456, any(), any()) } returns reclaimedTrackResponse
 
         val result = publisher.update(episode, podcast, "user1", "999")
 
         assertEquals("456", result.externalId)
-        assertEquals("https://soundcloud.com/user/tech-news", result.externalUrl)
+        // The reported URL is the canonical one claimed after the old track was deleted, not the
+        // suffixed variant the upload landed on while the old track still held the slug.
+        assertEquals("https://soundcloud.com/user/tech-news-2026-02-13", result.externalUrl)
     }
 
     @Test
     fun `update claims the same canonical permalink for the replacement`() = runTest {
-        // Deleting before uploading frees the permalink, so the replacement keeps the episode's
-        // canonical URL rather than a suffixed variant.
+        // The old track holds the canonical slug while the replacement is uploaded, so SoundCloud
+        // gives the upload a suffixed variant. Once the old track is deleted the slug is free and
+        // the replacement claims it, keeping the episode's canonical URL stable.
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.deleteTrack("access-token", 999) } returns Unit
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
+        val permalinkSlot = slot<String>()
+        every { soundCloudClient.updateTrack("access-token", 456, capture(permalinkSlot), any()) } returns reclaimedTrackResponse
 
         publisher.update(episode, podcast, "user1", "999")
 
         assertEquals("tech-news-2026-02-13", requestSlot.captured.permalink)
         assertEquals("Tech News - 2026-02-13", requestSlot.captured.title)
+        assertEquals("tech-news-2026-02-13", permalinkSlot.captured)
     }
 
     @Test
@@ -269,6 +296,7 @@ class SoundCloudPublisherTest {
         )
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.deleteTrack("access-token", 456) } returns Unit
+        every { soundCloudClient.updateTrack("access-token", 456, any(), any()) } returns reclaimedTrackResponse
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
@@ -285,6 +313,7 @@ class SoundCloudPublisherTest {
         val episodeWithRecap = episode.copy(recap = "Short recap")
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.deleteTrack("access-token", 456) } returns Unit
+        every { soundCloudClient.updateTrack("access-token", 456, any(), any()) } returns reclaimedTrackResponse
         val requestSlot = slot<TrackUploadRequest>()
         every { soundCloudClient.uploadTrack("access-token", capture(requestSlot)) } returns trackResponse
 
@@ -298,19 +327,41 @@ class SoundCloudPublisherTest {
     }
 
     @Test
-    fun `publish uploads anyway when quota exceeded but no deletable tracks exist`() {
+    fun `publish reports the refusal when quota is exceeded and nothing can be freed`() {
         every { tokenManager.getValidAccessToken("user1") } returns "access-token"
         every { soundCloudClient.getMe("access-token") } returns SoundCloudMeResponse(
             id = 1L, username = "testuser", plan = "Free",
             quota = SoundCloudQuota(unlimitedUploadQuota = false, uploadSecondsUsed = 7000, uploadSecondsLeft = -500)
         )
         every { soundCloudClient.getMyTracks("access-token") } returns SoundCloudTrackListResponse()
-        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+        every { soundCloudClient.uploadTrack("access-token", any()) } throws
+            HttpClientErrorException(HttpStatusCode.valueOf(429))
 
-        val result = runBlocking { publisher.publish(episode, podcast, "user1") }
+        assertThrows<HttpClientErrorException> {
+            runBlocking { publisher.publish(episode, podcast, "user1") }
+        }
 
-        assertEquals("456", result.externalId)
+        // Nothing was freed, so there is no second attempt to make and nothing was deleted.
+        verify(exactly = 1) { soundCloudClient.uploadTrack("access-token", any()) }
         verify(exactly = 0) { soundCloudClient.deleteTrack(any(), any()) }
+    }
+
+    @Test
+    fun `publish deletes nothing when the account may not upload at all`() {
+        // A plan that bars API uploads is not a quota problem: deleting the back catalogue would
+        // free space for an upload that is refused just the same. Episode 207 hit this on
+        // 11 September 2026 with six tracks live and 1610 seconds of quota to spare.
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.uploadTrack("access-token", any()) } throws
+            SoundCloudUploadNotPermittedException("SoundCloud refused the upload")
+
+        assertThrows<SoundCloudUploadNotPermittedException> {
+            runBlocking { publisher.publish(episode, podcast, "user1") }
+        }
+
+        verify(exactly = 1) { soundCloudClient.uploadTrack("access-token", any()) }
+        verify(exactly = 0) { soundCloudClient.deleteTrack(any(), any()) }
+        verify(exactly = 0) { soundCloudClient.getMyTracks(any(), any()) }
     }
 
     @Test
@@ -332,7 +383,9 @@ class SoundCloudPublisherTest {
             )
         )
         every { soundCloudClient.deleteTrack("access-token", any()) } returns Unit
-        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+        // The first attempt is refused for lack of room; freeing quota is what makes the retry fit.
+        every { soundCloudClient.uploadTrack("access-token", any()) } throws
+            HttpClientErrorException(HttpStatusCode.valueOf(429)) andThen trackResponse
 
         val result = publisher.publish(episode.copy(durationSeconds = 720), podcast, "user1")
 

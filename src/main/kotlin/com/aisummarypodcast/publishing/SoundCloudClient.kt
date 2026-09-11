@@ -86,11 +86,26 @@ data class SoundCloudMeResponse(
     val quota: SoundCloudQuota? = null
 )
 
+/**
+ * SoundCloud refused the upload because the account's plan does not permit uploads through the API.
+ *
+ * Distinct from running out of upload quota, and it must stay distinct: no amount of deleting old
+ * tracks makes room for it, so the publisher must not trade away published episodes trying. It first
+ * appeared on 11 September 2026, on an account holding six tracks with 1610 seconds of quota free,
+ * hours after the same call had succeeded.
+ */
+class SoundCloudUploadNotPermittedException(message: String) : RuntimeException(message)
+
 @Service
 class SoundCloudClient(restTemplateBuilder: RestTemplateBuilder) {
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val restTemplate: RestTemplate = restTemplateBuilder.build()
+
+    companion object {
+        /** Marks the 403 body SoundCloud returns when the account's plan bars API uploads. */
+        private const val SUBSCRIPTION_REQUIRED = "subscription is required"
+    }
 
     fun getMe(accessToken: String): SoundCloudMeResponse {
         val headers = HttpHeaders().apply {
@@ -191,12 +206,20 @@ class SoundCloudClient(restTemplateBuilder: RestTemplateBuilder) {
         }
 
         log.info("Uploading track to SoundCloud: {}", request.title)
-        val response = restTemplate.exchange(
-            "https://api.soundcloud.com/tracks",
-            HttpMethod.POST,
-            HttpEntity(body, headers),
-            SoundCloudTrackResponse::class.java
-        )
+        val response = try {
+            restTemplate.exchange(
+                "https://api.soundcloud.com/tracks",
+                HttpMethod.POST,
+                HttpEntity(body, headers),
+                SoundCloudTrackResponse::class.java
+            )
+        } catch (e: HttpClientErrorException.Forbidden) {
+            val error = e.responseBodyAsString
+            if (SUBSCRIPTION_REQUIRED in error) {
+                throw SoundCloudUploadNotPermittedException("SoundCloud refused the upload: $error")
+            }
+            throw e
+        }
         return response.body ?: throw RuntimeException("Empty response from SoundCloud track upload")
     }
 
