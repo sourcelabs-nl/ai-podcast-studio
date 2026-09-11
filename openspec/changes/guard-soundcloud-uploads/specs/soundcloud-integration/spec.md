@@ -3,7 +3,7 @@
 ### Requirement: SoundCloud track upload
 The `SoundCloudPublisher` SHALL implement the `EpisodePublisher` interface. It SHALL upload the episode's MP3 file to SoundCloud via `POST https://api.soundcloud.com/tracks` with `multipart/form-data` containing: `track[title]` (podcast name + episode date), `track[description]` (the episode's `recap` field if available, falling back to the first 500 characters of script text), `track[tag_list]` (derived from podcast topic, space-separated, multi-word tags quoted), `track[sharing]` set to `"public"`, `track[permalink]` (URL-safe slug derived from podcast name and episode date), and `track[asset_data]` (the MP3 file). The permalink slug SHALL be computed by concatenating the podcast name and date with a hyphen, converting to lowercase, replacing non-alphanumeric characters (except hyphens) with hyphens, collapsing consecutive hyphens, and trimming leading/trailing hyphens. The upload SHALL use the user's decrypted OAuth access token as a Bearer token. The publisher SHALL NOT manage playlist membership directly; playlist ordering is handled exclusively by the playlist rebuild in `PublishingService`.
 
-The client SHALL translate a `403` response whose body reports that a subscription is required into a `SoundCloudUploadNotPermittedException`. That exception SHALL NOT extend `HttpClientErrorException`, so the publisher cannot mistake it for a condition that deleting tracks would relieve. SoundCloud began returning this response on 11 September 2026 to an account holding six tracks with 1610 seconds of upload quota free, hours after the same call had succeeded, so it is a property of the account's plan rather than of the request or of how full the account is.
+The client SHALL translate a `403` response whose body reports that a subscription is required into a `SoundCloudUploadNotPermittedException`. That exception SHALL NOT extend `HttpClientErrorException`, so the publisher cannot mistake it for a condition that deleting tracks would relieve. Its message SHALL carry SoundCloud's own `message` field rather than the raw error envelope, falling back to the raw body when that field cannot be read; the full body SHALL be logged either way. The publishing exception handler SHALL report it as HTTP 403 with `code: "upload_not_permitted"`, because a plan that bars API uploads is the user's to resolve and not a server fault. SoundCloud began returning this response on 11 September 2026 to an account holding six tracks with 1610 seconds of upload quota free, hours after the same call had succeeded, so it is a property of the account's plan rather than of the request or of how full the account is.
 
 #### Scenario: Successful upload with permalink
 - **WHEN** the publisher uploads an episode for a podcast named "Tech News" generated on 2026-02-13
@@ -16,6 +16,10 @@ The client SHALL translate a `403` response whose body reports that a subscripti
 #### Scenario: Upload refused by the account's plan
 - **WHEN** `POST /tracks` returns `403` with a body reporting that an active subscription is required
 - **THEN** the client throws `SoundCloudUploadNotPermittedException`, and no track is deleted
+
+#### Scenario: Refusal reported as prose
+- **WHEN** the refusal reaches the publish endpoint
+- **THEN** the response is HTTP 403 with `code: "upload_not_permitted"` and an `error` reading "SoundCloud refused the upload: An active Pro Unlimited subscription is required for this action", not the raw JSON envelope
 
 #### Scenario: No OAuth connection for user
 - **WHEN** the publisher is called for a user with no SoundCloud `oauth_connections` record

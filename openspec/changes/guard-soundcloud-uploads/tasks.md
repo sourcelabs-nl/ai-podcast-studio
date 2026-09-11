@@ -16,11 +16,17 @@
 - [x] 3.1 Upload the replacement before deleting the track it replaces
 - [x] 3.2 Claim the canonical permalink on the replacement after the old track is deleted, and return the reclaimed URL
 
-## 4. Tests
+## 4. Reporting
 
-- [x] 4.1 `publish deletes nothing when the account may not upload at all`
-- [x] 4.2 `update keeps the published track when the replacement upload is refused`
-- [x] 4.3 `publish reports the refusal when quota is exceeded and nothing can be freed`, replacing the old "uploads anyway" test whose premise no longer holds
-- [x] 4.4 Update `publish deletes oldest tracks until episode duration fits then uploads` so the first attempt is refused and the retry succeeds
-- [x] 4.5 Update the `update` tests for upload-then-delete ordering and the permalink re-claim
-- [x] 4.6 Run `mvn test` and confirm the full suite passes
+- [x] 4.1 Parse SoundCloud's `message` field for the exception message, injecting the Spring-managed `JsonMapper`, and log the full body
+- [x] 4.2 Handle `SoundCloudUploadNotPermittedException` in `PublishingExceptionHandler` as 403 with `code: "upload_not_permitted"`
+
+## 5. Tests
+
+- [x] 5.1 `publish deletes nothing when the account may not upload at all`
+- [x] 5.2 `update keeps the published track when the replacement upload is refused`
+- [x] 5.3 `publish reports the refusal when quota is exceeded and nothing can be freed`, replacing the old "uploads anyway" test whose premise no longer holds
+- [x] 5.4 Update `publish deletes oldest tracks until episode duration fits then uploads` so the first attempt is refused and the retry succeeds
+- [x] 5.5 Update the `update` tests for upload-then-delete ordering and the permalink re-claim
+- [x] 5.6 `publish returns 403 with a readable reason when the account may not upload`
+- [x] 5.7 Run `mvn test` and confirm the full suite passes

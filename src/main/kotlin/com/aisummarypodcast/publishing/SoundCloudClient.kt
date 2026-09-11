@@ -12,6 +12,7 @@ import org.springframework.boot.restclient.RestTemplateBuilder
 import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.RestTemplate
 import tools.jackson.databind.PropertyNamingStrategies
+import tools.jackson.databind.json.JsonMapper
 import tools.jackson.databind.annotation.JsonNaming
 import java.nio.file.Path
 
@@ -97,7 +98,7 @@ data class SoundCloudMeResponse(
 class SoundCloudUploadNotPermittedException(message: String) : RuntimeException(message)
 
 @Service
-class SoundCloudClient(restTemplateBuilder: RestTemplateBuilder) {
+class SoundCloudClient(restTemplateBuilder: RestTemplateBuilder, private val jsonMapper: JsonMapper) {
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val restTemplate: RestTemplate = restTemplateBuilder.build()
@@ -216,11 +217,26 @@ class SoundCloudClient(restTemplateBuilder: RestTemplateBuilder) {
         } catch (e: HttpClientErrorException.Forbidden) {
             val error = e.responseBodyAsString
             if (SUBSCRIPTION_REQUIRED in error) {
-                throw SoundCloudUploadNotPermittedException("SoundCloud refused the upload: $error")
+                log.error("SoundCloud refused the upload of {}: {}", request.title, error)
+                throw SoundCloudUploadNotPermittedException(describeRefusal(error))
             }
             throw e
         }
         return response.body ?: throw RuntimeException("Empty response from SoundCloud track upload")
+    }
+
+    /**
+     * SoundCloud's own sentence for why it refused, so the reason reaches the dashboard as prose
+     * rather than as the raw error envelope. The full body is logged either way.
+     */
+    private fun describeRefusal(error: String): String {
+        val message = try {
+            jsonMapper.readTree(error).get("message")?.asString()
+        } catch (e: Exception) {
+            log.warn("Could not read the SoundCloud error body as JSON: {}", e.message)
+            null
+        }
+        return "SoundCloud refused the upload: ${message?.takeIf { it.isNotBlank() } ?: error}"
     }
 
     fun deleteTrack(accessToken: String, trackId: Long) {

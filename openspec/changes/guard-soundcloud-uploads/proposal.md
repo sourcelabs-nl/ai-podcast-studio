@@ -13,6 +13,7 @@ Neither loss is recoverable: `deleteTrack` is permanent, and no quota rejection 
 
 - `SoundCloudClient.uploadTrack` translates a `403` whose body reports that a subscription is required into a new `SoundCloudUploadNotPermittedException`. It is not an `HttpClientErrorException`, so it cannot be mistaken for a condition that deleting tracks would fix.
 - `publish` attempts the upload first and frees quota only after an attempt has actually been refused, retrying once when at least one track was deleted. `freeQuotaIfNeeded` returns whether it freed anything, so a caller knows when a retry is pointless.
+- The refusal is reported as HTTP 403 with `code: "upload_not_permitted"` and SoundCloud's own sentence, so the dashboard shows prose instead of the raw error envelope under a 500.
 - `update` uploads the replacement before deleting the track it replaces. The old track holds the canonical permalink during the overlap, so the replacement claims that slug once the old track is gone, and the returned `externalUrl` is the reclaimed canonical URL.
 
 ## Capabilities

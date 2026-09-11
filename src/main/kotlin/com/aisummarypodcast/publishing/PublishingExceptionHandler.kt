@@ -48,6 +48,19 @@ class PublishingExceptionHandler {
     fun handleIllegalState(e: IllegalStateException): ResponseEntity<Any> =
         ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Publishing failed")))
 
+    /**
+     * The account's plan bars API uploads, so this is the user's to resolve on SoundCloud and not a
+     * server fault. Reported as 403 with the platform's own sentence, rather than falling through to
+     * [handleGeneric], which would return 500 and print the raw error envelope in the dashboard.
+     */
+    @ExceptionHandler(SoundCloudUploadNotPermittedException::class)
+    fun handleUploadNotPermitted(e: SoundCloudUploadNotPermittedException): ResponseEntity<Any> {
+        log.error("SoundCloud upload not permitted: {}", e.message)
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+            mapOf("error" to e.message, "code" to "upload_not_permitted")
+        )
+    }
+
     @ExceptionHandler(HttpClientErrorException.Unauthorized::class)
     fun handleUnauthorized(e: HttpClientErrorException.Unauthorized): ResponseEntity<Any> = oauthExpired(e.message)
 

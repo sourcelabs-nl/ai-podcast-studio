@@ -124,6 +124,26 @@ class PublishingControllerTest {
     }
 
     @Test
+    fun `publish returns 403 with a readable reason when the account may not upload`() {
+        // The dashboard used to print the raw SoundCloud error envelope, JSON braces and all, under
+        // a 500. The plan barring API uploads is the user's to resolve, not a server fault.
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(episodeId) } returns episode
+        coEvery { publishingService.publish(episode, podcast, userId, "soundcloud") } throws
+            SoundCloudUploadNotPermittedException(
+                "SoundCloud refused the upload: An active Pro Unlimited subscription is required for this action"
+            )
+
+        val mvcResult = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/$episodeId/publish/soundcloud"))
+            .andReturn()
+        mockMvc.perform(asyncDispatch(mvcResult))
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.code").value("upload_not_permitted"))
+            .andExpect(jsonPath("$.error").value("SoundCloud refused the upload: An active Pro Unlimited subscription is required for this action"))
+    }
+
+    @Test
     fun `list publications returns empty array`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
