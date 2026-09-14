@@ -90,7 +90,7 @@ class DialogueComposer(
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
         val episodeDateLabel = buildEpisodeDate(podcast.language, context.episodeDate)
-        val humorBlock = buildHumorBlock(context.episodeDate)
+        val humorBlock = buildHumorBlock(context.episodeDate, multiSpeaker = true)
         val languageInstruction = buildLanguageInstruction(podcast.language, "dialogue")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor)
         val ttsGuidelinesBlock = buildTtsGuidelinesBlock(context.ttsScriptGuidelines)

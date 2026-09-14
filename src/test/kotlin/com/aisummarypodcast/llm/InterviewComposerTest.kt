@@ -293,7 +293,34 @@ class InterviewComposerTest {
         val prompt = composer.buildPrompt(manyArticles, podcast)
 
         assertTrue(prompt.contains("- TEASER:"))
-        assertTrue(prompt.contains("under 25 words"))
+        assertTrue(prompt.contains("under 40 words"))
+    }
+
+    @Test
+    fun `teaser demands several topics from across the episode`() {
+        val manyArticles = (1..5).map { i ->
+            Article(sourceId = "s1", title = "News $i", body = "Body $i.", url = "https://example.com/$i", contentHash = "h$i", summary = "Summary $i.")
+        }
+        val prompt = composer.buildPrompt(manyArticles, podcast)
+
+        assertTrue(prompt.contains("at least 3 DISTINCT topics"))
+        assertTrue(prompt.contains("not three angles on the opening story"))
+    }
+
+    @Test
+    fun `cliffhangers must defer their payoff`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+
+        assertTrue(prompt.contains("At least 3 other topics MUST be covered before it is paid off"))
+        assertTrue(prompt.contains("is NOT a cliffhanger, it is a topic announcement"))
+    }
+
+    @Test
+    fun `humor is required from more than one speaker`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+
+        assertTrue(prompt.contains("Humor is NOT one speaker's job"))
+        assertTrue(prompt.contains("direct reaction to what the other speaker just said"))
     }
 
     @Test
@@ -330,7 +357,7 @@ class InterviewComposerTest {
         val prompt = composer.buildPrompt(articles, podcast)
 
         assertTrue(prompt.contains("STRATEGIC CLIFFHANGERS"))
-        assertTrue(prompt.contains("2-3 forward hooks"))
+        assertTrue(prompt.contains("1-2 forward hooks per episode"))
     }
 
     @Test

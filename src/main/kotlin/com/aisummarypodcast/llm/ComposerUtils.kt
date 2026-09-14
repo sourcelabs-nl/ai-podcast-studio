@@ -61,10 +61,20 @@ fun buildArticleSummaryBlock(
  *
  * The weekday comes from [episodeDate], the day the episode covers, not from the day the run
  * happens: a re-run of Wednesday's episode on Friday is still a Wednesday episode.
+ *
+ * [multiSpeaker] adds the rule that humor is shared work. Episode 208 met the count with three
+ * beats and still read as one person being funny at another: every joke was the interviewer's, and
+ * each was a prepared aside rather than a reaction. A long-form two-host reference show gets its
+ * laughs the other way round — teasing the co-host, self-deprecation, reacting to the absurdity of
+ * the item just described — and every one of them grows out of the line immediately before it. The
+ * flavour menu below describes shapes of line, which is why it produces delivered lines; these two
+ * extra requirements constrain WHO speaks and WHAT the joke answers to. Monologue formats pass
+ * false, having no other speaker to react to.
  */
-fun buildHumorBlock(episodeDate: LocalDate = LocalDate.now()): String {
+fun buildHumorBlock(episodeDate: LocalDate = LocalDate.now(), multiSpeaker: Boolean = false): String {
     val fridayExtra = if (episodeDate.dayOfWeek == DayOfWeek.FRIDAY) " Today is FRIDAY: add one extra humorous beat and let the energy run a notch higher. You may acknowledge the end of the week, but only conversationally and in passing (\"It's the end of the week...\", \"What a week...\"); never as a direct greeting or shout-out like \"Happy Friday\"." else ""
-    return "\n            - HUMOR & TONE: The vibe is relaxed and playful throughout: colleagues who genuinely enjoy the subject, not news anchors reading a wire feed. Include 2-3 genuine moments of humor per episode, each tied to a specific story, never generic filler. This is a HARD REQUIREMENT, like the interruption count. Vary the flavour across these categories: an absurd or everyday comparison, a playful exaggeration, a self-deprecating aside about the hosts or the AI field itself, or a deadpan one-liner. Land each joke in one or two sentences and move on; never explain the joke or let it derail the segment. Keep humor away from genuinely serious or negative stories.$fridayExtra"
+    val shared = if (multiSpeaker) " Humor is NOT one speaker's job: at least one beat MUST come from a speaker other than the one who opens the episode, and at least one beat MUST be a direct reaction to what the other speaker just said, growing out of their line rather than a prepared aside dropped into a turn." else ""
+    return "\n            - HUMOR & TONE: The vibe is relaxed and playful throughout: colleagues who genuinely enjoy the subject, not news anchors reading a wire feed. Include 2-3 genuine moments of humor per episode, each tied to a specific story, never generic filler. This is a HARD REQUIREMENT, like the interruption count. Vary the flavour across these categories: an absurd or everyday comparison, a playful exaggeration, a self-deprecating aside about the hosts or the AI field itself, or a deadpan one-liner. Land each joke in one or two sentences and move on; never explain the joke or let it derail the segment. Keep humor away from genuinely serious or negative stories.$shared$fridayExtra"
 }
 
 /**

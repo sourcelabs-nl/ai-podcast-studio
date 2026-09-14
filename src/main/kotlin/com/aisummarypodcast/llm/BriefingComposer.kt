@@ -93,7 +93,8 @@ class BriefingComposer(
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
         val episodeDateLabel = buildEpisodeDate(podcast.language, context.episodeDate)
-        val humorBlock = buildHumorBlock(context.episodeDate)
+        // A briefing has a single voice, so the shared-humor rule has no other speaker to apply to.
+        val humorBlock = buildHumorBlock(context.episodeDate, multiSpeaker = false)
         val languageInstruction = buildLanguageInstruction(podcast.language, "script")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor)
         val ttsGuidelinesBlock = buildTtsGuidelinesBlock(context.ttsScriptGuidelines)

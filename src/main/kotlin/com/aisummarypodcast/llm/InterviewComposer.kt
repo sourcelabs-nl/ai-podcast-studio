@@ -94,7 +94,7 @@ class InterviewComposer(
 
         val customInstructionsBlock = buildCustomInstructionsBlock(podcast.customInstructions)
         val episodeDateLabel = buildEpisodeDate(podcast.language, context.episodeDate)
-        val humorBlock = buildHumorBlock(context.episodeDate)
+        val humorBlock = buildHumorBlock(context.episodeDate, multiSpeaker = true)
         val languageInstruction = buildLanguageInstruction(podcast.language, "interview")
         val sponsorBlock = buildSponsorBlock(podcast.sponsor, speakerPrefix = "the interviewer should ")
 
@@ -108,7 +108,7 @@ class InterviewComposer(
 
         val comingUpTeaser = if (articles.size >= 5) {
             val placement = if (podcast.sponsor != null) "immediately after the sponsor message" else "immediately after the introduction"
-            "\n            - TEASER: $placement, the interviewer previews the most interesting topics. $teaserDirective Keep the entire teaser under 25 words. Create curiosity without spoiling the punchlines."
+            "\n            - TEASER: $placement, the interviewer previews what is coming. Name at least 3 DISTINCT topics drawn from different parts of the episode — not three angles on the opening story, which the listener has just heard. $teaserDirective Keep the entire teaser under 40 words. Create curiosity without spoiling the punchlines."
         } else ""
 
         val ttsGuidelinesBlock = buildTtsGuidelinesBlock(context.ttsScriptGuidelines)
@@ -143,7 +143,7 @@ class InterviewComposer(
             - MID-ROLL CALLBACKS: Reference earlier topics later in the episode to create narrative cohesion. Cross-reference at least once per episode without resorting to a stock phrasing
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise (roughly 60-90 seconds each). $transitionsDirective${buildAudienceBlock()}
             - TOPIC ENTRY: $topicEntryDirective Vary the entry wording across topics within the same episode
-            - STRATEGIC CLIFFHANGERS: Include 2-3 forward hooks spread across the episode, teasing something from a later story before transitioning. Phrase each cliffhanger differently (no two should share the same construction). Do NOT overuse, only 2-3 per episode at natural transition points
+            - STRATEGIC CLIFFHANGERS: Include 1-2 forward hooks per episode, no more. A forward hook names something specific from a story you are NOT about to cover, explicitly parks it for later, and then moves on to a different topic. At least 3 other topics MUST be covered before it is paid off, and the payoff MUST open by referring back to the promise. A tease that the very next turn resolves is NOT a cliffhanger, it is a topic announcement: it does not count, and "and there is an X angle to that too" right before covering X is exactly the mistake. Reserve hooks for the episode's biggest stories and phrase the two differently
             - SPONTANEOUS INTERRUPTIONS: The interviewer should interrupt the expert 4-5 times per episode with genuine, varied reactions, not polite topic bridges, but emotional and spontaneous interjections. Mix the flavours across these categories:
               * Excited (sudden disbelief at a number or claim)
               * Skeptical (pushing back on a framing or precedent)
