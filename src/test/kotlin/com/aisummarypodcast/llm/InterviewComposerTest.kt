@@ -212,6 +212,20 @@ class InterviewComposerTest {
     }
 
     @Test
+    fun `prompt tells a parked hook to hand the floor back`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("hand the floor back"))
+        assertTrue(prompt.contains("do NOT also announce the next topic in that same turn"))
+    }
+
+    @Test
+    fun `prompt keeps an initialism in capitals`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("Keep an initialism in capitals"))
+        assertTrue(prompt.contains("SWE two"))
+    }
+
+    @Test
     fun `prompt includes source-names-not-handles guidance`() {
         val prompt = composer.buildPrompt(articles, podcast)
         assertTrue(prompt.contains("SOURCE NAMES, NOT HANDLES"))
