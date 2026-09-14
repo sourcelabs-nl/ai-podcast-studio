@@ -113,6 +113,21 @@ A deprecated entry MAY be well verified, which is the ordinary case for a rule r
 - **WHEN** a prompt rule is removed on the strength of a measurement
 - **THEN** its entry is `deprecated` while retaining its confirmation events
 
+### Requirement: An experiment records the conditions that make it a comparison
+An entry of type `experiment` SHALL record what was varied, what was held fixed, how many runs were made, how many of those runs reached the model rather than the cache, and the result.
+
+Held-fixed conditions SHALL name at least the episode date and the prompt variety selection, since the variety picker rotates on the podcast and the date, and SHALL state whether the LLM cache was bypassed, since the cache keys on model and prompt text and ignores temperature.
+
+An experiment missing those conditions SHALL NOT be relied on to change a prompt rule, because a run set that silently replayed one cached sample is indistinguishable from a valid comparison by its result alone.
+
+#### Scenario: An ablation that held the date fixed
+- **WHEN** a rule is removed and the variant is run several times
+- **THEN** the entry records the fixed date and variety selection, the run count, and how many runs reached the model
+
+#### Scenario: A result without its conditions
+- **WHEN** an experiment entry states an outcome but not what was held fixed
+- **THEN** it is not used as grounds for changing a prompt rule
+
 ### Requirement: Findings about third-party behaviour expire
 A finding describing an external model or API SHALL record how it was measured, the model version it was measured against, and `stale_after` as an absolute instant.
 

@@ -29,6 +29,7 @@
 - [ ] 5.1 A section covering the three layers, the four types, and the provenance fields (`generated`, `verified`, `status`, `stale_after`)
 - [ ] 5.2 The three operations: record within the task, file a worthwhile answer back, and lint
 - [ ] 5.3 Point at `knowledge/index.md` rather than restating contents, keeping the per-session load bounded
+- [ ] 5.4 One line on the boundary with the machine-local memory store: what belongs to the repo goes in `knowledge/`, what belongs to this machine and to how we work stays in memory
 
 ## 6. Exercise the loop once
 
