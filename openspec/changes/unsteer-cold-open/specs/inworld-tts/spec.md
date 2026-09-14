@@ -7,7 +7,7 @@ Because the provider splits a turn into multiple requests, the provider SHALL tr
 
 Re-emission SHALL be applied only when the model supports steering.
 
-The first chunk of a script SHALL be sent without a delivery instruction. It is the only request sent with no `synthesisContext.previousRequests`, so an instruction there has no preceding audio to anchor it and the engine over-commits to the cue instead of colouring an established read. After chunking and re-emission, the provider SHALL therefore remove a leading delivery instruction from the first chunk of the monologue script or of dialogue turn index `0`, via `InworldScriptPostProcessor.stripLeadingInstruction`. A leading sound tag such as `[laugh]` SHALL be kept. Later chunks of that same opening turn SHALL still receive the re-emitted instruction, because they are anchored by the audio before them.
+Each speaker's first chunk SHALL be sent without a delivery instruction. `synthesisContext.previousRequests` carries the text of preceding chunks, but on a speaker's first turn that text was spoken in another voice, so an instruction there has no preceding audio of its own to anchor it and the engine over-commits to the cue instead of colouring an established read. After chunking and re-emission, the provider SHALL therefore remove a leading delivery instruction from the first chunk of the monologue script, and from the first chunk of each role's first dialogue turn, via `InworldScriptPostProcessor.stripLeadingInstruction`. A leading sound tag such as `[laugh]` SHALL be kept. Later chunks of that same opening turn, and every later turn by that speaker, SHALL still receive the instruction, because they are anchored by audio in the right voice.
 
 #### Scenario: Instruction re-emitted on the following chunk
 - **WHEN** a turn opens with `[warm and conversational]` and is split into three chunks on `inworld-tts-2`
@@ -34,7 +34,7 @@ The first chunk of a script SHALL be sent without a delivery instruction. It is 
 - **THEN** no instruction is prepended to any chunk, and steering tags are stripped by the post-processor before chunking
 
 #### Scenario: Instructions do not leak across dialogue turns
-- **WHEN** a middle turn sets `[excited and fast]` and the following turn sets no instruction
+- **WHEN** a role's second turn sets `[excited and fast]` and the following turn by another role sets no instruction
 - **THEN** the following turn's chunks are not prefixed with `[excited and fast]`
 
 #### Scenario: Script opening is sent unsteered
@@ -44,6 +44,14 @@ The first chunk of a script SHALL be sent without a delivery instruction. It is 
 #### Scenario: Sound tag on the script opening is kept
 - **WHEN** a script opens with `[laugh] Welcome back.`
 - **THEN** the first chunk is sent as `[laugh] Welcome back.`
+
+#### Scenario: Every speaker's entrance is sent unsteered
+- **WHEN** the host's first turn opens with `[with quiet awe]` and the co-host's first turn opens with `[measured and clear]`
+- **THEN** both turns are sent with no instruction
+
+#### Scenario: A speaker's later turn keeps its instruction
+- **WHEN** the host has already spoken and a later host turn opens with `[excited and fast]`
+- **THEN** that turn is sent with `[excited and fast]` intact
 
 ### Requirement: Inworld TTS script guidelines
 The `InworldTtsProvider` SHALL return style-aware script guidelines via `scriptGuidelines(style, pronunciations)`. The guidelines SHALL instruct the LLM to use Inworld-specific markup:
@@ -55,7 +63,7 @@ The `InworldTtsProvider` SHALL return style-aware script guidelines via `scriptG
 - Acronyms: expand on first use, then use the short form — spoken as a word when pronounceable and spelled out letter by letter when not, because Inworld's normalization does not cover domain acronyms
 - IPA phonemes: `/phoneme/` for precise pronunciation of proper nouns
 
-The guidelines SHALL instruct the LLM never to put a delivery direction on the script's very first turn, explaining that the opening is synthesized with no preceding audio to anchor it, so the engine over-commits to the cue and a mood such as `[with quiet awe]` makes the cold open sound like a hushed bedtime story. The opening words SHALL be left to carry the tone themselves.
+The guidelines SHALL instruct the LLM never to put a delivery direction on a speaker's very first turn, explaining that such a turn is synthesized with no preceding audio in that voice to anchor it, so the engine over-commits to the cue: `[with quiet awe]` makes a cold open sound like a hushed bedtime story, and `[measured and clear]` stretches a reply into a crawl. The first words of each speaker SHALL be left to carry the tone themselves.
 
 The guidelines SHALL additionally include:
 - Text normalization: write all numbers, dates, currencies, and symbols in fully spoken form
@@ -83,4 +91,4 @@ When `pronunciations` is non-empty, the guidelines SHALL append a "Pronunciation
 
 #### Scenario: Every style forbids a delivery direction on the first turn
 - **WHEN** `scriptGuidelines(style, emptyMap())` is called for any `PodcastStyle`
-- **THEN** the returned text instructs never to put a delivery direction on the script's very first turn
+- **THEN** the returned text instructs never to put a delivery direction on a speaker's very first turn

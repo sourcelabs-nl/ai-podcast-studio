@@ -2,7 +2,7 @@
 
 `InworldTtsProvider.prepareChunks` prepares a script (monologue) or a single speaker turn (dialogue, interview) for synthesis in three steps: post-process the text, chunk it at 1900 characters, then re-emit the active steering instruction at the head of every later chunk so the direction survives the splice into separate API requests.
 
-Separately, `synthesizeAll` sends each chunk with `synthesisContext.previousRequests` carrying the preceding chunk texts. The first chunk of a script is the one request that gets no context. That asymmetry is what makes a delivery instruction behave differently there: with no preceding audio to imitate, the cue defines the read outright instead of colouring an established one.
+Separately, `synthesizeAll` sends each chunk with `synthesisContext.previousRequests` carrying the preceding chunk texts. That context is text, not audio, and on a speaker's first turn every preceding chunk was spoken in a different voice. So the first chunk of a script gets no context at all, and the first chunk of each later role gets context that establishes nothing about how *that* speaker sounds. That asymmetry is what makes a delivery instruction behave differently there: with no preceding audio of its own to imitate, the cue defines the read outright instead of colouring an established one.
 
 The change is small, but where it sits in that three-step order determines whether it fixes one chunk or silently changes the whole episode, which is worth recording.
 
@@ -28,9 +28,11 @@ The change is small, but where it sits in that three-step order determines wheth
 
 Alternative considered: keep the strip in `process` behind a flag. Rejected because it conflates "sanitize this text" with "this text happens to start a script", and because of the whole-episode side effect above.
 
-**Scope by chunk index, not by turn.**
+**Scope per speaker, and within a turn by chunk index.**
 
-`prepareChunks` takes `isScriptOpening` and the provider passes `true` for the monologue script and for dialogue turn index `0`. Within that call only index `0` is stripped. Stripping the entire opening turn would be over-broad: a mid-turn cue in the cold open is already anchored by the audio of the chunk before it.
+`prepareChunks` takes `isSpeakerOpening`. The monologue passes `true`; `generateDialogue` keeps a set of the roles it has already seen and passes `true` on each role's first turn, which is that voice's only unanchored request. Within that call only chunk index `0` is stripped. Stripping the entire opening turn would be over-broad: a mid-turn cue is already anchored by the audio of the chunk before it, which is in the right voice.
+
+Alternative considered: scope by turn index `0` alone. Rejected because it leaves every other speaker's entrance unanchored, which is exactly how episode 210's expert opening came out 23% slower than the same text without its cue.
 
 **Keep a leading sound tag.**
 

@@ -14,6 +14,13 @@ object TtsScriptSanitizer {
     private val PHONEME_SPAN = Regex("/(?=[^/\\s]*[^\\u0000-\\u007F])[^/\\s]{1,40}/")
 
     /**
+     * True when [text] contains an IPA phoneme span. The provider uses this to pick a delivery mode:
+     * a phoneme is a literal instruction to the engine and needs the most deterministic read
+     * available, not the widest one.
+     */
+    fun containsPhoneme(text: String): Boolean = PHONEME_SPAN.containsMatchIn(text)
+
+    /**
      * Prepares a script for a TTS provider.
      *
      * [pronunciations] is the podcast's pronunciation dictionary (term to IPA). Any IPA span in the

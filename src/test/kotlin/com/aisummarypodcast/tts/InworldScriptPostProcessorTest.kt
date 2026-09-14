@@ -275,13 +275,33 @@ class InworldScriptPostProcessorTest {
     }
 
     @Test
-    fun `flattensDelivery matches whole words only`() {
-        assertTrue(InworldScriptPostProcessor.flattensDelivery("deadpan"))
-        assertTrue(InworldScriptPostProcessor.flattensDelivery("in a DEADPAN tone"))
-        assertFalse(InworldScriptPostProcessor.flattensDelivery("warm and conversational"))
+    fun `a pace-reducing instruction is dropped from the script`() {
+        val result = InworldScriptPostProcessor.process(
+            "[measured and clear] These talks have been running since July.",
+            retainSteeringInstructions = true
+        )
+
+        assertEquals("These talks have been running since July.", result)
+    }
+
+    @Test
+    fun `a cue that adds energy survives`() {
+        val input = "[bright and quick] Three labs, one rulebook."
+
+        assertEquals(input, InworldScriptPostProcessor.process(input, retainSteeringInstructions = true))
+    }
+
+    @Test
+    fun `degradesDelivery matches whole words only`() {
+        assertTrue(InworldScriptPostProcessor.degradesDelivery("deadpan"))
+        assertTrue(InworldScriptPostProcessor.degradesDelivery("in a DEADPAN tone"))
+        assertTrue(InworldScriptPostProcessor.degradesDelivery("measured and clear"))
+        assertTrue(InworldScriptPostProcessor.degradesDelivery("slowly and with care"))
+        assertFalse(InworldScriptPostProcessor.degradesDelivery("warm and conversational"))
+        assertFalse(InworldScriptPostProcessor.degradesDelivery("bright and quick"))
         // "deadpanning" is not the listed word, and a substring match would wrongly catch it.
-        assertFalse(InworldScriptPostProcessor.flattensDelivery("flattered"))
-        assertFalse(InworldScriptPostProcessor.flattensDelivery("shoutout energy"))
+        assertFalse(InworldScriptPostProcessor.degradesDelivery("flattered"))
+        assertFalse(InworldScriptPostProcessor.degradesDelivery("shoutout energy"))
     }
 
     @Test

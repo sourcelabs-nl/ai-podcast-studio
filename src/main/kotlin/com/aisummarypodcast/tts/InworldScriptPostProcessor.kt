@@ -63,6 +63,26 @@ object InworldScriptPostProcessor {
         "shout", "shouting", "shouted", "scream", "screaming", "yell", "yelling",
     )
 
+    /**
+     * Instruction words asking for a slower read. The engine obeys these across the whole turn, so a
+     * single word stretches a paragraph well past the pace of the turns around it.
+     *
+     * `[measured and clear]` on a 601-character expert turn in the middle of episode 208 was
+     * synthesised four times at 45.6 to 47.9 seconds against 35.6 to 36.7 seconds for the same text
+     * without it: 27% slower, with no overlap between the two sets of samples. Anchoring does not
+     * soften it, so unlike the unanchored-opening problem this cannot be solved by position.
+     *
+     * A cue that adds warmth, energy or brightness is unaffected; only the pace-reducing vocabulary
+     * is dropped.
+     */
+    private val PACE_REDUCING_INSTRUCTION_WORDS = setOf(
+        "measured", "measuredly", "slow", "slowly", "slower",
+        "deliberate", "deliberately", "unhurried", "unhurriedly",
+        "leisurely", "languid", "languidly", "ponderous", "ponderously",
+        "plodding", "sluggish", "sluggishly", "halting", "haltingly",
+        "drawl", "drawled", "drawling",
+    )
+
     /** Splits an instruction into comparable words; the match is per word, not per substring. */
     private val INSTRUCTION_WORDS = Regex("[^A-Za-z]+")
 
@@ -110,8 +130,8 @@ object InworldScriptPostProcessor {
             when {
                 sound != null -> "[$sound]"
                 retainSteeringInstructions && isSteeringInstruction(tag) -> {
-                    if (flattensDelivery(tag)) {
-                        log.warn("Dropped delivery direction [{}]: it flattens or distorts the read", tag)
+                    if (degradesDelivery(tag)) {
+                        log.warn("Dropped delivery direction [{}]: it flattens, distorts or slows the read", tag)
                         ""
                     } else {
                         match.value
@@ -136,11 +156,16 @@ object InworldScriptPostProcessor {
     }
 
     /**
-     * True when a steering instruction asks for a flattened or distorted delivery, so it should be
-     * dropped instead of forwarded. Matches on whole words, so `[in a deadpan tone]` is caught too.
+     * True when a steering instruction asks for a delivery that flattens, distorts or slows the read,
+     * so it should be dropped instead of forwarded. Matches on whole words, so `[in a deadpan tone]`
+     * and `[measured and clear]` are both caught.
      */
-    fun flattensDelivery(tag: String): Boolean =
-        tag.split(INSTRUCTION_WORDS).any { it.isNotEmpty() && it.lowercase() in FLATTENING_INSTRUCTION_WORDS }
+    fun degradesDelivery(tag: String): Boolean =
+        tag.split(INSTRUCTION_WORDS).any {
+            it.isNotEmpty() && it.lowercase().let { word ->
+                word in FLATTENING_INSTRUCTION_WORDS || word in PACE_REDUCING_INSTRUCTION_WORDS
+            }
+        }
 
     /** True for a bracketed tag that Inworld would treat as a delivery instruction, including `reset`. */
     fun isSteeringInstruction(tag: String): Boolean {

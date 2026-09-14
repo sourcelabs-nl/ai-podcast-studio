@@ -36,6 +36,9 @@ class InworldTtsProvider(
         private const val DEFAULT_TEMPERATURE = 0.8
         private const val MAX_CONCURRENCY = 5
 
+        /** The narrowest of Inworld's delivery modes, used for chunks that carry an IPA phoneme. */
+        private const val STABLE_DELIVERY_MODE = "STABLE"
+
         /** Bounds on `synthesisContext.previousRequests`: enough for continuity, small enough to stay cheap. */
         private const val MAX_CONTEXT_REQUESTS = 3
         private const val MAX_CONTEXT_CHARS = 2000
@@ -46,8 +49,8 @@ class InworldTtsProvider(
             |- Emphasis: use *word* (single asterisks) for stressed words, or write a whole word or a single syllable in CAPS for stronger stress (e.g. "that is ABSOLUTELY right", "AbsoLUTEly"). NEVER use **double asterisks** — the TTS engine will read the asterisk characters aloud
             |- Pacing: use ellipsis (...) for trailing pauses, exclamation marks for excitement
             |- Deliberate pauses: for a beat between segments use an SSML break tag such as <break time="1s" />. Use at most a handful per script (the engine honours 20 per request, each at most 10 seconds), and do not put one at a paragraph break, where the pause already exists
-            |- Delivery direction: you may open a speaker turn or a new segment with ONE short English instruction in square brackets, e.g. [warm and conversational with an easy pace]. Put it at the very start, use at most one per turn, keep it consistent with what is being said, and write [reset] to return to neutral delivery. A direction may adjust warmth, energy or pace; it must NEVER ask for a delivery that removes expression or makes the turn harder to hear. Do not use [deadpan], [monotone], [robotic], [whispering] or the like — the engine obeys them literally and the turn comes out sounding broken
-            |- NEVER put a delivery direction on the script's very first turn. The opening is synthesized with no preceding audio to anchor it, so the engine over-commits to the cue and a mood like [with quiet awe] makes the cold open sound like a hushed bedtime story. Let the opening words carry the tone themselves
+            |- Delivery direction: you may open a speaker turn or a new segment with ONE short English instruction in square brackets, e.g. [warm and conversational]. Put it at the very start, use at most one per turn, keep it consistent with what is being said, and write [reset] to return to neutral delivery. A direction may adjust warmth, energy or brightness; it must NEVER ask for a slower read, nor for a delivery that removes expression or makes the turn harder to hear. Do not use [measured], [slowly], [deliberate], [unhurried], [deadpan], [monotone], [robotic], [whispering] or the like — the engine obeys them literally and the turn comes out slow or sounding broken
+            |- NEVER put a delivery direction on a speaker's very first turn. That turn is synthesized with no preceding audio in that voice to anchor it, so the engine over-commits to the cue: [with quiet awe] makes the cold open sound like a hushed bedtime story, and [measured and clear] stretches the reply into a crawl. Let the first words of each speaker carry the tone themselves
             |Text formatting rules:
             |- Write all numbers, dates, currencies, and symbols in fully spoken form (e.g. "twenty twenty-six" not "2026", "five thousand dollars" not "$5,000", "ten percent" not "10%")
             |- Acronyms: expand an acronym on first use, then use the short form. Write the short form as a word when it is pronounceable (NASA, GPT) and spell it out letter by letter when it is not (A-P-I, L-L-M) — automatic normalization does not cover domain acronyms
@@ -108,7 +111,7 @@ class InworldTtsProvider(
         val voiceId = request.ttsVoices["default"]
             ?: throw IllegalStateException("Inworld TTS requires a 'default' voice in ttsVoices")
 
-        val chunks = prepareChunks(request.script, modelId, isScriptOpening = true)
+        val chunks = prepareChunks(request.script, modelId, isSpeakerOpening = true)
         log.info("Generating Inworld TTS audio for {} chunks in parallel (voice: {}, model: {}, options: {})", chunks.size, voiceId, modelId, options)
 
         val audioChunks = synthesizeAll(request, chunks.map { ChunkWork(voiceId, it) }, modelId, options)
@@ -128,12 +131,13 @@ class InworldTtsProvider(
         }
 
         // Flatten all turn chunks into a single indexed list for full parallel generation
+        val opened = mutableSetOf<String>()
         val allChunks = turns.flatMapIndexed { index, turn ->
             val voiceId = request.ttsVoices[turn.role]
                 ?: throw IllegalStateException(
                     "No voice configured for role '${turn.role}'. Available roles: ${request.ttsVoices.keys.joinToString()}"
                 )
-            val turnChunks = prepareChunks(turn.text, modelId, isScriptOpening = index == 0)
+            val turnChunks = prepareChunks(turn.text, modelId, isSpeakerOpening = opened.add(turn.role))
             log.info("Inworld dialogue turn {}/{} (role: {}, {} chunks, {} chars)", index + 1, turns.size, turn.role, turnChunks.size, turn.text.length)
             turnChunks.map { chunk -> ChunkWork(voiceId, chunk) }
         }
@@ -168,7 +172,10 @@ class InworldTtsProvider(
                 async {
                     semaphore.withPermit {
                         log.info("Generating Inworld TTS chunk {}/{} ({} chars)", index + 1, work.size, chunk.text.length)
-                        val chunkOptions = options.copy(previousRequests = contextWindow(texts.subList(0, index)))
+                        val chunkOptions = options.copy(
+                            previousRequests = contextWindow(texts.subList(0, index)),
+                            deliveryMode = deliveryModeFor(chunk.text, options.deliveryMode)
+                        )
                         val response = synthesizeWithRetry(request.userId, chunk.voiceId, chunk.text, modelId, chunkOptions)
                         totalCharacters.addAndGet(response.processedCharactersCount)
                         request.progress?.onChunkCompleted(completed.incrementAndGet(), work.size)
@@ -183,21 +190,40 @@ class InworldTtsProvider(
     /**
      * Post-processes, chunks, and keeps any steering instruction alive across the chunk splices.
      *
-     * @param isScriptOpening true for the monologue script or the first dialogue turn, whose first
-     *   chunk is the one request synthesized with no preceding audio as context. A delivery
-     *   instruction lands unanchored there and dominates the read, so it is dropped from that chunk
-     *   alone — re-emission has already carried it onto the chunks that follow.
+     * @param isSpeakerOpening true for the monologue script and for each role's first dialogue turn,
+     *   whose first chunk is synthesized with no preceding audio in that voice to anchor it.
+     *   `synthesisContext` carries the preceding *text* but nothing that speaker has said, so a
+     *   delivery instruction lands unanchored and dominates the read: `[measured and clear]` on the
+     *   expert's opening reply in episode 210 stretched a 474-character turn from 21.8 to 26.9
+     *   seconds. The instruction is dropped from that chunk alone — re-emission has already carried
+     *   it onto the chunks that follow.
      */
-    private fun prepareChunks(text: String, modelId: String, isScriptOpening: Boolean): List<String> {
+    private fun prepareChunks(text: String, modelId: String, isSpeakerOpening: Boolean): List<String> {
         val supportsSteering = InworldSteering.supportsSteering(modelId)
         val processed = InworldScriptPostProcessor.process(text, retainSteeringInstructions = supportsSteering)
         val chunks = TextChunker.chunk(processed, maxChunkSize)
         val steered = if (supportsSteering) InworldSteering.reemitInstructions(chunks) else chunks
-        if (!isScriptOpening || steered.isEmpty()) return steered
+        if (!isSpeakerOpening || steered.isEmpty()) return steered
         return steered.mapIndexed { index, chunk ->
             if (index == 0) InworldScriptPostProcessor.stripLeadingInstruction(chunk) else chunk
         }
     }
+
+    /**
+     * The delivery mode for one chunk: `STABLE` when the chunk carries an IPA phoneme span, and the
+     * podcast's configured mode otherwise.
+     *
+     * A phoneme span is not prose, it is an instruction the engine has to follow exactly, and a wide
+     * delivery mode samples around it. On `CREATIVE`, the widest mode Inworld offers, three of eight
+     * identical requests for `and I'm /jɑrnoː/` came back with the name mangled; the same eight on
+     * `STABLE` were all correct. Narrowing only the chunks that need it keeps the rest of the episode
+     * at the expressiveness the podcast was configured for.
+     *
+     * A podcast that sets no delivery mode is left alone: its requests carry a temperature instead,
+     * and introducing a mode here would silently discard it.
+     */
+    private fun deliveryModeFor(text: String, configured: String?): String? =
+        if (configured != null && TtsScriptSanitizer.containsPhoneme(text)) STABLE_DELIVERY_MODE else configured
 
     /** The most recent preceding texts that fit within both bounds, oldest first. */
     private fun contextWindow(preceding: List<String>): List<String> {

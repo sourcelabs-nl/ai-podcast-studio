@@ -5,7 +5,7 @@ The system SHALL provide `InworldScriptPostProcessor.stripLeadingInstruction(tex
 
 The function SHALL remove the leading tag only when it is a steering instruction as defined by `isSteeringInstruction`. A leading documented sound name such as `[laugh]` SHALL be kept, because a sound is not a character direction. Text with no leading bracketed tag SHALL be returned unchanged, and an instruction that appears anywhere other than the start SHALL be left in place.
 
-This exists because the first synthesis request of a script is the only one sent without `synthesisContext.previousRequests`. With no preceding audio to anchor the read, Inworld treats a delivery instruction as the whole character of the delivery rather than a colouring of an established one, so a cue such as `[with quiet awe]` turns a cold open into a hushed bedtime story.
+This exists because a speaker's first synthesis request has no preceding audio in that voice to anchor the read: the script's opening request gets no `synthesisContext.previousRequests` at all, and a later speaker's entrance gets context that was spoken by someone else. With nothing of its own to imitate, Inworld treats a delivery instruction as the whole character of the delivery rather than a colouring of an established one, so a cue such as `[with quiet awe]` turns a cold open into a hushed bedtime story and `[measured and clear]` drags an expert's opening reply out by roughly a quarter.
 
 #### Scenario: Leading delivery instruction removed
 - **WHEN** `stripLeadingInstruction("[with quiet awe] Picture someone with a laptop.")` is called
@@ -28,7 +28,7 @@ This exists because the first synthesis request of a script is the only one sent
 ### Requirement: Inworld provider applies post-processing before TTS generation
 The `InworldTtsProvider` SHALL apply `InworldScriptPostProcessor.process()` to the script text before passing it to `TextChunker` or the Inworld API, passing `retainSteeringInstructions` according to whether the resolved model supports steering. For monologue styles, the full script SHALL be post-processed. For dialogue styles, each `DialogueTurn.text` SHALL be post-processed individually.
 
-The provider SHALL additionally apply `InworldScriptPostProcessor.stripLeadingInstruction()` to the first chunk of the script's opening, and to that chunk only. The script's opening is the monologue script, or dialogue turn index `0`. This SHALL happen after chunking and after steering re-emission, so the instruction is removed from the one unanchored request while the chunks that follow keep the re-emitted copy.
+The provider SHALL additionally apply `InworldScriptPostProcessor.stripLeadingInstruction()` to the first chunk of each speaker's opening, and to that chunk only. A speaker's opening is the monologue script, or each role's first dialogue turn. This SHALL happen after chunking and after steering re-emission, so the instruction is removed from the unanchored request while the chunks that follow keep the re-emitted copy.
 
 #### Scenario: Monologue script post-processed before chunking
 - **WHEN** a monologue script with markdown artifacts is sent to `InworldTtsProvider`
@@ -46,6 +46,10 @@ The provider SHALL additionally apply `InworldScriptPostProcessor.stripLeadingIn
 - **WHEN** a monologue script on `inworld-tts-2` opens with `[with quiet awe] Picture someone with a laptop.` and fits in one chunk
 - **THEN** the API receives `Picture someone with a laptop.` with no instruction
 
-#### Scenario: Only the first dialogue turn is stripped
-- **WHEN** a dialogue script's first turn opens with `[with quiet awe]` and its second turn opens with `[excited and fast]`
-- **THEN** the first turn's request carries no instruction and the second turn's request still carries `[excited and fast]`
+#### Scenario: Each role's first dialogue turn is stripped
+- **WHEN** a dialogue script's first host turn opens with `[with quiet awe]` and its first co-host turn opens with `[measured and clear]`
+- **THEN** neither request carries an instruction
+
+#### Scenario: A role's later turn is not stripped
+- **WHEN** the host has already spoken and a later host turn opens with `[excited and fast]`
+- **THEN** that turn's request still carries `[excited and fast]`

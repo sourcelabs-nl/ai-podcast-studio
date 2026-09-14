@@ -296,6 +296,35 @@ class InworldTtsProviderTest {
         assertEquals(listOf("Hello there!"), calls.getValue("Hey, how are you?").previousRequests)
     }
 
+    // --- Delivery mode ---
+
+    @Test
+    fun `a chunk carrying an IPA phoneme drops to STABLE delivery`() = runTest {
+        val calls = recordCalls()
+
+        provider.generate(
+            request(
+                "<host>Welcome back.</host><cohost>And I'm /j\u0251rno\u02d0/.</cohost>",
+                ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2"),
+                ttsSettings = mapOf("deliveryMode" to "CREATIVE")
+            )
+        )
+
+        assertEquals("CREATIVE", calls.getValue("Welcome back.").deliveryMode)
+        assertEquals("STABLE", calls.getValue("And I'm /j\u0251rno\u02d0/.").deliveryMode)
+    }
+
+    @Test
+    fun `a podcast without a delivery mode keeps its temperature on a phoneme chunk`() = runTest {
+        val calls = recordCalls()
+
+        provider.generate(request("And I'm /j\u0251rno\u02d0/.", ttsSettings = mapOf("temperature" to "0.4")))
+
+        val options = calls.getValue("And I'm /j\u0251rno\u02d0/.")
+        assertNull(options.deliveryMode)
+        assertEquals(0.4, options.temperature)
+    }
+
     // --- Steering ---
 
     @Test
@@ -325,17 +354,35 @@ class InworldTtsProviderTest {
     }
 
     @Test
-    fun `drops a delivery instruction from the first dialogue turn only`() = runTest {
+    fun `drops a delivery instruction from each speaker's first dialogue turn`() = runTest {
         val calls = recordCalls()
 
         provider.generate(
             request(
-                "<host>[with quiet awe] Big news!</host><cohost>[excited and fast] Tell me more.</cohost>",
+                "<host>[with quiet awe] Big news!</host><cohost>[measured and clear] Tell me more.</cohost>",
                 ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2")
             )
         )
 
-        assertEquals(setOf("Big news!", "[excited and fast] Tell me more."), calls.keys)
+        assertEquals(setOf("Big news!", "Tell me more."), calls.keys)
+    }
+
+    @Test
+    fun `keeps a delivery instruction on a speaker's later dialogue turns`() = runTest {
+        val calls = recordCalls()
+
+        provider.generate(
+            request(
+                "<host>Big news!</host><cohost>Tell me more.</cohost>" +
+                    "<host>[excited and fast] It landed this morning.</host>",
+                ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2")
+            )
+        )
+
+        assertEquals(
+            setOf("Big news!", "Tell me more.", "[excited and fast] It landed this morning."),
+            calls.keys
+        )
     }
 
     @Test
@@ -364,12 +411,16 @@ class InworldTtsProviderTest {
 
         provider.generate(
             request(
-                "<host>Welcome back.</host><cohost>[excited and fast] Big news!</cohost><host>Tell me more.</host>",
+                "<host>Welcome back.</host><cohost>Good to be here.</cohost>" +
+                    "<cohost>[excited and fast] Big news!</cohost><host>Tell me more.</host>",
                 ttsVoices = mapOf("host" to "voice-1", "cohost" to "voice-2")
             )
         )
 
-        assertEquals(setOf("Welcome back.", "[excited and fast] Big news!", "Tell me more."), calls.keys)
+        assertEquals(
+            setOf("Welcome back.", "Good to be here.", "[excited and fast] Big news!", "Tell me more."),
+            calls.keys
+        )
     }
 
     // --- Parallel generation tests ---
@@ -599,17 +650,17 @@ class InworldTtsProviderTest {
     fun `all styles describe steering instructions`() {
         for (style in PodcastStyle.entries) {
             val guidelines = provider.scriptGuidelines(style)
-            assertTrue(guidelines.contains("[warm and conversational with an easy pace]"), "Missing steering example for $style")
+            assertTrue(guidelines.contains("[warm and conversational]"), "Missing steering example for $style")
             assertTrue(guidelines.contains("[reset]"), "Missing reset instruction for $style")
         }
     }
 
     @Test
-    fun `all styles forbid a delivery direction on the first turn`() {
+    fun `all styles forbid a delivery direction on a speaker's first turn`() {
         for (style in PodcastStyle.entries) {
             val guidelines = provider.scriptGuidelines(style)
             assertTrue(
-                guidelines.contains("NEVER put a delivery direction on the script's very first turn"),
+                guidelines.contains("NEVER put a delivery direction on a speaker's very first turn"),
                 "Missing first-turn steering ban for $style"
             )
         }
