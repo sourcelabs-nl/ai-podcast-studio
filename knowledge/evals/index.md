@@ -18,6 +18,7 @@ indistinguishable from a single cached sample replayed.
 
 Negative results are recorded on the same terms as positive ones.
 
+- [Structural baseline over the 18 most recent episodes](structure-baseline-2026-09.md)
 - [Episode 208 against 209, an observation rather than an experiment](episode-208-vs-209.md)
 
 Open: the [[curiosity-hooks-conflict]] ablation, not yet run.

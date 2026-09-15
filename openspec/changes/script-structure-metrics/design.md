@@ -14,7 +14,7 @@ No thresholds, no pass or fail, no composite number. The point is to see the dis
 
 **Backchannels are reported as candidates.**
 
-The device is defined by intent (a token of pure listening) and detectable only by shape (a short interviewer turn between two expert turns). Those differ: a two-word question has the same shape. Reporting candidates with their turn indices keeps the metric honest and lets a reader check a handful rather than trust a count.
+The device is defined by intent (a token of pure listening) and detectable only by shape (a short turn with the other speaker on both sides). Those differ by more than the ambiguous cases: in a strictly alternating script every short turn has that shape, so the detector reduces to "short turns and where they are", and whether the speaker resumed a thought lives in the text. Reporting candidates with their indices and their text keeps the metric honest and lets a reader check a handful rather than trust a count. A real count needs the judge.
 
 **Consecutive same-speaker turns are located, not flagged.**
 

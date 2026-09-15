@@ -22,7 +22,9 @@ These metrics SHALL be stable across model versions and SHALL be cheap enough to
 ### Requirement: Backchannel candidates are reported by shape
 The system SHALL report backchannel candidates: a short interviewer turn appearing between two expert turns, each with its turn index.
 
-They SHALL be reported as candidates rather than as confirmed backchannels, since a genuinely short question has the same shape and only the text distinguishes the two.
+They SHALL be reported as candidates rather than as confirmed backchannels. The gap is wider than it looks: in a strictly alternating script every short turn has the other speaker on both sides, so the shape reduces to "short turns and where they are". Whether the speaker resumed a thought is in the text, not in the structure.
+
+The turn's text SHALL be returned with each candidate, so the list is read rather than counted.
 
 #### Scenario: The shape is present
 - **WHEN** an expert turn is followed by a three-word interviewer turn and another expert turn
@@ -31,6 +33,10 @@ They SHALL be reported as candidates rather than as confirmed backchannels, sinc
 #### Scenario: A short question between two expert turns
 - **WHEN** the short interviewer turn is a question
 - **THEN** it is still reported as a candidate, since the metric does not judge intent
+
+#### Scenario: A short turn in an alternating script
+- **WHEN** a script alternates strictly and one turn is short
+- **THEN** that turn is reported as a candidate, with its text, since the shape does not distinguish it
 
 ### Requirement: Consecutive same-speaker turns are located
 The system SHALL report each run of consecutive turns by one speaker, with the role and the turn indices involved.
