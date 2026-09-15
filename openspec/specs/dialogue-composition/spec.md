@@ -24,9 +24,15 @@ The DialogueComposer prompt SHALL instruct the model on script structure and eng
 
 **No empty setup turns:** The prompt SHALL forbid contentless setup turns. When a speaker announces or teases a specific point (a caveat, flag, question, fact, or statistic), that same speaker SHALL state its substance in the same turn. A handoff to the other speaker is permitted only when that speaker adds genuinely new information, not when they complete a point the first speaker merely gestured at.
 
+**No echo turns:** The prompt SHALL forbid a turn that consists only of words echoed back from the line it follows. Short reaction turns are permitted, but outside the BACKCHANNELS device every turn SHALL be at least one complete sentence carrying its own content or its own energy, never a bare fragment lifted from the previous speaker.
+
 #### Scenario: No contentless setup turns
 - **WHEN** the dialogue prompt is built
 - **THEN** it instructs the model that a speaker who teases a specific point must state that point in the same turn rather than handing its substance to the other speaker
+
+#### Scenario: No echo turns
+- **WHEN** the dialogue prompt is built
+- **THEN** it instructs the model that a turn must not repeat back the previous speaker's words, and that a short reaction turn must be a complete sentence with its own content or energy
 
 ### Requirement: Composer selection based on podcast style
 The system SHALL select the appropriate composer based on the podcast's `style` field. The `"dialogue"` style SHALL use `DialogueComposer`. The `"interview"` style SHALL use `InterviewComposer`. All other styles SHALL use `BriefingComposer`. The selection SHALL happen in the pipeline orchestration layer (`LlmPipeline`).

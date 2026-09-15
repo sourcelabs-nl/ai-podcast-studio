@@ -191,6 +191,18 @@ fun buildNoEmptySetupBlock(): String =
     "\n            - NO EMPTY SETUP TURNS: When a speaker announces or teases a specific point (a caveat, skeptical flag, question, fact, or statistic), that SAME speaker must state its substance in the same turn. Do NOT write a contentless setup line (e.g. \"One small skeptical flag though.\") and then have the other speaker supply the actual point — that is a dangling, incoherent handoff. A handoff is fine only when the next speaker adds genuinely new information, never when they complete a point the first speaker merely gestured at."
 
 /**
+ * Shared "no echo turns" rule for multi-speaker (dialogue/interview) compose prompts. Passing the
+ * floor back with a short reaction is wanted, but the model sometimes writes that reaction as a
+ * bare repeat of the words it just heard: episode 219 answered the introduction's "Let's get into
+ * it." with an expert turn reading, in full, "Let's." That spends a speaker switch on nothing and,
+ * because each turn is synthesized on its own, lands as two stranded syllables in the audio. This
+ * block keeps the handoff and requires the reaction to carry its own words and energy. Only
+ * included in dialogue and interview prompts (monologue has no handoff).
+ */
+fun buildNoEchoTurnBlock(): String =
+    "\n            - NO ECHO TURNS: A turn must never consist of words echoed back from the line it follows. Answering \"Let's get into it.\" with \"Let's.\" is not a reaction, it is an echo, and it wastes a speaker switch. Short reaction turns are welcome, but outside the BACKCHANNELS device every turn is at least one complete sentence carrying its own content or its own energy: \"Let's do this!\" or \"Oh, I've been waiting all week for this one.\", never a bare fragment lifted from the previous speaker."
+
+/**
  * Shared "explain for non-experts" rule for every compose-stage prompt. The audience is not
  * all specialists, so for complex or unfamiliar subjects the script is allowed (and encouraged)
  * to slow down and explain what something is, how it works, or why it matters, rather than

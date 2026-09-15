@@ -136,7 +136,7 @@ class DialogueComposer(
             Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction${buildColdOpenPacingBlock()}
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
-            - CURIOSITY HOOKS: The ${speakerRoles.first()} should use rhetorical questions and teaser hooks before transitions. Create micro-curiosity loops that pull listeners forward, but vary the phrasing each transition (do not reuse the same hook twice in one episode)${buildNoEmptySetupBlock()}
+            - CURIOSITY HOOKS: The ${speakerRoles.first()} should use rhetorical questions and teaser hooks before transitions. Create micro-curiosity loops that pull listeners forward, but vary the phrasing each transition (do not reuse the same hook twice in one episode)${buildNoEmptySetupBlock()}${buildNoEchoTurnBlock()}
             - MID-ROLL CALLBACKS: Reference earlier topics later in the episode to create narrative cohesion. Cross-reference at least once per episode without using a stock phrasing
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise (roughly 60-90 seconds each). $transitionsDirective${buildAudienceBlock()}
             - TOPIC ENTRY: $topicEntryDirective
