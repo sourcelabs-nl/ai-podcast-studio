@@ -69,6 +69,58 @@ The application database is at `./data/ai-summary-podcast.db`. Never query the d
 
 The frontend lives in `frontend/`. Its conventions are documented in `frontend/CLAUDE.md`, which loads automatically when working with files under that directory.
 
+## Knowledge Bundle
+
+`knowledge/` holds what we have measured about the models and APIs this project
+depends on, why the prompt rules are shaped the way they are, and what has been
+tried and rejected. It is a plain Open Knowledge Format v0.2 directory: markdown
+with YAML frontmatter, no loader and no build step. Nothing in the application
+reads it, and no automated process writes to it.
+
+**Three layers.** The raw layer is the episode archive and its scripts, probe
+output, score rows, reference transcripts, the git history, the OpenSpec archive
+and past session transcripts; it is cited, never rewritten. The bundle is the
+layer the agent owns and maintains. This file is the configuration: the
+conventions live here, the contents do not. Read `knowledge/index.md` for those.
+
+**What belongs there.** Only knowledge no other store keeps. Git already records
+what changed and when, the OpenSpec archive why. Link to a commit or an archived
+change rather than summarising it, and keep entries to what neither can state:
+what was measured, and what was tried and rejected. Material drawn from a
+session transcript is reformulated into a finished entry, never pasted:
+`knowledge/` is in git and therefore permanent.
+
+**Types**: `finding`, `rule-rationale`, `experiment`, `reference`. A type outside
+that set is a judgement made in review, not an error.
+
+**Provenance**: `generated` names the actor that produced the current content
+(`human:<id>` or a model id) and when. `verified` is a separate list of
+confirmation events, so an unchecked entry is distinguishable from one a machine
+confirmed and one a person reviewed. `status` is lifecycle only (`draft`,
+`stable`, `deprecated`) and never strength of evidence. A `finding` about a
+third-party model carries `method`, `model_version` and an absolute
+`stale_after`; past that instant it is a hypothesis to re-measure.
+
+**Three operations:**
+
+1. **Record**, within the task that produced the knowledge, before reporting it
+   complete: the entry, the index that lists it, and `knowledge/log.md`. A result
+   showing no difference is recorded on the same terms as one showing a
+   difference.
+2. **File back** an answer with standing value that was produced while answering
+   a question, instead of leaving it in the conversation.
+3. **Lint**, as a recurring pass over the whole bundle: contradictions, expired
+   `stale_after`, orphans, concepts referenced with no entry, missing
+   cross-references. Lint removes and merges as well as adds, and rewrites any
+   entry whose body has started narrating its own edit history.
+
+`knowledge/log.md` is newest first, each entry beginning `## [YYYY-MM-DD]`, so
+recent activity reads with `grep "^## \[" knowledge/log.md | head -10`.
+
+**Boundary with the machine-local memory store**: what belongs to the repository
+goes in `knowledge/`; what belongs to this machine and to how we work together
+stays in memory.
+
 ## OpenSpec Workflow
 
 All code changes must go through an OpenSpec change — either created before implementation (`/opsx:new`) or retroactively after implementation (`/opsx:new` covering the work done). Never implement features without a corresponding OpenSpec change.
