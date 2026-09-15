@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 When starting a new session, read `llms.txt` in the project root. It contains links to the latest documentation for the core technologies (Spring Boot, Spring AI, Kotlin). Use these links to look up API usage and syntax when needed during implementation.
 
+`llms.txt` is versioned documentation: each section heading names the version it
+describes. Whenever a core technology version changes in `pom.xml` (the
+`spring-boot-starter-parent` version, `kotlin.version`, `spring-ai.version`), update
+`llms.txt` in the same change: bump the version in the section heading, repoint any
+version-pinned URLs (release notes, "What's New in ..."), and check that renamed or
+removed reference pages still resolve. A heading that disagrees with `pom.xml` sends
+every later lookup to the wrong version of the docs.
+
 ## Project Overview
 
 Kotlin/Spring Boot application. See `README.md` for the full project description, architecture, prerequisites, and setup instructions.
@@ -83,10 +91,12 @@ and `.claude/rules/knowledge-entries.md` for how an entry is written.
    difference.
 2. **File back** an answer with standing value that was produced while answering
    a question, instead of leaving it in the conversation.
-3. **Lint**, as a recurring pass over the whole bundle: contradictions, expired
-   `stale_after`, orphans, concepts referenced with no entry, missing
-   cross-references. Lint removes and merges as well as adds, and rewrites any
-   entry whose body has started narrating its own edit history.
+3. **Lint** the whole bundle at the end of any session that touched `knowledge/`,
+   and whenever asked: contradictions, expired `stale_after`, orphans, concepts
+   referenced with no entry, missing cross-references. The pass covers every entry,
+   not just the ones the session changed, because a new entry is the most common way
+   an old one becomes wrong. Lint removes and merges as well as adds, and rewrites
+   any entry whose body has started narrating its own edit history.
 
 **Boundary with the machine-local memory store**: what belongs to the repository
 goes in `knowledge/`; what belongs to this machine and to how we work together

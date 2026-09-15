@@ -1,12 +1,12 @@
-# AI Summary Podcast - Documentation Links
+# AI Podcast Studio - Documentation Links
 
 > Links to the latest documentation for the core technologies used in this project: Spring Boot, Spring AI, and Kotlin. If WebFetch does not work for any of these URLs, use a headless Chrome browser to retrieve the content instead.
 
-## Spring Boot (4.0.2)
+## Spring Boot (4.1.0)
 
 - [Overview](https://docs.spring.io/spring-boot/): Spring Boot documentation home
 - [Getting Started](https://docs.spring.io/spring-boot/tutorial/first-application/index.html): Developing your first Spring Boot application
-- [System Requirements](https://docs.spring.io/spring-boot/system-requirements.html): Minimum system requirements for Spring Boot 4.0
+- [System Requirements](https://docs.spring.io/spring-boot/system-requirements.html): Minimum system requirements for Spring Boot 4.1
 - [Developing with Spring Boot](https://docs.spring.io/spring-boot/reference/using/index.html): Build systems, structuring code, configuration
 - [Core Features](https://docs.spring.io/spring-boot/reference/features/index.html): Profiles, logging, JSON, task execution, testing, and more
 - [Web](https://docs.spring.io/spring-boot/reference/web/index.html): Servlet and reactive web application support
@@ -22,13 +22,13 @@
 - [Dependency Versions](https://docs.spring.io/spring-boot/appendix/dependency-versions/index.html): Managed dependency versions
 - [Java API](https://docs.spring.io/spring-boot/api/java/index.html): Spring Boot Java API documentation
 - [Kotlin API](https://docs.spring.io/spring-boot/api/kotlin/index.html): Spring Boot Kotlin API documentation
-- [Release Notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Release-Notes): Spring Boot 4.0 release notes
+- [Release Notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.1-Release-Notes): Spring Boot 4.1 release notes
 
 ## Spring CLI (0.8)
 
 - [Initializr](https://docs.spring.io/spring-cli/reference/0.8/initializr.html): Using Spring CLI with Spring Initializr
 
-## Spring AI (1.1.2)
+## Spring AI (2.0.0)
 
 - [Overview](https://docs.spring.io/spring-ai/reference/): Spring AI documentation home
 - [AI Concepts](https://docs.spring.io/spring-ai/reference/concepts.html): Core AI concepts and terminology
@@ -50,9 +50,9 @@
 - [Observability](https://docs.spring.io/spring-ai/reference/observability/index.html): Metrics and tracing for AI operations
 - [Building Effective Agents](https://docs.spring.io/spring-ai/reference/api/effective-agents.html): Patterns for building AI agents
 - [Prompt Engineering Patterns](https://docs.spring.io/spring-ai/reference/api/chat/prompt-engineering-patterns.html): Best practices for prompt engineering
-- [Cloud Deployment](https://docs.spring.io/spring-ai/reference/api/cloud-bindings.html): Deploying Spring AI applications to the cloud
+- [Evaluation Testing](https://docs.spring.io/spring-ai/reference/api/testing.html): Evaluating AI responses for relevancy and factual accuracy
 
-## Kotlin (2.3.0)
+## Kotlin (2.4.0)
 
 - [Home](https://kotlinlang.org/docs/home.html): Kotlin documentation home
 - [Getting Started](https://kotlinlang.org/docs/getting-started.html): Get started with Kotlin
@@ -79,6 +79,6 @@
 - [Kotlin for JVM](https://kotlinlang.org/docs/jvm-get-started.html): Getting started with Kotlin on the JVM
 - [Spring Boot with Kotlin](https://kotlinlang.org/docs/jvm-get-started-spring-boot.html): Create a RESTful web service with Spring Boot and Kotlin
 - [Coding Conventions](https://kotlinlang.org/docs/coding-conventions.html): Kotlin coding conventions and style guide
-- [What's New in 2.3.0](https://kotlinlang.org/docs/whatsnew23.html): New features and changes in Kotlin 2.3.0
+- [What's New in 2.4.0](https://kotlinlang.org/docs/whatsnew24.html): New features and changes in Kotlin 2.4.0
 - [Releases](https://kotlinlang.org/docs/releases.html): Kotlin release process and schedule
 - [Kotlin Standard Library API](https://kotlinlang.org/api/core/): Kotlin standard library API reference
