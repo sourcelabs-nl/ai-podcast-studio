@@ -5,6 +5,12 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
+Split the scoring proposal into a free deterministic half and a judged half, so
+the cheap layer does not wait on the expensive layer's migration and
+calibration.
+
+## [2026-09-15] Record
+
 Added the backchannel device and the reference-show turn-length finding it rests
 on, mined from the 2026-09-14 session where the reference analysis was done.
 

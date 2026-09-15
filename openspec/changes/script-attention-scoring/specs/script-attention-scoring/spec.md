@@ -1,20 +1,5 @@
 ## ADDED Requirements
 
-### Requirement: Deterministic script metrics
-The system SHALL compute, without any model call, metrics that are a pure function of an episode script: the number of speaker turns, the turn and word count per role, the median, maximum and over-threshold count of expert turn lengths, and which role owns each `[laugh]` tag.
-
-These metrics SHALL be stable across judge versions, so an ablation can run them on every generation at no cost.
-
-`[laugh]` ownership SHALL be reported as a proxy for humor distribution and never as a humor count, since a joke carrying no laugh tag is invisible to it.
-
-#### Scenario: Metrics computed without a model
-- **WHEN** `ScriptMetrics` is given a script
-- **THEN** it returns the counts and distributions with no LLM call
-
-#### Scenario: A script with one role only
-- **WHEN** a script contains no expert turns
-- **THEN** the expert statistics are empty rather than an error
-
 ### Requirement: The judge returns anchors rather than measurements
 `ScriptJudge` SHALL make one model call per script and return positions in the script: the turn index of each forward-looking promise and of the turn that pays it off, the turn index and role of each humor beat together with whether it reacts to the immediately preceding turn, and the distinct topics named in the introduction teaser.
 

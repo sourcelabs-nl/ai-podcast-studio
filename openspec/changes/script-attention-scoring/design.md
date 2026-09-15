@@ -12,9 +12,11 @@ The reason is reliability, not purity. A model asked to count over a long docume
 
 Alternative considered: ask for a 1-10 engagement rating. Rejected: it cannot be checked, it cannot be attributed to a rule, and it would drift between judge model versions with nothing to notice the drift.
 
-**Deterministic metrics are separated from judged ones.**
+**The deterministic layer is a separate change.**
 
-`ScriptMetrics` never calls a model and is a pure function of the script text. It is free, it is stable across judge versions, and it is the layer that can be run on every generation during an ablation without cost. The judge runs over the archive once and over the k runs of a variant.
+`script-structure-metrics` computes what can be counted by reading the script and never calls a model. It is free, stable across judge versions and runnable on every generation during an ablation at no cost; the judge runs over the archive once and over the k runs of a variant.
+
+They are split because their properties differ, not only their difficulty. A metric is cheap, reproducible forever and always agrees with the script it describes, so it is recomputed and never stored. A judged score costs money per script, drifts between model versions and therefore has to be versioned and persisted. Binding them together would have made the cheap half wait on the expensive half's migration and calibration.
 
 **Scores are persisted and versioned.**
 
