@@ -30,6 +30,9 @@ class SourceAggregator(
     companion object {
         // Narro prefixes each item's title with the posting account, e.g. "@ivanfioravanti: ...".
         private val TITLE_HANDLE_PREFIX = Regex("""^@([A-Za-z0-9_]{1,15})\s*:""")
+
+        // The account a reply is addressed to, from the normalised "R to @target: ..." prefix.
+        private val REPLY_TARGET = Regex("""^R to @([A-Za-z0-9_]{1,15})\s*:""")
     }
 
     @Transactional
@@ -83,19 +86,27 @@ class SourceAggregator(
         return source.type == SourceType.TWITTER || source.url.contains("nitter.net")
     }
 
-    internal fun groupPostsByThread(posts: List<Post>): List<List<Post>> {
+    /**
+     * Groups one author's posts into threads, in publication order.
+     *
+     * A reply continues the thread before it only when it answers [authorKey], the author of the
+     * group: that is a self-thread, which is what the feeds actually carry (28 of 29 replies in a
+     * 50-item Narro sample). A reply to somebody else is a new conversation and opens its own
+     * thread, so an unrelated answer no longer lands in the middle of the author's previous one.
+     *
+     * A null [authorKey] means the feed carries no author information at all, so the target cannot
+     * be compared against anything; such a group keeps the older, author-blind attachment rather
+     * than losing grouping that works today.
+     */
+    internal fun groupPostsByThread(posts: List<Post>, authorKey: String? = null): List<List<Post>> {
         val sorted = posts.sortedBy { it.publishedAt ?: "" }
         val threads = mutableListOf<MutableList<Post>>()
 
         for (post in sorted) {
-            if (isReply(post)) {
-                if (threads.isNotEmpty()) {
-                    threads.last().add(post)
-                } else {
-                    // Orphan reply: start a new thread
-                    threads.add(mutableListOf(post))
-                }
+            if (threads.isNotEmpty() && continuesThread(post, authorKey)) {
+                threads.last().add(post)
             } else {
+                // A root post, a reply to someone else, or a reply arriving before any parent.
                 threads.add(mutableListOf(post))
             }
         }
@@ -103,7 +114,12 @@ class SourceAggregator(
         return threads
     }
 
-    private fun isReply(post: Post): Boolean = post.title.startsWith(REPLY_TITLE_PREFIX)
+    private fun continuesThread(post: Post, authorKey: String?): Boolean {
+        if (!post.title.startsWith(REPLY_TITLE_PREFIX)) return false
+        if (authorKey == null) return true
+        val target = REPLY_TARGET.find(post.title)?.groupValues?.get(1) ?: return true
+        return target.equals(authorKey, ignoreCase = true)
+    }
 
     /**
      * Resolves the account a post belongs to.
@@ -114,12 +130,14 @@ class SourceAggregator(
      *
      * The post URL is the most reliable of the three signals, because a combined feed rewrites
      * every item's link to the original post, so the handle survives even where the feed's own
-     * author field carries a display name ("Ivan Fioravanti") or nothing at all.
+     * author field carries a display name ("Ivan Fioravanti") or nothing at all. That field is
+     * written both as "@simonw" and as "simonw" depending on the feed, so the key drops the "@"
+     * and a reply target compares equal either way.
      */
     internal fun resolveAuthorKey(post: Post): String? {
         xHandleFromUrl(post.url)?.let { return it }
         TITLE_HANDLE_PREFIX.find(post.title)?.groupValues?.get(1)?.lowercase()?.let { return it }
-        return post.author?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        return post.author?.trim()?.removePrefix("@")?.lowercase()?.takeIf { it.isNotEmpty() }
     }
 
     private fun xHandleFromUrl(url: String): String? {
@@ -139,7 +157,9 @@ class SourceAggregator(
         // Posts whose author cannot be resolved share the null group, which for a feed carrying no
         // author information at all reproduces the single-group behaviour this replaced.
         val byAuthor = posts.groupBy { resolveAuthorKey(it) }
-        val threads = byAuthor.values.flatMap { groupPostsByThread(it) }
+        val threads = byAuthor.entries.flatMap { (authorKey, authorPosts) ->
+            groupPostsByThread(authorPosts, authorKey)
+        }
         log.info("[Aggregator] Grouped {} posts into {} threads across {} author(s) for source {}",
             posts.size, threads.size, byAuthor.size, source.id)
 

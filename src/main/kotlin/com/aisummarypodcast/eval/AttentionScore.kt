@@ -1,29 +1,23 @@
 package com.aisummarypodcast.eval
 
-/**
- * The figures derived from [ScriptJudgeAnchors]. Every value here is arithmetic over turn indices;
- * none of it was asked of a model.
- */
+/** Arithmetic over the turn indices in [ScriptJudgeAnchors]. None of it was asked of a model. */
 data class AttentionScore(
     val cliffhangers: CliffhangerScore,
     val humor: HumorScore,
     val teaser: TeaserScore,
     /**
-     * The mean of the three component scores, each in `[0, 1]`.
-     *
-     * This is the number [com.aisummarypodcast.config.JudgeProperties.norm] is compared against. It
-     * is a convenience over the components, not a measurement in its own right: the weighting is
-     * an equal split chosen because nothing yet says one device matters more than another. Read the
-     * components when deciding what to change; read this only to rank episodes against each other.
+     * The mean of the three components, and the number
+     * [com.aisummarypodcast.config.JudgeProperties.norm] is compared against. The equal weighting
+     * is a placeholder: nothing yet says one device matters more than another. Read the components
+     * when deciding what to change, this only to rank episodes against each other.
      */
     val overall: Double
 )
 
 /**
- * [deferredPromises] counts promises whose payoff lands at least [AttentionScoring.MIN_DEFERRAL_TURNS]
+ * [deferredPromises] counts only payoffs landing at least [AttentionScoring.MIN_DEFERRAL_TURNS]
  * turns later. A promise answered in the next breath satisfies the letter of the cliffhanger rule
- * and none of its purpose, which is the failure episode 208 showed, so it is counted separately
- * from [promises].
+ * and none of its purpose, which is the failure episode 208 showed.
  */
 data class CliffhangerScore(
     val promises: Int,

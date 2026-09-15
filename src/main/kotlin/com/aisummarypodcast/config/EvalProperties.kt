@@ -1,21 +1,19 @@
 package com.aisummarypodcast.config
 
 /**
- * Evaluation of scripts that have already been produced. Nothing here affects how an episode is
- * composed; it only decides whether, and how hard, a finished script is looked at.
+ * Nothing here affects how an episode is composed. It only decides whether, and how hard, an
+ * already-produced script is looked at.
  */
 data class EvalProperties(
     val judge: JudgeProperties = JudgeProperties()
 )
 
 /**
- * How the script judge behaves.
- *
- * [norm] deliberately has no default. It is the score below which a script counts as poor, and
- * where that line sits is a question about the distribution of judged scores over the archive, not
- * a question anyone can answer from first principles. A plausible-looking default would be
- * indistinguishable in the output from a measured one and would reject episodes on no evidence, so
- * [JudgeMode.ENFORCE] falls back to advising while this is null. See [JudgeMode].
+ * [norm] deliberately has no default. Where the line between a poor script and an acceptable one
+ * sits is a question about the distribution of judged scores over the archive, and a
+ * plausible-looking default would be indistinguishable in the output from a measured one while
+ * rejecting episodes on no evidence. [JudgeMode.ENFORCE] therefore falls back to advising while
+ * this is null.
  */
 data class JudgeProperties(
     val mode: JudgeMode = JudgeMode.ADVISE,
@@ -23,8 +21,6 @@ data class JudgeProperties(
 )
 
 /**
- * What a run does with a judged score.
- *
  * The mode never changes what the judge is asked or what it returns, so a score written under
  * [ADVISE] and one written under [ENFORCE] are the same kind of score and stay comparable.
  */

@@ -375,10 +375,6 @@ class PodcastService(
      * and the caller has no use for the score, so making it wait on a model round-trip would add
      * latency to a result that does not depend on it. A judge that fails is logged and the episode
      * stands, because evaluating a script says nothing about whether the script is deliverable.
-     *
-     * [pipelineScope] carries a `SupervisorJob`, so a failure here cannot cancel a sibling run. The
-     * catch is still needed: an exception escaping a `launch` reaches the default handler, which is
-     * enough to fail an unrelated coroutine test that happens to be collecting uncaught exceptions.
      */
     private fun judgeInBackground(episode: Episode) {
         pipelineScope.launch {

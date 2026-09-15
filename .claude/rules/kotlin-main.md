@@ -7,6 +7,8 @@ paths:
 
 **Concurrency**: use Kotlin coroutines for async and background work, never `ExecutorService` or `java.util.concurrent` thread pools directly. Use `Dispatchers.IO` for I/O-bound scopes (HTTP, database, file I/O, TTS), never `Dispatchers.Default`, which is sized to CPU cores and meant for computation.
 
+A long-lived scope holding several independent runs carries a `SupervisorJob`, so one failure cannot cancel its siblings (`PodcastService.pipelineScope` is the pattern). That does not remove the need to catch inside each `launch`: an exception escaping a `launch` reaches the default handler, which is enough to fail an unrelated coroutine test collecting uncaught exceptions. Rethrow `CancellationException` before any general catch, since cancellation is the caller unwinding and not a failure of the work.
+
 **Transactions**: any function performing multiple writes across tables, or multiple writes that must be atomic, is annotated `@Transactional`. It only works on public methods reached through the Spring proxy, so it has no effect on a private method or an internal self-call.
 
 **Parameter objects**: when a parameter list passes 4-5 entries and the parameters are functionally related, wrap them in a data class rather than adding positional arguments. `InworldApiClient.synthesizeSpeech(...)` is the pattern: mandatory request identity as parameters, optional knobs in an `InworldSynthesisOptions` data class, so extending the options does not ripple through every caller.

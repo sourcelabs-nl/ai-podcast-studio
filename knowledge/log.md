@@ -5,6 +5,13 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
+Recorded what a Narro feed carries after reading one live: no conversation id
+exists, the reply header names the account rather than the tweet, and 28 of 29
+replies in a 50-item sample are self-threads. That distribution is what the
+reply-target threading rule rests on.
+
+## [2026-09-15] Record
+
 Recorded the judge's first live calibration: its anchors for episode 209 match
 the by-hand audit on every quantity, at 12 seconds and under a cent per script.
 

@@ -62,8 +62,8 @@ class SourceAggregatorTest {
     fun `groupPostsByThread creates single thread from parent and replies`() {
         val posts = listOf(
             post(id = 1, title = "Parent post", publishedAt = "2026-03-26T17:00:00Z"),
-            post(id = 2, title = "R to @user: reply 1", publishedAt = "2026-03-26T17:00:01Z"),
-            post(id = 3, title = "R to @user: reply 2", publishedAt = "2026-03-26T17:00:02Z")
+            post(id = 2, title = "R to @simonw: reply 1", publishedAt = "2026-03-26T17:00:01Z"),
+            post(id = 3, title = "R to @simonw: reply 2", publishedAt = "2026-03-26T17:00:02Z")
         )
 
         val threads = aggregator.groupPostsByThread(posts)
@@ -77,9 +77,9 @@ class SourceAggregatorTest {
     fun `groupPostsByThread creates multiple threads`() {
         val posts = listOf(
             post(id = 1, title = "Thread A", publishedAt = "2026-03-26T10:00:00Z"),
-            post(id = 2, title = "R to @user: A reply", publishedAt = "2026-03-26T10:00:01Z"),
+            post(id = 2, title = "R to @simonw: A reply", publishedAt = "2026-03-26T10:00:01Z"),
             post(id = 3, title = "Thread B", publishedAt = "2026-03-26T15:00:00Z"),
-            post(id = 4, title = "R to @user: B reply", publishedAt = "2026-03-26T15:00:01Z")
+            post(id = 4, title = "R to @simonw: B reply", publishedAt = "2026-03-26T15:00:01Z")
         )
 
         val threads = aggregator.groupPostsByThread(posts)
@@ -94,7 +94,7 @@ class SourceAggregatorTest {
     @Test
     fun `groupPostsByThread handles orphan reply as standalone thread`() {
         val posts = listOf(
-            post(id = 1, title = "R to @user: orphan reply", publishedAt = "2026-03-26T10:00:00Z"),
+            post(id = 1, title = "R to @simonw: orphan reply", publishedAt = "2026-03-26T10:00:00Z"),
             post(id = 2, title = "Normal post", publishedAt = "2026-03-26T15:00:00Z")
         )
 
@@ -102,7 +102,7 @@ class SourceAggregatorTest {
 
         assertEquals(2, threads.size)
         assertEquals(1, threads[0].size)
-        assertEquals("R to @user: orphan reply", threads[0][0].title)
+        assertEquals("R to @simonw: orphan reply", threads[0][0].title)
     }
 
     @Test
@@ -138,7 +138,7 @@ class SourceAggregatorTest {
         val posts = listOf(
             post(id = 1, title = "Standalone", publishedAt = "2026-03-25T10:00:00Z"),
             post(id = 2, title = "Thread parent", publishedAt = "2026-03-26T10:00:00Z"),
-            post(id = 3, title = "R to @user: reply", publishedAt = "2026-03-26T10:00:01Z"),
+            post(id = 3, title = "R to @simonw: reply", publishedAt = "2026-03-26T10:00:01Z"),
             post(id = 4, title = "Another standalone", publishedAt = "2026-03-27T10:00:00Z")
         )
 
@@ -180,7 +180,7 @@ class SourceAggregatorTest {
         val posts = listOf(
             post(id = 1, title = "Thread A parent", body = "Content A", publishedAt = "2026-03-26T10:00:00Z",
                 url = "https://nitter.net/user/status/100#m"),
-            post(id = 2, title = "R to @user: A reply", body = "Reply A", publishedAt = "2026-03-26T10:00:01Z",
+            post(id = 2, title = "R to @simonw: A reply", body = "Reply A", publishedAt = "2026-03-26T10:00:01Z",
                 url = "https://nitter.net/user/status/101#m"),
             post(id = 3, title = "Thread B parent", body = "Content B", publishedAt = "2026-03-26T15:00:00Z",
                 url = "https://nitter.net/user/status/200#m")
@@ -198,7 +198,7 @@ class SourceAggregatorTest {
         val posts = listOf(
             post(id = 1, title = "Parent", body = "Content", publishedAt = "2026-03-26T10:00:00Z",
                 url = "https://nitter.net/user/status/100#m"),
-            post(id = 2, title = "R to @user: reply", body = "Reply", publishedAt = "2026-03-26T10:00:01Z",
+            post(id = 2, title = "R to @simonw: reply", body = "Reply", publishedAt = "2026-03-26T10:00:01Z",
                 url = "https://nitter.net/user/status/101#m")
         )
 
@@ -212,7 +212,7 @@ class SourceAggregatorTest {
     fun `thread article body combines parent and replies`() {
         val posts = listOf(
             post(id = 1, title = "Parent", body = "Parent content", publishedAt = "2026-03-26T10:00:00Z"),
-            post(id = 2, title = "R to @user: reply", body = "Reply content", publishedAt = "2026-03-26T10:00:01Z")
+            post(id = 2, title = "R to @simonw: reply", body = "Reply content", publishedAt = "2026-03-26T10:00:01Z")
         )
 
         val result = aggregator.aggregateAndPersist(posts, source())
@@ -226,8 +226,8 @@ class SourceAggregatorTest {
     fun `thread article links all posts via post_articles`() {
         val posts = listOf(
             post(id = 1, title = "Parent", publishedAt = "2026-03-26T10:00:00Z"),
-            post(id = 2, title = "R to @user: reply 1", publishedAt = "2026-03-26T10:00:01Z"),
-            post(id = 3, title = "R to @user: reply 2", publishedAt = "2026-03-26T10:00:02Z")
+            post(id = 2, title = "R to @simonw: reply 1", publishedAt = "2026-03-26T10:00:01Z"),
+            post(id = 3, title = "R to @simonw: reply 2", publishedAt = "2026-03-26T10:00:02Z")
         )
 
         aggregator.aggregateAndPersist(posts, source())
@@ -381,15 +381,15 @@ class SourceAggregatorTest {
         val posts = listOf(
             xPost(1, "authora", "@authora: Parent A", "2026-08-31T10:00:00Z"),
             xPost(2, "authorb", "@authorb: Parent B", "2026-08-31T10:01:00Z"),
-            xPost(3, "authora", "R to @someone: reply from A", "2026-08-31T10:02:00Z")
+            xPost(3, "authora", "R to @authora: reply from A", "2026-08-31T10:02:00Z")
         )
 
         val articles = aggregator.aggregateAndPersist(posts, narroSource())
 
-        // Author A's parent plus its reply is one article; author B's post is another.
+        // Author A's parent plus its self-reply is one article; author B's post is another.
         assertEquals(2, articles.size)
         val a = articles.first { it.title == "@authora: Parent A" }
-        assertTrue(a.body.contains("Body of R to @someone: reply from A"))
+        assertTrue(a.body.contains("Body of R to @authora: reply from A"))
         val b = articles.first { it.title == "@authorb: Parent B" }
         assertFalse(b.body.contains("reply from A"))
     }
@@ -401,13 +401,57 @@ class SourceAggregatorTest {
         val posts = listOf(
             xPost(1, "authora", "@authora: Parent A", "2026-08-31T10:00:00Z"),
             xPost(2, "authorb", "@authorb: Parent B", "2026-08-31T10:05:00Z"),
-            xPost(3, "authora", "R to @someone: reply from A", "2026-08-31T10:06:00Z")
+            xPost(3, "authora", "R to @authora: reply from A", "2026-08-31T10:06:00Z")
         )
 
         val articles = aggregator.aggregateAndPersist(posts, narroSource())
 
         val b = articles.first { it.title == "@authorb: Parent B" }
         assertFalse(b.body.contains("reply from A"))
+    }
+
+    @Test
+    fun `a reply to another account starts its own thread`() {
+        // The feed names the account replied to but never the tweet, so a reply addressed to
+        // someone else is the only signal that the author started a new conversation.
+        val posts = listOf(
+            xPost(1, "authora", "@authora: Parent A", "2026-08-31T10:00:00Z"),
+            xPost(2, "authora", "R to @someone: answering someone else", "2026-08-31T10:01:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, narroSource())
+
+        assertEquals(2, articles.size)
+        val parent = articles.first { it.title == "@authora: Parent A" }
+        assertFalse(parent.body.contains("answering someone else"))
+    }
+
+    @Test
+    fun `a reply whose target cannot be read attaches as it did before`() {
+        // The marker is there but the handle is not, so there is nothing to compare against and
+        // the older, author-blind attachment stands rather than splitting a thread on no evidence.
+        val posts = listOf(
+            xPost(1, "authora", "@authora: Parent A", "2026-08-31T10:00:00Z"),
+            xPost(2, "authora", "R to @ nobody at all", "2026-08-31T10:01:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, narroSource())
+
+        assertEquals(1, articles.size)
+        assertTrue(articles[0].body.contains("nobody at all"))
+    }
+
+    @Test
+    fun `a self-reply continues the thread whatever the case of the handle`() {
+        val posts = listOf(
+            xPost(1, "authora", "@authora: Parent A", "2026-08-31T10:00:00Z"),
+            xPost(2, "authora", "R to @AuthorA: still me", "2026-08-31T10:01:00Z")
+        )
+
+        val articles = aggregator.aggregateAndPersist(posts, narroSource())
+
+        assertEquals(1, articles.size)
+        assertTrue(articles[0].body.contains("still me"))
     }
 
     @Test

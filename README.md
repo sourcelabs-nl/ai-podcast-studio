@@ -87,7 +87,7 @@ graph LR
 
 ### Step 2: Picking what's worth covering
 
-When it's time to generate an episode, the app reads the unprocessed posts and turns them into articles. Long-form posts (news articles, blog posts) become one article each. Short-form posts (tweets) are grouped by author and then by conversation: a tweet plus its replies become a single article, with the original tweet's URL and title. Grouping by author first matters when one source is a combined feed carrying many accounts (a Narro feed, say) rather than a single account, so one person's reply chain is never spliced onto someone else's post. Narro marks a reply in its own way, which is translated into the same form a Nitter mirror uses while the feed is being read, so threading works identically whichever of the two a source happens to be. Then a fast, cheap language model reads every article and gives it a relevance score from 0 to 10, a short summary, and (if you configured subtopics) tags it with the subtopic it belongs to. Anything below your relevance threshold is dropped. Scoring is the longest part of generation when there's a big backlog, so the dashboard shows it live (for example "Scoring 142 / 318") on the generating episode row.
+When it's time to generate an episode, the app reads the unprocessed posts and turns them into articles. Long-form posts (news articles, blog posts) become one article each. Short-form posts (tweets) are grouped by author and then by conversation: a tweet plus its replies become a single article, with the original tweet's URL and title. Grouping by author first matters when one source is a combined feed carrying many accounts (a Narro feed, say) rather than a single account, so one person's reply chain is never spliced onto someone else's post. A reply continues the conversation before it only when it answers its own author, so an answer someone posted to a different account starts its own article instead of landing in the middle of an unrelated thread of theirs. Narro marks a reply in its own way, which is translated into the same form a Nitter mirror uses while the feed is being read, so threading works identically whichever of the two a source happens to be. Then a fast, cheap language model reads every article and gives it a relevance score from 0 to 10, a short summary, and (if you configured subtopics) tags it with the subtopic it belongs to. Anything below your relevance threshold is dropped. Scoring is the longest part of generation when there's a big backlog, so the dashboard shows it live (for example "Scoring 142 / 318") on the generating episode row.
 
 Most of that work happens before generation starts: when polling a source finishes, its new articles are scored right away rather than waiting for the scheduled run, so the backlog is usually already ranked by the time an episode is due. Eager scoring respects the same per-podcast cost gate as the rest of the pipeline. If the last poll round is nevertheless too old when a scheduled generation begins, a catch-up poll runs first so the episode isn't built from stale sources.
 
@@ -219,27 +219,6 @@ already chose, so an episode that failed before it got that far is refused up fr
 message rather than producing another failed episode. A re-run goes back to the window and selects
 again.
 
-## Architecture
-
-A small Spring Boot backend handles everything (polling sources, running the LLM pipeline, generating audio, publishing). A Next.js dashboard talks to it over HTTP. SQLite holds all state on disk. External providers (LLM, TTS, web research, publication targets) are called from the backend only.
-
-Background work runs on Kotlin coroutines rather than thread pools: coroutine roots never block, blocking I/O (HTTP, database, file, TTS) is confined to `Dispatchers.IO`, transactional work stays on one dispatcher, and provider and publisher abstractions are `suspend` functions. Manually triggered generation follows the same rule: the request starts the run in the background and returns immediately, reporting a conflict if that podcast is already generating.
-
-![Architecture](docs/images/readme-08-architecture.svg)
-
-<details><summary>Diagram source</summary>
-
-```mermaid
-graph LR
-    USER["You"]:::consumer -->|"browse, edit,<br/>approve, listen"| FE
-    FE["Next.js dashboard<br/>(frontend/)"]:::service -->|"HTTP /api/*"| BE
-    BE["Spring Boot backend<br/>(localhost:8085)"]:::platform --> DB[("SQLite<br/>./data/*.db")]:::datastore
-    BE --> FS[("Audio and feed.xml<br/>./data/episodes/")]:::datastore
-    BE --> EXT["OpenRouter, OpenAI, ElevenLabs,<br/>Inworld, Tavily, FTP, SoundCloud, X"]:::external
-```
-
-</details>
-
 ## Script Evaluation
 
 An episode that is factually fine can still lose the listener, and "does this hold attention" is not
@@ -305,6 +284,27 @@ one a person reviewed, and a finding about a third-party model carries the metho
 and an absolute `stale_after` instant past which it is a hypothesis to re-measure rather than a fact.
 `knowledge/log.md` is newest first, so recent activity reads with
 `grep "^## \[" knowledge/log.md | head -10`.
+
+## Architecture
+
+A small Spring Boot backend handles everything (polling sources, running the LLM pipeline, generating audio, publishing). A Next.js dashboard talks to it over HTTP. SQLite holds all state on disk. External providers (LLM, TTS, web research, publication targets) are called from the backend only.
+
+Background work runs on Kotlin coroutines rather than thread pools: coroutine roots never block, blocking I/O (HTTP, database, file, TTS) is confined to `Dispatchers.IO`, transactional work stays on one dispatcher, and provider and publisher abstractions are `suspend` functions. Manually triggered generation follows the same rule: the request starts the run in the background and returns immediately, reporting a conflict if that podcast is already generating.
+
+![Architecture](docs/images/readme-08-architecture.svg)
+
+<details><summary>Diagram source</summary>
+
+```mermaid
+graph LR
+    USER["You"]:::consumer -->|"browse, edit,<br/>approve, listen"| FE
+    FE["Next.js dashboard<br/>(frontend/)"]:::service -->|"HTTP /api/*"| BE
+    BE["Spring Boot backend<br/>(localhost:8085)"]:::platform --> DB[("SQLite<br/>./data/*.db")]:::datastore
+    BE --> FS[("Audio and feed.xml<br/>./data/episodes/")]:::datastore
+    BE --> EXT["OpenRouter, OpenAI, ElevenLabs,<br/>Inworld, Tavily, FTP, SoundCloud, X"]:::external
+```
+
+</details>
 
 ## Prerequisites
 
