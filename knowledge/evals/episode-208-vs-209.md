@@ -28,7 +28,7 @@ own.
 
 What it does establish is defects, which a single run is enough to show: the
 double transition described in [[cliffhangers-must-defer]], the spoken "swea
-two" in [[initialisms-stay-capitalised]], and the unguarded consecutive turns in
-[[no-alternation-safety-net]].
+two" in [[initialisms-stay-capitalised]], and the repeated adjacent turns in
+[[adjacent-turns-must-not-repeat]].
 
 A real comparison waits on the scorer: OpenSpec change `script-attention-scoring`.

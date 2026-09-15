@@ -19,4 +19,4 @@ falsify the entry. What a rule says is in the code; why it is there is here.
 - [The teaser names distinct topics from different parts](teaser-names-distinct-topics.md)
 - [An initialism stays in capitals](initialisms-stay-capitalised.md)
 - [CURIOSITY HOOKS may work against the cliffhanger rule](curiosity-hooks-conflict.md)
-- [Nothing enforces speaker alternation](no-alternation-safety-net.md)
+- [Two turns by one speaker are fine; two turns saying the same thing are not](adjacent-turns-must-not-repeat.md)

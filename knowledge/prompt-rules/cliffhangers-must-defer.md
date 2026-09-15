@@ -29,7 +29,7 @@ The rule's own first version caused a second defect. Telling the parking turn to
 same turn the next speaker was about to transition into, so episode 209 said
 "Let's flip the lens to coding agents" and then "Flipping the lens to coding
 agents" in consecutive turns. The parking turn now hands the floor back instead.
-That double transition is also what exposed [[no-alternation-safety-net]].
+That double transition is also what exposed [[adjacent-turns-must-not-repeat]].
 
 Proposal and reasoning: OpenSpec change `attention-devices-that-defer`.
 

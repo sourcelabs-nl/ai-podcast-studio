@@ -5,9 +5,9 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
-Speaker alternation is now repaired in the compose clean-up chain and logged.
-Rewrote the alternation entry to state what the pipeline does rather than what
-it fails to do.
+Corrected what the episode 209 defect actually is: the overlap between two
+adjacent turns, not the adjacency itself. The structural merge built against the
+earlier reading was removed again.
 
 ## [2026-09-15] Lint
 
