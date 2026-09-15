@@ -5,6 +5,20 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
+Ran the CURIOSITY HOOKS ablation, the first experiment the cache bypass makes
+possible. Removing the bullet leaves real deferred hooks unchanged and cuts the
+immediately-answered promises from 6 to 1, which the cliffhanger score cannot
+see. The rule-rationale entry is no longer a hypothesis.
+
+## [2026-09-15] Record
+
+Recorded why the deep-dive research tool stays client-side. No JVM framework
+covers the Responses API's server-side web search in a typed way, and the swap
+would take back the call cap, the query cache, the per-user research key and a
+cost we count ourselves.
+
+## [2026-09-15] Record
+
 Judged the whole archive and recorded the baseline. Humour is one speaker's job
 in 91 of 162 episodes and 70 defer nothing, so the two rules written against
 episode 208 now have numbers to move. Recorded alongside it why repeating a

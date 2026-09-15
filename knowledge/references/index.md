@@ -20,3 +20,4 @@ to inference.
 - [The reference shows have long turns, not short ones](turn-length-in-the-reference-shows.md)
 - [The anchor story as a throughline](anchor-story-device.md)
 - [What a Narro RSS feed carries, and what it does not](narro-feed-format.md)
+- [Server-side web search, and why this project keeps Tavily](server-side-web-search-on-the-jvm.md)

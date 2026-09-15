@@ -23,5 +23,7 @@ Negative results are recorded on the same terms as positive ones.
 - [The judge's anchors match the hand audit of episode 209](judge-calibration-episode-209.md)
 - [The judged baseline over the archive](judged-baseline-2026-09.md)
 - [Repeating a prompt variant needs an explicit cache bypass](evaluation-run-cache-bypass.md)
+- [Removing CURIOSITY HOOKS cuts the cheap promises, not the real ones](curiosity-hooks-ablation.md)
 
-Open: the [[curiosity-hooks-conflict]] ablation, not yet run.
+The [[curiosity-hooks-conflict]] ablation has been run: see
+[[curiosity-hooks-ablation]].
