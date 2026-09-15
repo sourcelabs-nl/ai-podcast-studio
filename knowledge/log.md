@@ -5,6 +5,11 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
+Recorded the judge's first live calibration: its anchors for episode 209 match
+the by-hand audit on every quantity, at 12 seconds and under a cent per script.
+
+## [2026-09-15] Record
+
 Recorded that turn length and episode length are judged by ear and will not
 become gates, and that the length spread happens at a constant article count.
 
