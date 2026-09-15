@@ -5,6 +5,11 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
+Recorded that turn length and episode length are judged by ear and will not
+become gates, and that the length spread happens at a constant article count.
+
+## [2026-09-15] Record
+
 Implemented the deterministic metrics layer and ran it over the archive. Recorded
 the baseline, which settles the episode length spread and shows that
 backchannel-shaped turns predate the rule asking for them.
