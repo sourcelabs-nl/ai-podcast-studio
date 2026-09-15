@@ -280,4 +280,52 @@ class ScriptCleanupTest {
 
         assertEquals(script, closeUnterminatedFinalTurn(script, roles))
     }
+
+    @Test
+    fun `mergeConsecutiveSameSpeakerTurns joins two turns of the same speaker`() {
+        val script = "<interviewer>Let's flip the lens.</interviewer>\n<interviewer>Flipping the lens now.</interviewer>\n<expert>Right.</expert>"
+
+        assertEquals(
+            "<interviewer>Let's flip the lens. Flipping the lens now.</interviewer>\n<expert>Right.</expert>",
+            mergeConsecutiveSameSpeakerTurns(script, roles)
+        )
+    }
+
+    @Test
+    fun `mergeConsecutiveSameSpeakerTurns joins a run of three into one turn`() {
+        val script = "<expert>One.</expert>\n<expert>Two.</expert>\n<expert>Three.</expert>"
+
+        assertEquals("<expert>One. Two. Three.</expert>", mergeConsecutiveSameSpeakerTurns(script, roles))
+    }
+
+    @Test
+    fun `mergeConsecutiveSameSpeakerTurns leaves an alternating script alone`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>Thanks.</expert>\n<interviewer>So?</interviewer>"
+
+        assertEquals(script, mergeConsecutiveSameSpeakerTurns(script, roles))
+    }
+
+    @Test
+    fun `mergeConsecutiveSameSpeakerTurns ignores a role this podcast does not use`() {
+        val script = "<narrator>One.</narrator>\n<narrator>Two.</narrator>"
+
+        assertEquals(script, mergeConsecutiveSameSpeakerTurns(script, roles))
+    }
+
+    @Test
+    fun `mergeConsecutiveSameSpeakerTurns leaves turns separated by text alone`() {
+        val script = "<expert>One.</expert>\nSome stray note.\n<expert>Two.</expert>"
+
+        assertEquals(script, mergeConsecutiveSameSpeakerTurns(script, roles))
+    }
+
+    @Test
+    fun `cleanUpComposedScript recovers an unclosed turn before merging it`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>One.</expert>\n<expert>Two."
+
+        assertEquals(
+            "<interviewer>Welcome.</interviewer>\n<expert>One. Two.</expert>",
+            cleanUpComposedScript(script, roles)
+        )
+    }
 }

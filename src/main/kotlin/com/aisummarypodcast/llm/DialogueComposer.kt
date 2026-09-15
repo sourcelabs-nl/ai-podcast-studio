@@ -47,11 +47,7 @@ class DialogueComposer(
             val extraction = TopicOrderExtractor.extract(rawScript)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             CompositionResult(
-                script = stripOutsideSpeakerTags(
-                    closeUnterminatedFinalTurn(
-                        normalizeSquareBracketSpeakerTags(extraction.script, resolveSpeakerRoles(podcast)), resolveSpeakerRoles(podcast)
-                    )
-                ),
+                script = cleanUpComposedScript(extraction.script, resolveSpeakerRoles(podcast)),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
                 researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME)

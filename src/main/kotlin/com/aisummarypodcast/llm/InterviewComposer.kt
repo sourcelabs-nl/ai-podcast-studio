@@ -51,11 +51,7 @@ class InterviewComposer(
             val extraction = TopicOrderExtractor.extract(rawScript)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             CompositionResult(
-                script = stripOutsideSpeakerTags(
-                    closeUnterminatedFinalTurn(
-                        normalizeSquareBracketSpeakerTags(extraction.script, INTERVIEW_ROLES), INTERVIEW_ROLES
-                    )
-                ),
+                script = cleanUpComposedScript(extraction.script, INTERVIEW_ROLES),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
                 researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME)

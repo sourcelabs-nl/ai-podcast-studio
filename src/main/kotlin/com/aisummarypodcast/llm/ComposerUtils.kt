@@ -339,6 +339,85 @@ fun closeUnterminatedFinalTurn(script: String, roles: Set<String>): String {
 }
 
 /**
+ * The full clean-up a multi-speaker compose response goes through before it is stored, in the one
+ * order that works: a square-bracketed opener is rewritten first so the turn becomes visible to
+ * [SPEAKER_TURN_PATTERN], an unclosed final turn is closed next so it is visible too, consecutive
+ * same-speaker turns are merged once every turn is visible, and only then is the text outside the
+ * tags stripped, since that step discards whatever the earlier ones did not recover.
+ *
+ * Shared by [InterviewComposer] and [DialogueComposer], which differ only in how they arrive at
+ * [roles].
+ */
+fun cleanUpComposedScript(script: String, roles: Set<String>): String =
+    stripOutsideSpeakerTags(
+        mergeConsecutiveSameSpeakerTurns(
+            closeUnterminatedFinalTurn(
+                normalizeSquareBracketSpeakerTags(script, roles), roles
+            ), roles
+        )
+    )
+
+/**
+ * Joins adjacent speaker turns carrying the same role into one turn, for the [roles] this podcast
+ * actually uses.
+ *
+ * The compose prompt forbids two consecutive turns by one speaker in capitals and nothing enforced
+ * it: [RoleTagValidationAdvisor] validates which tags are used, not how they alternate. Episode 209
+ * reached the published feed with turns 12 and 13 both on the interviewer, and no line in the log.
+ *
+ * Merged rather than re-prompted, like every other repairable defect here. Two adjacent turns of
+ * one speaker carry no ambiguity about what was meant, so joining them loses nothing, whereas a
+ * re-prompt costs a full compose and returns a different script. The merge does not improve the
+ * writing: two turns saying the same thing become one turn saying it twice. It guarantees the
+ * structural invariant the TTS pipeline is written against, and the WARN is what makes the model's
+ * rule-breaking visible and countable.
+ *
+ * Deliberately narrow, like [closeUnterminatedFinalTurn]. A role outside [roles] is left alone so
+ * role validation still sees it, and turns separated by anything other than whitespace are left as
+ * they are, since that means the script is malformed in some further way the surrounding steps
+ * already handle.
+ */
+fun mergeConsecutiveSameSpeakerTurns(script: String, roles: Set<String>): String {
+    val turns = SPEAKER_TURN_PATTERN.findAll(script).toList()
+    if (turns.size < 2) return script
+
+    val result = StringBuilder()
+    var copiedTo = 0
+    var merged = 0
+    var index = 0
+
+    while (index < turns.size) {
+        val role = turns[index].groupValues[1]
+        var last = index
+        while (last + 1 < turns.size &&
+            role in roles &&
+            turns[last + 1].groupValues[1] == role &&
+            script.substring(turns[last].range.last + 1, turns[last + 1].range.first).isBlank()
+        ) {
+            last++
+            merged++
+        }
+
+        result.append(script, copiedTo, turns[index].range.first)
+        if (last == index) {
+            result.append(turns[index].value)
+        } else {
+            val bodies = (index..last).map { turns[it].groupValues[0].removePrefix("<$role>").removeSuffix("</$role>").trim() }
+            result.append("<").append(role).append(">")
+                .append(bodies.filter { it.isNotEmpty() }.joinToString(" "))
+                .append("</").append(role).append(">")
+        }
+        copiedTo = turns[last].range.last + 1
+        index = last + 1
+    }
+    result.append(script, copiedTo, script.length)
+
+    if (merged == 0) return script
+    log.warn("Compose LLM placed {} consecutive same-speaker turn(s); merged them into the preceding turn", merged)
+    return result.toString()
+}
+
+/**
  * The set of speaker roles a compose-stage script is allowed to use, derived from the podcast's
  * configured TTS voices. Shared by prompt-building (so the model is told the valid tags) and
  * [RoleTagValidationAdvisor] (so a leaked tag outside this set is rejected before TTS ever sees it).
