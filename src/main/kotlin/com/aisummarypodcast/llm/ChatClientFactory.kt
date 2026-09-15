@@ -86,6 +86,7 @@ class ChatClientFactory(
             PipelineStage.FILTER -> timeouts.filter
             PipelineStage.DEDUP -> timeouts.dedup
             PipelineStage.COMPOSE -> timeouts.compose
+            PipelineStage.EVAL -> timeouts.eval
         }
     }
 

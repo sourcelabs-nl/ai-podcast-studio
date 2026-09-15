@@ -177,6 +177,12 @@ app:
       compose:
         provider: openrouter
         model: deepseek/deepseek-v4.1-flash
+      # The judge only locates turns in a script it is handed, so it needs recall and no prose. It
+      # runs once per script over an archive of 166, which is why it stays on the cheapest model
+      # every other structured stage already uses rather than the model that wrote the script.
+      eval:
+        provider: openrouter
+        model: deepseek/deepseek-v4.1-flash
     max-cost-cents: 200
     # Request timeout per stage. One blanket value cannot serve them all: scoring returns in seconds
     # and dedup in 21s-1m44s, while compose over a large article set with tool calls has run from
@@ -190,6 +196,7 @@ app:
       filter: 3m
       dedup: 5m
       compose: 20m
+      eval: 5m
     scoring:
       concurrency: 10
     dedup:
@@ -259,6 +266,17 @@ app:
     author: Sourcelabs
     itunes-category: Technology
     explicit: false
+  eval:
+    judge:
+      # OFF, ADVISE or ENFORCE. See JudgeMode. ENFORCE needs a norm and behaves as ADVISE without
+      # one, so turning it on before the baseline exists changes nothing except the log line.
+      # ADVISE by default: one cheap call per generated episode, and it is the mode that builds the
+      # baseline the norm has to come from.
+      mode: ADVISE
+      # The overall score below which a script counts as poor, in [0, 1]. Deliberately unset: it is
+      # a fact about the distribution of judged scores over the archive, and that does not exist
+      # yet. Leave it unset until it has been read off a baseline.
+      # norm:
   soundcloud:
     client-id: ${APP_SOUNDCLOUD_CLIENT_ID:}
     client-secret: ${APP_SOUNDCLOUD_CLIENT_SECRET:}
@@ -299,6 +317,8 @@ resilience4j:
       article-scoring:
         base-config: external-api
       topic-dedup:
+        base-config: external-api
+      script-judge:
         base-config: external-api
       # Compose is the pipeline's most expensive call, so only a genuinely transient provider fault
       # is retried: a completion the client cannot read (a missing finish_reason) or an I/O failure.

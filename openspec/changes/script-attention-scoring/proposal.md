@@ -18,6 +18,7 @@ The judged layer, on top of the deterministic metrics delivered by `script-struc
 - `EpisodeScoringService` scores a range of episodes and persists the result, so the archive is judged once rather than on every read.
 - A new `episode_scores` table, written by a Flyway migration, holds one row per episode per scorer version.
 - A REST endpoint triggers scoring over a set of episodes and reads the results back, so the database is never queried directly for them.
+- The judge runs under one of three modes (`OFF`, `ADVISE`, `ENFORCE`). `ENFORCE` compares the score against a norm that is configuration with no default, and falls back to `ADVISE` while that norm is unset, so the mode can be built before the baseline that will supply the norm exists.
 - An explicit cache bypass for evaluation runs, without which k repetitions of a prompt variant are one model call and k-1 cache hits.
 
 The judge is a new pipeline stage (`EVAL`) with its own model default and pricing, so it follows the per-stage model resolution every other LLM feature uses and its cost is tracked separately from the episode's own.

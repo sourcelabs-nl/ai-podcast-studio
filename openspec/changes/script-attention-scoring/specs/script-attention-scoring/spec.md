@@ -42,3 +42,32 @@ Scoring SHALL skip an episode that already has a score at the current scorer ver
 #### Scenario: Scores are readable over HTTP
 - **WHEN** a client asks for an episode's score
 - **THEN** the API returns it without the client touching the database
+
+### Requirement: The judge has three modes and the third one needs a norm
+The judge SHALL run under one of three modes, configured for the application: `OFF`, `ADVISE` and `ENFORCE`.
+
+In `OFF` no judge call is made and no score is produced, so the feature costs nothing when it is not wanted.
+
+In `ADVISE` every generated episode is judged after composition, the score is persisted and reported, and the episode is published regardless of what the score says. This is the mode that produces the baseline the third mode needs, and therefore the default.
+
+Judging SHALL NOT be able to fail an episode that was otherwise produced successfully. The episode exists and is deliverable before it is judged, so a judge that errors is logged and the episode stands.
+
+In `ENFORCE` the score is compared against a configured norm and the run acts on the result. The norm SHALL be an explicit configuration value with no default. While no norm is configured, `ENFORCE` SHALL behave exactly as `ADVISE` and SHALL record, once per run, that it did so and why. A fabricated default norm is forbidden: a threshold nobody derived is indistinguishable in the output from one that was measured, and would reject good episodes with the authority of a number.
+
+The mode SHALL NOT change what the judge returns. A score produced under `ENFORCE` is the same score as one produced under `ADVISE`, so rows from the two modes are comparable.
+
+#### Scenario: Off makes no call
+- **WHEN** the mode is `OFF` and an episode is generated
+- **THEN** no judge model call is made and no score row is written
+
+#### Scenario: Advise never blocks
+- **WHEN** the mode is `ADVISE` and an episode scores poorly
+- **THEN** the score is persisted and the episode proceeds unchanged
+
+#### Scenario: Enforce without a norm falls back to advise
+- **WHEN** the mode is `ENFORCE` and no norm is configured
+- **THEN** the episode proceeds as under `ADVISE` and the run records that the norm was absent
+
+#### Scenario: Enforce with a norm acts on the comparison
+- **WHEN** the mode is `ENFORCE`, a norm is configured, and a score falls below it
+- **THEN** the run records the shortfall against the norm as the reason

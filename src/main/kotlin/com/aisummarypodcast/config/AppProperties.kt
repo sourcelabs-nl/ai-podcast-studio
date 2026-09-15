@@ -18,6 +18,7 @@ data class AppProperties(
     val episode: EpisodeProperties = EpisodeProperties(),
     val research: ResearchProperties = ResearchProperties(),
     val compose: ComposeProperties = ComposeProperties(),
+    val eval: EvalProperties = EvalProperties(),
     val backup: BackupProperties = BackupProperties(),
     val previewAudio: PreviewAudioProperties = PreviewAudioProperties(),
     val publishing: PublishingProperties = PublishingProperties()
@@ -121,7 +122,13 @@ data class LlmProperties(
 data class StageTimeouts(
     val filter: Duration = Duration.ofMinutes(3),
     val dedup: Duration = Duration.ofMinutes(5),
-    val compose: Duration = Duration.ofMinutes(20)
+    val compose: Duration = Duration.ofMinutes(20),
+    /**
+     * The judge reads one whole script and answers with a short list of turn indices, so it sits
+     * between a single article and a dedup batch in size. It gets dedup's allowance rather than
+     * compose's: nothing about locating turns justifies a twenty-minute ceiling.
+     */
+    val eval: Duration = Duration.ofMinutes(5)
 )
 
 data class ScoringProperties(
@@ -183,7 +190,8 @@ data class LlmModelOverrides(
 data class StageDefaults(
     val filter: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL),
     val dedup: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL),
-    val compose: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL)
+    val compose: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL),
+    val eval: ModelReference = ModelReference("openrouter", DEFAULT_STAGE_MODEL)
 )
 
 /** The model every stage defaults to. Kept in step with `app.llm.defaults` in `application.yaml`. */

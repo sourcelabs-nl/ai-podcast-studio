@@ -18,6 +18,16 @@ Alternative considered: ask for a 1-10 engagement rating. Rejected: it cannot be
 
 They are split because their properties differ, not only their difficulty. A metric is cheap, reproducible forever and always agrees with the script it describes, so it is recomputed and never stored. A judged score costs money per script, drifts between model versions and therefore has to be versioned and persisted. Binding them together would have made the cheap half wait on the expensive half's migration and calibration.
 
+**Three modes, and the third one is born inert.**
+
+`OFF` makes no call. `ADVISE` judges every generated episode, persists the score and reports it, and never blocks. `ENFORCE` compares the score against a norm and acts on the comparison.
+
+The norm is configuration with no default. Where it should sit is not known: the distribution of judged scores over the archive does not exist yet, and it is that distribution, not a guess, that says what a poor score is. So `ENFORCE` falls back to `ADVISE` while the norm is unset and says so in the log, rather than shipping a plausible-looking number that would reject episodes on no evidence.
+
+This is why all three modes can be built now. The order is fixed by the data, not by the code: build the modes, run in `ADVISE` to produce the baseline, read the distribution, then set a norm and turn `ENFORCE` on.
+
+The mode changes what the run does with the score, never what the judge is asked or what it returns, so rows written under `ADVISE` and under `ENFORCE` are the same kind of row and remain comparable.
+
 **Scores are persisted and versioned.**
 
 A judged score is expensive enough not to recompute and unstable enough across prompt changes to need a version. Each row records the scorer version and the judge model, so a comparison can refuse to mix rows produced by different judges rather than silently averaging them.

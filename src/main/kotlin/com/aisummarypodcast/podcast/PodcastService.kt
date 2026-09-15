@@ -1,6 +1,7 @@
 package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.eval.EpisodeScoringService
 import com.aisummarypodcast.llm.ComposeContext
 import com.aisummarypodcast.llm.FilteredArticle
 import com.aisummarypodcast.llm.LlmPipeline
@@ -9,6 +10,7 @@ import com.aisummarypodcast.source.SourceAggregator
 import com.aisummarypodcast.store.*
 import jakarta.annotation.PreDestroy
 import org.springframework.data.repository.findByIdOrNull
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,7 +40,8 @@ class PodcastService(
     private val episodeService: EpisodeService,
     private val eventPublisher: ApplicationEventPublisher,
     private val sourceAggregator: SourceAggregator,
-    private val episodeWindowResolver: EpisodeWindowResolver
+    private val episodeWindowResolver: EpisodeWindowResolver,
+    private val episodeScoringService: EpisodeScoringService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -356,11 +359,36 @@ class PodcastService(
                     mapOf("stage" to "generating_recap"))
             )
             val episode = episodeService.finalizeEpisode(generatingEpisode, podcast, composeResult.topicOrder)
+            judgeInBackground(episode)
             GenerateBriefingResult(episode = episode)
         } catch (e: Exception) {
             log.error("[Pipeline] Briefing generation failed for podcast '{}' ({}): {}", podcast.name, podcast.id, e.message, e)
             val failedEpisode = episodeService.failEpisode(podcast, e.message ?: "Unknown error", generatingEpisode)
             GenerateBriefingResult(episode = failedEpisode, failed = true, errorMessage = e.message)
+        }
+    }
+
+    /**
+     * Judges the finished script, when the judge is switched on.
+     *
+     * Launched rather than awaited: the episode is already produced and deliverable by this point,
+     * and the caller has no use for the score, so making it wait on a model round-trip would add
+     * latency to a result that does not depend on it. A judge that fails is logged and the episode
+     * stands, because evaluating a script says nothing about whether the script is deliverable.
+     *
+     * [pipelineScope] carries a `SupervisorJob`, so a failure here cannot cancel a sibling run. The
+     * catch is still needed: an exception escaping a `launch` reaches the default handler, which is
+     * enough to fail an unrelated coroutine test that happens to be collecting uncaught exceptions.
+     */
+    private fun judgeInBackground(episode: Episode) {
+        pipelineScope.launch {
+            try {
+                episodeScoringService.scoreEpisode(episode)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.warn("[EVAL] Scoring episode {} failed, leaving the episode as it is: {}", episode.id, e.message)
+            }
         }
     }
 

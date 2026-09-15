@@ -28,6 +28,7 @@ import com.aisummarypodcast.source.SourceAggregator
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import com.aisummarypodcast.eval.EpisodeScoringService
 import io.mockk.mockk
 import io.mockk.verify
 import org.springframework.data.repository.findByIdOrNull
@@ -66,10 +67,12 @@ class PodcastServiceTest {
         source = SourceProperties(maxArticleAgeDays = 7)
     )
 
+    private val episodeScoringService = mockk<EpisodeScoringService>(relaxed = true)
+
     private val podcastService = PodcastService(
         podcastRepository, sourceRepository, articleRepository, postRepository,
         postArticleRepository, episodeArticleRepository, episodeRepository, appProperties, llmPipeline, episodeService,
-        eventPublisher, sourceAggregator, episodeWindowResolver
+        eventPublisher, sourceAggregator, episodeWindowResolver, episodeScoringService
     )
 
     private val podcast = Podcast(
@@ -175,6 +178,12 @@ class PodcastServiceTest {
     fun `retryEpisode publishes episode retrying SSE event`() {
         val episode = Episode(id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.FAILED)
         every { episodeService.resetForRetry(episode) } returns episode.copy(status = EpisodeStatus.GENERATING, errorMessage = null)
+        // retryEpisode launches the retry itself on a background scope. This test is only about the
+        // SSE event, but leaving the background path unstubbed made its own failure handler throw,
+        // and an exception escaping Dispatchers.IO is collected by whichever runTest starts next,
+        // failing an unrelated test in another class.
+        every { episodeService.findLinkedArticlesAndTopics(5L) } returns mockk(relaxed = true)
+        every { episodeService.failEpisode(any(), any(), any()) } returns episode
 
         val resumePoint = podcastService.retryEpisode(episode, podcast)
 
