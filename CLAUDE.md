@@ -2,18 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Session Startup
-
-When starting a new session, read `llms.txt` in the project root. It contains links to the latest documentation for the core technologies (Spring Boot, Spring AI, Kotlin). Use these links to look up API usage and syntax when needed during implementation.
-
-`llms.txt` is versioned documentation: each section heading names the version it
-describes. Whenever a core technology version changes in `pom.xml` (the
-`spring-boot-starter-parent` version, `kotlin.version`, `spring-ai.version`), update
-`llms.txt` in the same change: bump the version in the section heading, repoint any
-version-pinned URLs (release notes, "What's New in ..."), and check that renamed or
-removed reference pages still resolve. A heading that disagrees with `pom.xml` sends
-every later lookup to the wrong version of the docs.
-
 ## Project Overview
 
 Kotlin/Spring Boot application. See `README.md` for the full project description, architecture, prerequisites, and setup instructions.

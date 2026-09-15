@@ -10,7 +10,7 @@ Rules for building and reviewing this project's LLM features. **Consult this ski
 
 ## Stack baseline
 
-- **Spring AI 2.0.0** (Spring Boot 4). The chat model is built on the **official OpenAI Java SDK** (`OpenAiChatModel.builder().openAiClient(...)`), so the provider is any **OpenAI-compatible API**: OpenRouter (the default), OpenAI directly, or a local Ollama. The Spring AI OpenAI autoconfiguration is disabled (see `spring.autoconfigure.exclude` in `application.yaml`); models are constructed by hand in `ChatClientFactory`.
+- **Spring AI 2.x** (Spring Boot 4); the exact version is `spring-ai.version` in `pom.xml`. The chat model is built on the **official OpenAI Java SDK** (`OpenAiChatModel.builder().openAiClient(...)`), so the provider is any **OpenAI-compatible API**: OpenRouter (the default), OpenAI directly, or a local Ollama. The Spring AI OpenAI autoconfiguration is disabled (see `spring.autoconfigure.exclude` in `application.yaml`); models are constructed by hand in `ChatClientFactory`.
 - Provider **credentials are resolved at runtime, per user**, via `UserProviderConfigService.resolveConfig(userId, ApiKeyCategory.LLM, provider)` and turned into an OpenAI SDK client by `buildOpenAiClient` (`OpenAiClientSupport.kt`, which also normalizes the base URL to include `/v1`). Never read an API key or base URL from anywhere else, and never hardcode one.
 - Model + provider are **per-podcast and per-stage**: `podcast.llmModels[stage]` (filter / dedup / compose), falling back to `AppProperties.llm.defaults` (`StageDefaults`). Resolve through `ModelResolver.resolve(podcast, stage)` into a `ResolvedModel(provider, model, cost)`. Never hardcode a model id in a service; take the model from the resolved `ResolvedModel`.
 - Every feature records token usage/cost. Any new LLM call MUST derive `TokenUsage.fromChatResponse(...)` and cost via `CostEstimator`, the same way existing services do (see `ArticleScoreSummarizer`, `EpisodeRecapGenerator`).
@@ -91,3 +91,23 @@ A model answers off-schema whether or not it reasons. Reasoning is one source of
 - **Pricing lives in `application.yaml`** under `app.models.<provider>.<model>` (`input-cost-per-mtok` / `output-cost-per-mtok`, and `cost-per-million-chars` for TTS), mapped to `ModelCost`. When adding a model a podcast can select, add its pricing there so `ResolvedModel.cost` is non-null and cost estimation works; a missing entry silently yields a null cost.
 - Empty/blank content is a failure, not an empty result: throw (as the composers do: `IllegalStateException("Empty response ...")`) or retry via `validateSchema()`; never silently return an empty object as if it were valid data. (Graceful empty-list fallbacks are only acceptable where an empty result is genuinely valid domain output, as in `CoveredTopicsExtractor`'s parse-miss degrade path.)
 - Never log prompt/response content that could contain secrets or PII, and never log the resolved API key or base URL.
+
+---
+
+## Reference docs
+
+Read `spring-ai.version` from `pom.xml` before trusting a remembered API. Spring AI
+renamed and moved a great deal between 1.x and 2.0, so recall from training data is
+unreliable here in a way it is not for Kotlin or Spring Boot: look it up.
+
+- [Chat Client API](https://docs.spring.io/spring-ai/reference/api/chatclient.html): fluent API for talking to chat models
+- [Chat Models](https://docs.spring.io/spring-ai/reference/api/chatmodel.html): model providers and configuration
+- [Prompts](https://docs.spring.io/spring-ai/reference/api/prompt.html): prompt creation and templating
+- [Structured Output](https://docs.spring.io/spring-ai/reference/api/structured-output-converter.html): converting responses to typed objects (`BeanOutputConverter`)
+- [Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html): function calling, used by the compose stage
+- [Chat Memory](https://docs.spring.io/spring-ai/reference/api/chat-memory.html): conversation history
+- [Advisors](https://docs.spring.io/spring-ai/reference/api/advisors.html): intercepting and augmenting calls
+- [Audio Models](https://docs.spring.io/spring-ai/reference/api/audio/): speech-to-text and text-to-speech
+- [Evaluation Testing](https://docs.spring.io/spring-ai/reference/api/testing.html): evaluating responses for relevancy and factual accuracy
+- [Prompt Engineering Patterns](https://docs.spring.io/spring-ai/reference/api/chat/prompt-engineering-patterns.html): prompt design practices
+- [Reference home](https://docs.spring.io/spring-ai/reference/): everything else
