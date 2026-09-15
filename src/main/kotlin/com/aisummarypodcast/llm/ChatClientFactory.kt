@@ -20,6 +20,7 @@ class ChatClientFactory(
     private val llmCacheRepository: LlmCacheRepository,
     private val episodeHistoryRepository: EpisodeHistoryRepository,
     private val researchService: ResearchService,
+    private val llmCallLogService: LlmCallLogService,
     private val appProperties: AppProperties
 ) {
 
@@ -85,15 +86,7 @@ class ChatClientFactory(
      * one. Sharing that allowance with the others let a single hung scoring call stall an entire
      * generation for 13 minutes while its 177 siblings each returned in seconds.
      */
-    internal fun timeoutFor(stage: PipelineStage): Duration {
-        val timeouts = appProperties.llm.timeouts
-        return when (stage) {
-            PipelineStage.FILTER -> timeouts.filter
-            PipelineStage.DEDUP -> timeouts.dedup
-            PipelineStage.COMPOSE -> timeouts.compose
-            PipelineStage.EVAL -> timeouts.eval
-        }
-    }
+    internal fun timeoutFor(stage: PipelineStage): Duration = stage.timeout(appProperties.llm.timeouts)
 
     private fun buildCachingModel(
         userId: String,
@@ -110,6 +103,6 @@ class ChatClientFactory(
         val chatModel = OpenAiChatModel.builder()
             .openAiClient(openAiClient)
             .build()
-        return CachingChatModel(chatModel, llmCacheRepository, useCache)
+        return CachingChatModel(chatModel, llmCacheRepository, resolvedModel, llmCallLogService, useCache)
     }
 }

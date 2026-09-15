@@ -104,7 +104,18 @@ data class LlmProperties(
     val maxCostCents: Int = 200,
     val scoring: ScoringProperties = ScoringProperties(),
     val dedup: DedupProperties = DedupProperties(),
-    val timeouts: StageTimeouts = StageTimeouts()
+    val timeouts: StageTimeouts = StageTimeouts(),
+    val callLog: LlmCallLogProperties = LlmCallLogProperties()
+)
+
+/**
+ * Retention for the per-request call log. The log grows with every LLM request (scoring alone
+ * issues one per article), and it exists to answer how long requests take now, so it is kept for a
+ * window rather than forever. Nothing depends on these rows surviving: the token and cost totals
+ * an episode is billed by live on the episode.
+ */
+data class LlmCallLogProperties(
+    val retention: Duration = Duration.ofDays(30)
 )
 
 /**

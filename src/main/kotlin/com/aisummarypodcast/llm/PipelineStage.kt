@@ -2,6 +2,8 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.ModelReference
 import com.aisummarypodcast.config.StageDefaults
+import com.aisummarypodcast.config.StageTimeouts
+import java.time.Duration
 
 enum class PipelineStage(val value: String) {
     FILTER("filter"),
@@ -20,5 +22,16 @@ enum class PipelineStage(val value: String) {
         DEDUP -> defaults.dedup
         COMPOSE -> defaults.compose
         EVAL -> defaults.eval
+    }
+
+    /**
+     * The request timeout this stage's calls are issued with. Lives here so that the client that
+     * applies it and the telemetry that reports latency against it cannot drift apart.
+     */
+    fun timeout(timeouts: StageTimeouts): Duration = when (this) {
+        FILTER -> timeouts.filter
+        DEDUP -> timeouts.dedup
+        COMPOSE -> timeouts.compose
+        EVAL -> timeouts.eval
     }
 }

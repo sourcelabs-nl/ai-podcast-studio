@@ -197,6 +197,11 @@ app:
       dedup: 5m
       compose: 20m
       eval: 5m
+    # Per-request latency is recorded for every LLM call and read back as percentiles per stage,
+    # which is what the timeouts above are sized against. Kept for a window: the rows answer what
+    # latency is now, and nothing is billed from them.
+    call-log:
+      retention: 30d
     scoring:
       concurrency: 10
     dedup:

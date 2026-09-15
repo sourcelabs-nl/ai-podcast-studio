@@ -16,6 +16,8 @@ import org.springframework.ai.chat.prompt.Prompt
 import reactor.core.publisher.Flux
 import java.security.MessageDigest
 import java.time.Instant
+import kotlin.time.Duration
+import kotlin.time.TimeSource
 
 /**
  * Wraps the underlying [ChatModel] with a SQLite-backed cache. Safe under Spring AI
@@ -33,6 +35,8 @@ import java.time.Instant
 class CachingChatModel(
     private val delegate: ChatModel,
     private val llmCacheRepository: LlmCacheRepository,
+    private val resolvedModel: ResolvedModel,
+    private val llmCallLogService: LlmCallLogService,
     private val cacheEnabled: Boolean = true
 ) : ChatModel {
 
@@ -47,11 +51,21 @@ class CachingChatModel(
             val cached = llmCacheRepository.findByPromptHashAndModel(promptHash, model)
             if (cached != null) {
                 log.debug("LLM cache hit for model={} hash={}", model, promptHash.take(12))
-                return reconstructResponse(cached)
+                val response = reconstructResponse(cached)
+                recordCall(Instant.now(), Duration.ZERO, response, cacheHit = true)
+                return response
             }
         }
 
-        val response = delegate.call(prompt)
+        val startedAt = Instant.now()
+        val mark = TimeSource.Monotonic.markNow()
+        val response = try {
+            delegate.call(prompt)
+        } catch (e: Exception) {
+            recordFailedCall(startedAt, mark.elapsedNow(), e)
+            throw e
+        }
+        recordCall(startedAt, mark.elapsedNow(), response, cacheHit = false)
 
         if (cacheEnabled && !hasPendingToolCalls(response)) {
             val responseText = response.result?.output?.text
@@ -107,6 +121,52 @@ class CachingChatModel(
                 entry.model, entry.promptHash.take(12)
             )
         }
+    }
+
+    /**
+     * Records one request. Timed around the delegate alone, so the cache lookup and the cache write
+     * stay out of the figure, and a stage's tool loop yields one record per round-trip rather than
+     * one spanning all of them.
+     *
+     * A cache hit never reached a provider, so it is recorded with a zero duration and marked; the
+     * percentile read excludes those rows rather than treating them as very fast requests.
+     */
+    private fun recordCall(startedAt: Instant, elapsed: Duration, response: ChatResponse, cacheHit: Boolean) {
+        val usage = TokenUsage.fromChatResponse(response)
+        llmCallLogService.record(
+            LlmCallRecord(
+                startedAt = startedAt,
+                stage = resolvedModel.stage.value,
+                provider = resolvedModel.provider,
+                model = resolvedModel.model,
+                duration = elapsed,
+                inputTokens = usage.inputTokens,
+                outputTokens = usage.outputTokens,
+                reportedCostUsd = usage.reportedCostUsd,
+                cacheHit = cacheHit
+            )
+        )
+    }
+
+    /**
+     * Records a request that failed. The elapsed time of a call that hit its timeout is the timeout,
+     * not the provider's latency, which is why these rows are marked and read back separately.
+     */
+    private fun recordFailedCall(startedAt: Instant, elapsed: Duration, error: Exception) {
+        llmCallLogService.record(
+            LlmCallRecord(
+                startedAt = startedAt,
+                stage = resolvedModel.stage.value,
+                provider = resolvedModel.provider,
+                model = resolvedModel.model,
+                duration = elapsed,
+                inputTokens = 0,
+                outputTokens = 0,
+                cacheHit = false,
+                outcome = LlmCallOutcome.ERROR,
+                errorType = error.javaClass.simpleName
+            )
+        )
     }
 
     private fun userPromptText(prompt: Prompt): String =

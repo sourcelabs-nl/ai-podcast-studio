@@ -1,0 +1,124 @@
+package com.aisummarypodcast.llm
+
+import com.aisummarypodcast.store.LlmCache
+import com.aisummarypodcast.store.LlmCacheRepository
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.springframework.ai.chat.messages.AssistantMessage
+import org.springframework.ai.chat.metadata.ChatResponseMetadata
+import org.springframework.ai.chat.metadata.DefaultUsage
+import org.springframework.ai.chat.model.ChatModel
+import org.springframework.ai.chat.model.ChatResponse
+import org.springframework.ai.chat.model.Generation
+import org.springframework.ai.chat.prompt.Prompt
+import org.springframework.ai.openai.OpenAiChatOptions
+import java.net.SocketTimeoutException
+
+/**
+ * Covers the telemetry [CachingChatModel] writes: one record per HTTP request, with cache hits and
+ * failures marked so that neither can pass for a fast successful call when percentiles are read.
+ */
+class CachingChatModelTelemetryTest {
+
+    private val delegate = mockk<ChatModel>()
+    private val llmCacheRepository = mockk<LlmCacheRepository>(relaxed = true) {
+        every { save(any<LlmCache>()) } answers { firstArg() }
+    }
+    private val llmCallLogService = mockk<LlmCallLogService>(relaxed = true)
+    private val resolvedModel = ResolvedModel(
+        provider = "openrouter",
+        model = "test-model",
+        cost = null,
+        stage = PipelineStage.COMPOSE
+    )
+    private val model =
+        CachingChatModel(delegate, llmCacheRepository, resolvedModel, llmCallLogService)
+
+    private val prompt = Prompt("Write the script", OpenAiChatOptions.builder().model("test-model").build())
+
+    private fun response(text: String = "A script") = ChatResponse(
+        listOf(Generation(AssistantMessage(text))),
+        ChatResponseMetadata.builder().usage(DefaultUsage(200, 50)).build()
+    )
+
+    @Test
+    fun `a successful call is recorded with its stage, model and tokens`() {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } returns response()
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        model.call(prompt)
+
+        assertEquals("compose", recorded.captured.stage)
+        assertEquals("openrouter", recorded.captured.provider)
+        assertEquals("test-model", recorded.captured.model)
+        assertEquals(200, recorded.captured.inputTokens)
+        assertEquals(50, recorded.captured.outputTokens)
+        assertEquals(LlmCallOutcome.OK, recorded.captured.outcome)
+        assertFalse(recorded.captured.cacheHit)
+    }
+
+    @Test
+    fun `a cache hit is recorded as a hit and never reaches the provider`() {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns LlmCache(
+            promptHash = "hash",
+            model = "test-model",
+            response = "A cached script",
+            createdAt = "2026-09-15T10:00:00Z",
+            inputTokens = 200,
+            outputTokens = 50
+        )
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        model.call(prompt)
+
+        assertTrue(recorded.captured.cacheHit)
+        verify(exactly = 0) { delegate.call(any<Prompt>()) }
+    }
+
+    @Test
+    fun `a failed call is recorded with its exception type and the failure still propagates`() {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } throws SocketTimeoutException("timeout")
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        assertThrows(SocketTimeoutException::class.java) { model.call(prompt) }
+
+        assertEquals(LlmCallOutcome.ERROR, recorded.captured.outcome)
+        assertEquals("SocketTimeoutException", recorded.captured.errorType)
+    }
+
+    @Test
+    fun `a tool loop records one call per round-trip`() {
+        // The timeout this telemetry exists to size is per HTTP request, so a compose run that uses
+        // tools must produce a record per round-trip rather than one spanning the whole loop.
+        val toolCall = AssistantMessage.builder()
+            .content("")
+            .toolCalls(listOf(AssistantMessage.ToolCall("id-1", "function", "searchPastEpisodes", "{}")))
+            .build()
+        val pending = ChatResponse(
+            listOf(Generation(toolCall)),
+            ChatResponseMetadata.builder().usage(DefaultUsage(200, 10)).build()
+        )
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(any<Prompt>()) } returnsMany listOf(pending, response())
+        val recorded = mutableListOf<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        model.call(prompt)
+        model.call(prompt)
+
+        assertEquals(2, recorded.size)
+        assertTrue(recorded.all { it.outcome == LlmCallOutcome.OK && !it.cacheHit })
+    }
+}

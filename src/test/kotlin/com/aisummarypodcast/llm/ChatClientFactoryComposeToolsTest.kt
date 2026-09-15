@@ -41,6 +41,7 @@ class ChatClientFactoryComposeToolsTest {
         llmCacheRepository = mockk<LlmCacheRepository>(),
         episodeHistoryRepository = mockk<EpisodeHistoryRepository>(),
         researchService = mockk<ResearchService>(),
+        llmCallLogService = mockk<LlmCallLogService>(relaxed = true),
         appProperties = appProperties
     )
 
