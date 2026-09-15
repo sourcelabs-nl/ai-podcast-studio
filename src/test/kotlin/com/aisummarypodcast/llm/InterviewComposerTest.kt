@@ -395,4 +395,19 @@ class InterviewComposerTest {
         assertTrue(prompt.contains("3-4 sentences"))
         assertTrue(prompt.contains("listener drop-off"))
     }
+
+    @Test
+    fun `prompt asks for backchannels that hand the floor straight back`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("BACKCHANNELS"))
+        assertTrue(prompt.contains("a backchannel hands it straight back"))
+        assertTrue(prompt.contains("NO question"))
+    }
+
+    @Test
+    fun `prompt allows a resumed turn only after a backchannel`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("The ONE exception is the BACKCHANNEL"))
+        assertTrue(prompt.contains("never as a way around the turn length rule"))
+    }
 }

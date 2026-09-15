@@ -15,4 +15,5 @@ what transfers and what does not, because a show that works for its own audience
 is not automatically a model for this one.
 
 - [The Dutch two-host reference shows](dutch-two-host-shows.md)
+- [The reference shows have long turns, not short ones](turn-length-in-the-reference-shows.md)
 - [The anchor story as a throughline](anchor-story-device.md)

@@ -5,6 +5,11 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
+Added the backchannel device and the reference-show turn-length finding it rests
+on, mined from the 2026-09-14 session where the reference analysis was done.
+
+## [2026-09-15] Record
+
 Corrected what the episode 209 defect actually is: the overlap between two
 adjacent turns, not the adjacency itself. The structural merge built against the
 earlier reading was removed again.
