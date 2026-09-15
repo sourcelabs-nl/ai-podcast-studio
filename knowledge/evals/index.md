@@ -21,5 +21,7 @@ Negative results are recorded on the same terms as positive ones.
 - [Structural baseline over the 18 most recent episodes](structure-baseline-2026-09.md)
 - [Episode 208 against 209, an observation rather than an experiment](episode-208-vs-209.md)
 - [The judge's anchors match the hand audit of episode 209](judge-calibration-episode-209.md)
+- [The judged baseline over the archive](judged-baseline-2026-09.md)
+- [Repeating a prompt variant needs an explicit cache bypass](evaluation-run-cache-bypass.md)
 
 Open: the [[curiosity-hooks-conflict]] ablation, not yet run.

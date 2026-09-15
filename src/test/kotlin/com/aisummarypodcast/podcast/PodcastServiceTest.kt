@@ -310,6 +310,39 @@ class PodcastServiceTest {
     }
 
     @Test
+    fun `an evaluation run recomposes with the cache bypassed`() {
+        // Without the bypass the repetitions of one prompt variant replay the first script and the
+        // ablation measures nothing.
+        val article = Article(
+            id = 1, sourceId = "s1", title = "Article 1", body = "body",
+            url = "https://example.com/1", contentHash = "h1", relevanceScore = 7
+        )
+        val generating = Episode(
+            id = 192, podcastId = "p1", scriptText = "",
+            status = EpisodeStatus.GENERATING, generatedAt = "2026-08-31T19:00:00Z"
+        )
+        every { episodeService.findLinkedArticlesAndTopics(191) } returns
+            LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"))
+        every { episodeService.createGeneratingEpisode(podcast, window, false) } returns generating
+        coEvery { llmPipeline.recompose(any(), any(), any(), any()) } returns mockk(relaxed = true)
+        coEvery {
+            episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any())
+        } returns generating
+
+        podcastService.regenerateEpisodeAsync(sourceEpisode, podcast, bypassLlmCache = true)
+
+        coVerify(timeout = 5000) {
+            llmPipeline.recompose(
+                listOf(article), podcast,
+                ComposeContext(
+                    topicLabels = listOf("Topic"), episodeDate = episodeDate, bypassLlmCache = true
+                ),
+                any()
+            )
+        }
+    }
+
+    @Test
     fun `regenerate recomposes with the source episode's follow-up annotations`() {
         val article = Article(
             id = 1, sourceId = "s1", title = "Article 1", body = "body",

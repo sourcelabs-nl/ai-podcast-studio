@@ -15,7 +15,9 @@ data class CompositionResult(
     val script: String,
     val usage: TokenUsage,
     val topicOrder: List<String> = emptyList(),
-    val researchCalls: Int = 0
+    val researchCalls: Int = 0,
+    /** Populated only for an evaluation run; see [EvaluationRunProvenance]. */
+    val provenance: EvaluationRunProvenance? = null
 )
 
 @Component
@@ -43,7 +45,9 @@ class BriefingComposer(
     suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing briefing from {} articles for podcast '{}' ({}) (style: {})", articles.size, podcast.name, podcast.id, podcast.style)
         val toolBudget = ToolBudget()
-        val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
+        val chatClient = chatClientFactory.createForCompose(
+            podcast.userId, composeModelDef, podcast, toolBudget, useCache = !context.bypassLlmCache
+        )
         val prompt = buildPrompt(articles, podcast, context)
 
         val (result, elapsed) = measureTimedValue {
@@ -65,7 +69,16 @@ class BriefingComposer(
                 script = stripLeadingMetaCommentary(extraction.script),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
-                researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME)
+                researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME),
+                provenance = EvaluationRunProvenance.of(
+                    context = context,
+                    prompt = prompt,
+                    composeModel = composeModelDef.model,
+                    temperature = resolveTemperature(podcast, appProperties),
+                    variety = varietyPicker.pick(podcast.id, context.episodeDate),
+                    usage = usage,
+                    toolBudget = toolBudget
+                )
             )
         }
 

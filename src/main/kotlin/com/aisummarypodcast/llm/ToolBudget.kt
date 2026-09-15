@@ -35,4 +35,7 @@ class ToolBudget {
     }
 
     fun invocations(toolName: String): Int = counters[toolName]?.get() ?: 0
+
+    /** Every registered tool and how often it fired, for an evaluation run's record. */
+    fun invocationCounts(): Map<String, Int> = counters.mapValues { it.value.get() }
 }

@@ -51,7 +51,9 @@ data class PipelineResult(
     val composeInputTokens: Int = 0,
     val composeOutputTokens: Int = 0,
     val composeCostCents: Int = 0,
-    val composeReportedCostCents: Double? = null
+    val composeReportedCostCents: Double? = null,
+    /** Populated only for an evaluation run; see [EvaluationRunProvenance]. */
+    val provenance: EvaluationRunProvenance? = null
 )
 
 data class PreviewResult(
@@ -85,7 +87,9 @@ data class ComposeStageResult(
     val composeCostSource: LlmCostSource,
     val composeReportedCostCents: Double? = null,
     val researchCalls: Int = 0,
-    val researchCostCents: Int? = null
+    val researchCostCents: Int? = null,
+    /** Populated only for an evaluation run; see [EvaluationRunProvenance]. */
+    val provenance: EvaluationRunProvenance? = null
 )
 
 @Component
@@ -389,7 +393,8 @@ class LlmPipeline(
             composeCostSource = composeCost.source,
             composeReportedCostCents = composeCost.reportedCostCents,
             researchCalls = compositionResult.researchCalls,
-            researchCostCents = researchCostCents
+            researchCostCents = researchCostCents,
+            provenance = compositionResult.provenance
         )
     }
 
@@ -443,7 +448,8 @@ class LlmPipeline(
             composeInputTokens = composeStageResult.usage.inputTokens,
             composeOutputTokens = composeStageResult.usage.outputTokens,
             composeCostCents = composeStageResult.composeCostCents ?: 0,
-            composeReportedCostCents = composeStageResult.composeReportedCostCents
+            composeReportedCostCents = composeStageResult.composeReportedCostCents,
+            provenance = composeStageResult.provenance
         )
     }
 
@@ -512,7 +518,8 @@ class LlmPipeline(
             composeInputTokens = compositionResult.usage.inputTokens,
             composeOutputTokens = compositionResult.usage.outputTokens,
             composeCostCents = costCents ?: 0,
-            composeReportedCostCents = composeCost.reportedCostCents
+            composeReportedCostCents = composeCost.reportedCostCents,
+            provenance = compositionResult.provenance
         )
     }
 

@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.eval.EvaluationRunRecorder
 import com.aisummarypodcast.llm.ArticleEligibilityService
 import com.aisummarypodcast.llm.ComposeStageResult
 import com.aisummarypodcast.llm.DedupStageResult
@@ -43,7 +44,8 @@ class EpisodeService(
     private val episodeSourcesGenerator: EpisodeSourcesGenerator,
     private val articleEligibilityService: ArticleEligibilityService,
     private val eventPublisher: ApplicationEventPublisher,
-    private val audioGenerationService: AudioGenerationService
+    private val audioGenerationService: AudioGenerationService,
+    private val evaluationRunRecorder: EvaluationRunRecorder
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -167,6 +169,8 @@ class EpisodeService(
                 publishApproved = !podcast.requirePublishApproval
             )
         )
+
+        evaluationRunRecorder.record(withScript, result.provenance)
 
         val episode = if (podcast.requireReview) {
             withScript

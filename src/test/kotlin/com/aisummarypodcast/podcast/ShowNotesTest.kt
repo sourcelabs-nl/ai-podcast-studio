@@ -40,7 +40,7 @@ class ShowNotesTest {
         episodeArticleRepository, articleRepository,
         episodeRecapGenerator, modelResolver, postArticleRepository,
         episodeSourcesGenerator, articleEligibilityService, eventPublisher,
-        audioGenerationService
+        audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true)
     )
 
     private val generateAndStoreShowNotes: Method = EpisodeService::class.java

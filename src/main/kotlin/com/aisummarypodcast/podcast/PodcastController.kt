@@ -244,7 +244,8 @@ class PodcastController(
     fun regenerate(
         @PathVariable userId: String,
         @PathVariable podcastId: String,
-        @PathVariable episodeId: Long
+        @PathVariable episodeId: Long,
+        @RequestParam(required = false, defaultValue = "false") bypassLlmCache: Boolean
     ): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
@@ -252,9 +253,9 @@ class PodcastController(
         val episode = episodeService.findById(episodeId) ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        log.info("Regenerate triggered for episode {} of podcast {}", episodeId, podcastId)
+        log.info("Regenerate triggered for episode {} of podcast {} (cache bypass: {})", episodeId, podcastId, bypassLlmCache)
         // Background work (recompose + TTS); return 202 with the new GENERATING episode id.
-        val newEpisode = podcastService.regenerateEpisodeAsync(episode, podcast)
+        val newEpisode = podcastService.regenerateEpisodeAsync(episode, podcast, bypassLlmCache)
         return ResponseEntity.accepted().body(mapOf("message" to "Episode regeneration started", "episodeId" to newEpisode.id))
     }
 

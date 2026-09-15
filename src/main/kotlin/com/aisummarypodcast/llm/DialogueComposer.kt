@@ -28,7 +28,9 @@ class DialogueComposer(
     suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing dialogue from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
         val toolBudget = ToolBudget()
-        val chatClient = chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, toolBudget)
+        val chatClient = chatClientFactory.createForCompose(
+            podcast.userId, composeModelDef, podcast, toolBudget, useCache = !context.bypassLlmCache
+        )
         val prompt = buildPrompt(articles, podcast, context)
 
         val (result, elapsed) = measureTimedValue {
@@ -50,7 +52,16 @@ class DialogueComposer(
                 script = cleanUpComposedScript(extraction.script, resolveSpeakerRoles(podcast)),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
-                researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME)
+                researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME),
+                provenance = EvaluationRunProvenance.of(
+                    context = context,
+                    prompt = prompt,
+                    composeModel = composeModelDef.model,
+                    temperature = resolveTemperature(podcast, appProperties),
+                    variety = varietyPicker.pick(podcast.id, context.episodeDate),
+                    usage = usage,
+                    toolBudget = toolBudget
+                )
             )
         }
 

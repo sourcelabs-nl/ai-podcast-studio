@@ -71,3 +71,43 @@ The mode SHALL NOT change what the judge returns. A score produced under `ENFORC
 #### Scenario: Enforce with a norm acts on the comparison
 - **WHEN** the mode is `ENFORCE`, a norm is configured, and a score falls below it
 - **THEN** the run records the shortfall against the norm as the reason
+
+### Requirement: An evaluation run reaches the model on every repetition
+An evaluation run SHALL compose with the LLM cache neither read nor written. `CachingChatModel` SHALL take an explicit flag for this, `ChatClientFactory` SHALL expose it on both client-construction entry points, and `ComposeContext` SHALL carry it so every compose path can request it.
+
+The cache key is the model plus the `USER` and `SYSTEM` prompt text and ignores temperature, so without the bypass k repetitions of one prompt variant would be a single model call and k-1 replays of its answer. The spread those repetitions exist to measure would then be zero by construction, and a comparison between two variants would be reporting the cache rather than the model.
+
+Such a run SHALL NOT write to the cache either, so an experiment never displaces the answer a production generation would read.
+
+Regeneration SHALL be the entry point, since it recomposes the articles a past episode already selected, and it SHALL be requestable over HTTP.
+
+#### Scenario: Repetitions each reach the model
+- **WHEN** an evaluation run issues the same prompt twice
+- **THEN** the underlying model is called twice and the cache is not consulted
+
+#### Scenario: An experiment does not displace production
+- **WHEN** an evaluation run completes
+- **THEN** nothing is written to the LLM cache
+
+#### Scenario: An ordinary generation still uses the cache
+- **WHEN** a generation does not ask for a bypass
+- **THEN** the cache is read and written as before
+
+### Requirement: An evaluation run records the conditions it ran under
+An evaluation run SHALL persist, against the episode it produced: the hash of the exact compose prompt, the prompt-variety selection, the compose model, the temperature, whether the cache was bypassed, whether a cached completion was nevertheless replayed, and how often each compose tool fired. A row SHALL exist only for a run that asked for a bypass.
+
+The composer is not deterministic, so a difference between two sets of scripts is attributable only when the conditions of every run are known. A substituted model, a changed temperature, a different variety rotation, a replayed answer or a tool that fired in one arm and not the other would each invalidate a comparison without being visible in the scripts.
+
+A failure to record SHALL NOT fail the episode, which is a deliverable in its own right. Runs SHALL be readable over HTTP, per podcast and per episode, so the record is never obtained by querying the database.
+
+#### Scenario: An ordinary generation records nothing
+- **WHEN** an episode is generated without a cache bypass
+- **THEN** no evaluation run is recorded
+
+#### Scenario: A bypass that did not take effect is visible
+- **WHEN** a run asked for a bypass and a cached completion was replayed anyway
+- **THEN** the run is recorded with a cache hit, so it is not counted as an independent sample
+
+#### Scenario: Losing the record does not lose the episode
+- **WHEN** writing the evaluation run fails
+- **THEN** the episode completes and the failure is logged

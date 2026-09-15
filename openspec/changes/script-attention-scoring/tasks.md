@@ -34,17 +34,17 @@
 
 ## 4. Baseline and calibration
 
-- [ ] 4.1 Score the 166 archived scripts and report the distribution per metric
-- [ ] 4.2 Calibrate: check the judge's anchors by hand on a few episodes, and record where it was wrong before any rule is changed on the strength of a number
+- [x] 4.1 Score the 166 archived scripts and report the distribution per metric. 162 carry a script to judge; the distribution is recorded in `knowledge/evals/judged-baseline-2026-09.md`. Humour is one speaker's job in 91 of 162 and 70 defer nothing
+- [x] 4.2 Calibrate: check the judge's anchors by hand on a few episodes, and record where it was wrong before any rule is changed on the strength of a number. Episode 209's anchors match the hand audit on every quantity (`knowledge/evals/judge-calibration-episode-209.md`); no norm is set on the strength of the baseline
 
 ## 5. Repetition safety
 
-- [ ] 5.1 Add an explicit cache bypass for evaluation runs, so k repetitions produce k model calls rather than one call and k-1 cache hits
-- [ ] 5.2 Record per run: prompt hash, variety selection, model, temperature, cache-hit flag, compose tools fired, resulting episode
-- [ ] 5.3 A test proving two identical evaluation runs reach the model twice
+- [x] 5.1 Add an explicit cache bypass for evaluation runs, so k repetitions produce k model calls rather than one call and k-1 cache hits. `CachingChatModel.cacheEnabled`, threaded through `ChatClientFactory` and `ComposeContext`, reaching HTTP as `regenerate?bypassLlmCache=true`
+- [x] 5.2 Record per run: prompt hash, variety selection, model, temperature, cache-hit flag, compose tools fired, resulting episode. `V69__add_evaluation_runs.sql`, `EvaluationRunProvenance` captured in the composers and written by `EvaluationRunRecorder` once the episode exists
+- [x] 5.3 A test proving two identical evaluation runs reach the model twice
 
 ## 6. Quality gate
 
 - [x] 6.1 `mvn test` green
-- [ ] 6.2 `/code-review --all` clean, repeating until it is
-- [ ] 6.3 Restart the application
+- [x] 6.2 `/code-review --all` clean, repeating until it is. Two warnings acted on: an unreachable cache-hit warning removed (the bypass disables the read, so a replay cannot occur) and the unbounded evaluation-run read capped in the query
+- [x] 6.3 Restart the application

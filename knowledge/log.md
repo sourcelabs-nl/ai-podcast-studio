@@ -5,6 +5,13 @@ activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-15] Record
 
+Judged the whole archive and recorded the baseline. Humour is one speaker's job
+in 91 of 162 episodes and 70 defer nothing, so the two rules written against
+episode 208 now have numbers to move. Recorded alongside it why repeating a
+prompt variant needs an explicit cache bypass.
+
+## [2026-09-15] Record
+
 Recorded what a Narro feed carries after reading one live: no conversation id
 exists, the reply header names the account rather than the tweet, and 28 of 29
 replies in a 50-item sample are self-threads. That distribution is what the

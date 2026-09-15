@@ -16,10 +16,15 @@ import java.time.LocalDate
  * the podcast's timezone (see `EpisodeWindowResolver.episodeDateOf`). It decides the date the script
  * announces, whether the end-of-week humor beat applies, and the prompt-variety rotation, so a
  * re-run or a regeneration of a past day must pass that day rather than rely on the default.
+ *
+ * [bypassLlmCache] is set by an evaluation run comparing repetitions of one prompt variant. The
+ * LLM cache keys on model and prompt text and ignores temperature, so without it the second and
+ * later repetitions replay the first one's script and the comparison measures nothing.
  */
 data class ComposeContext(
     val ttsScriptGuidelines: String = "",
     val followUpAnnotations: Map<Long, String> = emptyMap(),
     val topicLabels: List<String> = emptyList(),
-    val episodeDate: LocalDate = LocalDate.now()
+    val episodeDate: LocalDate = LocalDate.now(),
+    val bypassLlmCache: Boolean = false
 )

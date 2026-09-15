@@ -23,8 +23,12 @@ class ChatClientFactory(
     private val appProperties: AppProperties
 ) {
 
-    fun createForModel(userId: String, resolvedModel: ResolvedModel): ChatClient {
-        return ChatClient.builder(buildCachingModel(userId, resolvedModel)).build()
+    /**
+     * [useCache] is false for an evaluation run, so repeated identical prompts each reach the
+     * model instead of replaying one cached answer. See [CachingChatModel].
+     */
+    fun createForModel(userId: String, resolvedModel: ResolvedModel, useCache: Boolean = true): ChatClient {
+        return ChatClient.builder(buildCachingModel(userId, resolvedModel, useCache)).build()
     }
 
     /**
@@ -39,10 +43,11 @@ class ChatClientFactory(
         userId: String,
         resolvedModel: ResolvedModel,
         podcast: Podcast,
-        toolBudget: ToolBudget
+        toolBudget: ToolBudget,
+        useCache: Boolean = true
     ): ChatClient {
         val tools = buildComposeTools(userId, podcast, toolBudget)
-        return ChatClient.builder(buildCachingModel(userId, resolvedModel))
+        return ChatClient.builder(buildCachingModel(userId, resolvedModel, useCache))
             .defaultTools(*tools.toTypedArray())
             .build()
     }
@@ -90,7 +95,11 @@ class ChatClientFactory(
         }
     }
 
-    private fun buildCachingModel(userId: String, resolvedModel: ResolvedModel): CachingChatModel {
+    private fun buildCachingModel(
+        userId: String,
+        resolvedModel: ResolvedModel,
+        useCache: Boolean
+    ): CachingChatModel {
         val config = providerConfigService.resolveConfig(userId, ApiKeyCategory.LLM, resolvedModel.provider)
             ?: throw IllegalStateException(
                 "No provider config available for provider '${resolvedModel.provider}'. " +
@@ -101,6 +110,6 @@ class ChatClientFactory(
         val chatModel = OpenAiChatModel.builder()
             .openAiClient(openAiClient)
             .build()
-        return CachingChatModel(chatModel, llmCacheRepository)
+        return CachingChatModel(chatModel, llmCacheRepository, useCache)
     }
 }

@@ -264,6 +264,25 @@ Scoring is reached over HTTP, never by querying the database:
 `POST /users/{userId}/podcasts/{podcastId}/scores` scores a range of episodes (skipping any already
 scored at the current version), and `GET .../episodes/{episodeId}/scores` reads them back.
 
+### Comparing prompt variants
+
+A judged score is only useful if two prompt variants can actually be compared, and the composer is
+not deterministic, so a variant has to be sampled several times rather than run once. Repeating a
+regeneration does not do that on its own: the LLM cache keys on the model and the prompt text and
+ignores temperature, so the second and later repetitions would replay the first one's script and
+report a spread of zero whatever the model does.
+
+`POST .../episodes/{episodeId}/regenerate?bypassLlmCache=true` is therefore an evaluation run. It
+recomposes the same articles with the cache neither read nor written, so each repetition is an
+independent sample and nothing an experiment produces displaces what production reads.
+
+Such a run also records what it was composed under, because a difference between two sets of scripts
+is only attributable when the conditions of each run are known: the exact prompt's hash, the variety
+rotation, the compose model and temperature, whether the bypass actually took effect, which tools
+fired, and the episode it produced. Read them at `GET .../evaluation-runs`, or
+`GET .../episodes/{episodeId}/evaluation-runs` for one episode. An ordinary generation records
+nothing here.
+
 ## Knowledge Bundle
 
 `knowledge/` is what we have measured about the models and APIs this project depends on, why the

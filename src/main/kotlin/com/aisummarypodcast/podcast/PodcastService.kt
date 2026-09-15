@@ -428,8 +428,17 @@ class PodcastService(
      * Like [generateBriefingAsync], this decouples the recompose + TTS work from the HTTP request so
      * a request timeout cannot cancel it. `updateLastGenerated = false`: regeneration must not bump
      * the podcast's lastGeneratedAt or the scheduler would skip the next scheduled run.
+     *
+     * [bypassLlmCache] makes this an evaluation run. Regeneration recomposes the same articles, so
+     * repeating it is how one prompt variant is sampled k times; without the bypass the second and
+     * later repetitions replay the first one's script and the sample has no spread. Such a run also
+     * records the conditions it ran under (see `EvaluationRunRecorder`).
      */
-    fun regenerateEpisodeAsync(sourceEpisode: Episode, podcast: Podcast): Episode {
+    fun regenerateEpisodeAsync(
+        sourceEpisode: Episode,
+        podcast: Podcast,
+        bypassLlmCache: Boolean = false
+    ): Episode {
         // Check before creating anything. Regeneration recomposes from the source episode's linked
         // articles, so an episode that failed before article selection can never be regenerated —
         // creating the episode first only manufactured a second FAILED episode per attempt.
@@ -446,7 +455,9 @@ class PodcastService(
         val generatingEpisode = episodeService.createGeneratingEpisode(podcast, window, updateLastGenerated = false)
         pipelineScope.launch {
             try {
-                runRegeneration(linked, podcast, generatingEpisode, sourceEpisode.generatedAt, window)
+                runRegeneration(
+                    linked, podcast, generatingEpisode, sourceEpisode.generatedAt, window, bypassLlmCache
+                )
             } catch (e: Exception) {
                 log.error("[Pipeline] Regeneration failed for episode {} (podcast '{}' ({})): {}", generatingEpisode.id, podcast.name, podcast.id, e.message, e)
                 episodeService.failEpisode(podcast, e.message ?: "Unknown error", generatingEpisode)
@@ -460,14 +471,16 @@ class PodcastService(
         podcast: Podcast,
         generatingEpisode: Episode,
         sourceGeneratedAt: String,
-        window: EpisodeWindow
+        window: EpisodeWindow,
+        bypassLlmCache: Boolean = false
     ): Episode {
         val (articles, topicLabels, articleTopics, followUpAnnotations) = linked
 
         val context = ComposeContext(
             followUpAnnotations = followUpAnnotations,
             topicLabels = topicLabels,
-            episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+            episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
+            bypassLlmCache = bypassLlmCache
         )
         val result = llmPipeline.recompose(articles, podcast, context) { stage, detail ->
             eventPublisher.publishEvent(

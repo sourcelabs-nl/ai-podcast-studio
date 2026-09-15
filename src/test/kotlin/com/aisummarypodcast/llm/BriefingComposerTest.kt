@@ -8,6 +8,7 @@ import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -293,6 +294,37 @@ class BriefingComposerTest {
         assertEquals("Welcome to the briefing.", result.script)
         assertEquals(1200, result.usage.inputTokens)
         assertEquals(400, result.usage.outputTokens)
+    }
+
+    @Test
+    fun `an evaluation run asks for a client that bypasses the cache`() = runTest {
+        val composeModelDef = ResolvedModel(provider = "openrouter", model = "test-model", cost = null, stage = PipelineStage.COMPOSE)
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test Pod", topic = "tech")
+        val articles = listOf(
+            Article(
+                id = 1, sourceId = "s1", title = "AI News", body = "body",
+                url = "https://example.com/1", contentHash = "h1", summary = "AI summary."
+            )
+        )
+        val metadata = ChatResponseMetadata.builder().usage(DefaultUsage(10, 10)).build()
+        val callResponseSpec = mockk<ChatClient.CallResponseSpec>()
+        every { callResponseSpec.chatResponse() } returns
+            ChatResponse(listOf(Generation(AssistantMessage("Welcome."))), metadata)
+        val chatClientRequestSpec = mockk<ChatClient.ChatClientRequestSpec>()
+        every { chatClientRequestSpec.user(any<String>()) } returns chatClientRequestSpec
+        every { chatClientRequestSpec.options(any()) } returns chatClientRequestSpec
+        every { chatClientRequestSpec.call() } returns callResponseSpec
+        val chatClient = mockk<ChatClient>()
+        every { chatClient.prompt() } returns chatClientRequestSpec
+        every {
+            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false)
+        } returns chatClient
+
+        composer.compose(articles, podcast, composeModelDef, ComposeContext(bypassLlmCache = true))
+
+        verify {
+            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false)
+        }
     }
 
     @Test

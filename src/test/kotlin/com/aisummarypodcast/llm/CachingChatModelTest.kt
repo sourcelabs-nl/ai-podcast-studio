@@ -35,6 +35,36 @@ class CachingChatModelTest {
     private val cachingChatModel = CachingChatModel(delegate, llmCacheRepository)
 
     @Test
+    fun `an evaluation run reaches the model on every repetition`() {
+        // The key ignores temperature, so a cached run of k repetitions would be one call and k-1
+        // replays of the same script: a spread of zero, whatever the model actually does.
+        val bypassing = CachingChatModel(delegate, llmCacheRepository, cacheEnabled = false)
+        val prompt = Prompt("Write the script", OpenAiChatOptions.builder().model("test-model").build())
+        val metadata = ChatResponseMetadata.builder().usage(DefaultUsage(200, 50)).build()
+        every { delegate.call(prompt) } returns
+            ChatResponse(listOf(Generation(AssistantMessage("A script"))), metadata)
+
+        bypassing.call(prompt)
+        bypassing.call(prompt)
+
+        verify(exactly = 2) { delegate.call(prompt) }
+        verify(exactly = 0) { llmCacheRepository.findByPromptHashAndModel(any(), any()) }
+    }
+
+    @Test
+    fun `an evaluation run does not displace what production reads`() {
+        val bypassing = CachingChatModel(delegate, llmCacheRepository, cacheEnabled = false)
+        val prompt = Prompt("Write the script", OpenAiChatOptions.builder().model("test-model").build())
+        val metadata = ChatResponseMetadata.builder().usage(DefaultUsage(200, 50)).build()
+        every { delegate.call(prompt) } returns
+            ChatResponse(listOf(Generation(AssistantMessage("A script"))), metadata)
+
+        bypassing.call(prompt)
+
+        verify(exactly = 0) { llmCacheRepository.save(any<LlmCache>()) }
+    }
+
+    @Test
     fun `cache miss delegates to wrapped model and stores result with tokens`() {
         val prompt = Prompt("Summarize this article", OpenAiChatOptions.builder().model("test-model").build())
         val metadata = ChatResponseMetadata.builder()

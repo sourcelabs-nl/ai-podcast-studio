@@ -70,7 +70,7 @@ class EpisodeServiceTest {
         episodeRepository, podcastRepository, ttsPipeline,
         episodeArticleRepository, articleRepository, episodeRecapGenerator, modelResolver,
         postArticleRepository, episodeSourcesGenerator, articleEligibilityService, eventPublisher,
-        audioGenerationService
+        audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true)
     )
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")

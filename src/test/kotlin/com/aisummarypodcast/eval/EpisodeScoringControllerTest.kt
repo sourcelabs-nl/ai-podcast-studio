@@ -7,6 +7,7 @@ import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeScore
 import com.aisummarypodcast.store.EpisodeStatus
+import com.aisummarypodcast.store.EvaluationRun
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.User
 import com.aisummarypodcast.user.UserService
@@ -44,6 +45,9 @@ class EpisodeScoringControllerTest {
     private lateinit var episodeScoringService: EpisodeScoringService
 
     @MockkBean(relaxed = true)
+    private lateinit var evaluationRunRecorder: EvaluationRunRecorder
+
+    @MockkBean(relaxed = true)
     private lateinit var appProperties: AppProperties
 
     private val userId = "user-1"
@@ -66,6 +70,12 @@ class EpisodeScoringControllerTest {
         unpaidPromises = 0, medianDeferralTurns = 29, humorBeats = 6,
         humorSpeakerBalance = 0.5, humorReactionRatio = 1.0, teaserTopics = 3,
         anchorsJson = "{}", inputTokens = 100, outputTokens = 20, costCents = 1
+    )
+
+    private val run = EvaluationRun(
+        id = 1L, episodeId = 7L, podcastId = podcastId, ranAt = "2026-09-15T10:00:00Z",
+        promptHash = "hash1", varietySelection = "openingStyle=SCENE_SET", composeModel = "test-model",
+        temperature = 0.8, cacheBypassed = true, cacheHit = false, toolsFiredJson = "{}"
     )
 
     /**
@@ -115,6 +125,27 @@ class EpisodeScoringControllerTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.length()").value(1))
             .andExpect(jsonPath("$[0].judgeModel").value("judge-model"))
+    }
+
+    @Test
+    fun `reads the evaluation runs of a podcast back`() {
+        owns()
+        every { evaluationRunRecorder.runsForPodcast(podcastId) } returns listOf(run)
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/evaluation-runs"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].promptHash").value("hash1"))
+            .andExpect(jsonPath("$[0].cacheBypassed").value(true))
+    }
+
+    @Test
+    fun `evaluation runs of a podcast owned by another user are not found`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast.copy(userId = "someone-else")
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/evaluation-runs"))
+            .andExpect(status().isNotFound)
     }
 
     @Test

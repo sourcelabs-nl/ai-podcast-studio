@@ -24,10 +24,16 @@ import java.time.Instant
  * only fires on the initial call (no `ASSISTANT`/`TOOL` messages yet); the cached value is
  * the first response in the loop that contains no pending tool calls (i.e. the final
  * assistant turn).
+ *
+ * [cacheEnabled] is false for an evaluation run, which neither reads nor writes the cache. The key
+ * ignores temperature, so without a bypass k repetitions of one prompt variant would be a single
+ * model call and k-1 replays of its answer, and the spread they were run to measure would be zero
+ * by construction. Not writing either keeps an evaluation from displacing what production reads.
  */
 class CachingChatModel(
     private val delegate: ChatModel,
-    private val llmCacheRepository: LlmCacheRepository
+    private val llmCacheRepository: LlmCacheRepository,
+    private val cacheEnabled: Boolean = true
 ) : ChatModel {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -35,7 +41,7 @@ class CachingChatModel(
     override fun call(prompt: Prompt): ChatResponse {
         val model = prompt.options?.model ?: "default"
         val promptHash = sha256("$model:${userPromptText(prompt)}")
-        val initialCall = isInitialCall(prompt)
+        val initialCall = isInitialCall(prompt) && cacheEnabled
 
         if (initialCall) {
             val cached = llmCacheRepository.findByPromptHashAndModel(promptHash, model)
@@ -47,7 +53,7 @@ class CachingChatModel(
 
         val response = delegate.call(prompt)
 
-        if (!hasPendingToolCalls(response)) {
+        if (cacheEnabled && !hasPendingToolCalls(response)) {
             val responseText = response.result?.output?.text
             // Never cache a blank/empty completion. A model that degenerates (e.g. burns its whole
             // maxTokens budget producing nothing parseable) returns an empty string, not null —

@@ -3,6 +3,7 @@ package com.aisummarypodcast.eval
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.EpisodeScore
+import com.aisummarypodcast.store.EvaluationRun
 import com.aisummarypodcast.user.UserService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -22,7 +23,8 @@ class EpisodeScoringController(
     private val userService: UserService,
     private val podcastService: PodcastService,
     private val episodeService: EpisodeService,
-    private val episodeScoringService: EpisodeScoringService
+    private val episodeScoringService: EpisodeScoringService,
+    private val evaluationRunRecorder: EvaluationRunRecorder
 ) {
 
     private companion object {
@@ -61,6 +63,25 @@ class EpisodeScoringController(
     ): ResponseEntity<List<EpisodeScore>> {
         ownedEpisode(userId, podcastId, episodeId) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(episodeScoringService.existingScores(episodeId))
+    }
+
+    @GetMapping("/evaluation-runs")
+    fun readRuns(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String
+    ): ResponseEntity<List<EvaluationRun>> {
+        if (!ownsPodcast(userId, podcastId)) return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(evaluationRunRecorder.runsForPodcast(podcastId))
+    }
+
+    @GetMapping("/episodes/{episodeId}/evaluation-runs")
+    fun readRunsForEpisode(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @PathVariable episodeId: Long
+    ): ResponseEntity<List<EvaluationRun>> {
+        ownedEpisode(userId, podcastId, episodeId) ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(evaluationRunRecorder.runsForEpisode(episodeId))
     }
 
     private fun ownedEpisode(userId: String, podcastId: String, episodeId: Long) =
