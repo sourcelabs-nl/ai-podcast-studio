@@ -221,3 +221,119 @@ export interface PodcastPublicationRow {
   publication: EpisodePublication;
   episode: PublicationEpisodeRef;
 }
+
+/**
+ * A judged attention score. Mirrors backend `EpisodeScore`.
+ *
+ * `scorerVersion` and `judgeModel` are part of the row's identity: rows produced by different
+ * scorers describe different quantities and are reported separately rather than averaged.
+ */
+export interface EpisodeScore {
+  id: number;
+  episodeId: number;
+  scorerVersion: number;
+  judgeModel: string;
+  scoredAt: string;
+  overall: number;
+  cliffhangerScore: number;
+  humorScore: number;
+  teaserScore: number;
+  promises: number;
+  deferredPromises: number;
+  unpaidPromises: number;
+  medianDeferralTurns: number | null;
+  humorBeats: number;
+  humorSpeakerBalance: number;
+  humorReactionRatio: number;
+  teaserTopics: number;
+  anchorsJson: string;
+  inputTokens: number;
+  outputTokens: number;
+  costCents: number | null;
+}
+
+/**
+ * The judge's raw answer, parsed out of `EpisodeScore.anchorsJson`. Mirrors backend
+ * `ScriptJudgeAnchors`. Turn numbers are 0-based indices into the script's turn sequence.
+ */
+export interface ScriptJudgeAnchors {
+  promises: PromiseAnchor[];
+  humorBeats: HumorAnchor[];
+  teaserTopics: string[];
+}
+
+/** A null `payoffTurn` is a finding, not a gap: the promise was never paid off. */
+export interface PromiseAnchor {
+  promiseTurn: number;
+  payoffTurn: number | null;
+}
+
+export interface HumorAnchor {
+  turn: number;
+  role: string;
+  reactsToPrevious: boolean;
+}
+
+export interface RoleMetrics {
+  role: string;
+  turns: number;
+  words: number;
+  wordShare: number;
+}
+
+/** `turnsOverSentenceCap` counts turns longer than the compose prompt allows. */
+export interface TurnLengthMetrics {
+  medianWords: number;
+  maxWords: number;
+  turnsOverSentenceCap: number;
+}
+
+/** A turn shaped like a token of listening. A shape match, not a defect. */
+export interface BackchannelCandidate {
+  turnIndex: number;
+  role: string;
+  words: number;
+  text: string;
+}
+
+export interface SameSpeakerRun {
+  role: string;
+  turnIndexes: number[];
+}
+
+/** Mirrors backend `ScriptMetricsResult`. */
+export interface ScriptMetrics {
+  turnCount: number;
+  totalWords: number;
+  roles: RoleMetrics[];
+  turnLengthByRole: Record<string, TurnLengthMetrics>;
+  /** Laugh tags per role: a proxy for humor distribution, never a humor count. */
+  laughTagsByRole: Record<string, number>;
+  backchannelCandidates: BackchannelCandidate[];
+  sameSpeakerRuns: SameSpeakerRun[];
+}
+
+export interface EpisodeMetricsResponse {
+  episodeId: number;
+  generatedAt: string;
+  durationSeconds: number | null;
+  metrics: ScriptMetrics;
+}
+
+/**
+ * The conditions one evaluation run was composed under. Mirrors backend `EvaluationRun`.
+ * Written only for a run that bypassed the LLM cache, so most episodes have none.
+ */
+export interface EvaluationRun {
+  id: number;
+  episodeId: number;
+  podcastId: string;
+  ranAt: string;
+  promptHash: string;
+  varietySelection: string;
+  composeModel: string;
+  temperature: number;
+  cacheBypassed: boolean;
+  cacheHit: boolean;
+  toolsFiredJson: string;
+}

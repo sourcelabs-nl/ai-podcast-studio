@@ -229,7 +229,7 @@ rather than their difficulty.
 per speaker and the share each one takes, turn length against the four-sentence cap, backchannel
 shaped turns, runs of consecutive turns by one speaker. They are free, stable forever, and always
 agree with the script they describe, so they are recomputed on every read and never stored. Read
-them at `GET /users/{userId}/podcasts/{podcastId}/metrics`.
+them at `GET /users/{userId}/podcasts/{podcastId}/metrics` for a podcast, or `.../episodes/{episodeId}/metrics` for one episode.
 
 **The judge** covers what counting cannot. Whether a promise is genuinely deferred depends on what
 the turns in between are about, and whether a line is a joke is a judgement. So `EVAL` asks a model
@@ -243,6 +243,9 @@ that turn and looking; a count or a 1-10 rating cannot be checked, could not be 
 particular rule, and would drift between model versions with nothing to notice the drift. Scores are
 versioned and stored with the judge model that produced them, and a comparison refuses to mix rows
 from different scorer versions rather than averaging quantities that are not the same quantity.
+
+Both layers are read per episode from the dashboard's **Evaluation** tab, where every anchor the
+judge returned is a link to the turn it names.
 
 ### Three modes
 
@@ -405,7 +408,7 @@ The dashboard provides:
 - **Podcast overview**, browse all podcasts with style badges, topics, and quick-access settings gear icon
 - **Podcast settings**, edit all podcast configuration (general, LLM, TTS, content, publishing) via a tabbed settings page with provider/model dropdowns for LLM and TTS selection. The podcast detail page also has a danger zone for deleting the podcast, which cascades to its episodes, sources, and audio and requires typing the podcast name to confirm
 - **Episode management**, view episodes with server-side pagination (10/20/50/100 per page, default 20) and multi-select status filtering; approve/discard/regenerate pending reviews; regenerate audio on generated episodes; retry failed episodes from the stage that failed; play the MP3 inline from the table. Click any episode row to open the detail page. Shows the generation schedule in human-readable form, in the podcast's timezone
-- **Episode detail page**, dedicated page per episode with tabs for Script (chat-bubble rendering), Articles (grouped by source with relevance scores and collapsible sections; an article aggregated from several posts shows its thread size and expands to the individual posts), Publications, and **Costs** (per-stage breakdown: scoring, dedup, compose, recap, TTS, research, plus total). Shows episode metadata, recap, inline audio player, and contextual action buttons (Approve, Discard, Publish, Regenerate, Regenerate Audio, Retry, Regenerate Recap)
+- **Episode detail page**, dedicated page per episode with tabs for Script (chat-bubble rendering, each turn labelled with its index), Articles (grouped by source with relevance scores and collapsible sections; an article aggregated from several posts shows its thread size and expands to the individual posts), Publications, **Costs** (per-stage breakdown: scoring, dedup, compose, recap, TTS, research, plus total), and **Evaluation** (the episode's attention score and its components, the script's shape per speaker, the judge's anchors and the metrics' outliers, and the conditions the script was composed under). Every turn index in the Evaluation tab jumps to that turn in the Script tab and highlights it, so a figure can be read against the line that produced it. Shows episode metadata, recap, inline audio player, and contextual action buttons (Approve, Discard, Publish, Regenerate, Regenerate Audio, Retry, Regenerate Recap)
 - **Upcoming episode preview**, see collected articles for the next episode (with the same thread expansion as the episode Articles tab), preview the script via Server-Sent Events with live progress through every pipeline stage (aggregating, scoring, deduplicating, composing), and trigger episode generation on demand. Shows next scheduled generation time
 - **Sources tab**, manage a podcast's sources in a table that opens on the ones that actually run. The Enabled column header filters on All / Enabled / Disabled, applied by the backend via an `enabled` query parameter, which matters because retired sources are disabled rather than deleted and accumulate
 - **Source export**, download all configured sources as a markdown file from the Sources tab

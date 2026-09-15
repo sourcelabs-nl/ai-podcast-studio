@@ -18,6 +18,13 @@ object DialogueScriptParser {
      * `<expert>...</interviewer>`, or a missing closing tag before the next opening tag): a turn's
      * role is taken from its opening tag, and the turn ends at the next tag token regardless of what
      * that token says. This prevents silently dropping spoken turns when the closing tag is wrong.
+     *
+     * The position of a turn in the returned list is its public identity. `ScriptJudge` numbers
+     * turns for the judge with `parse(script).mapIndexed`, `ScriptMetrics` numbers
+     * `BackchannelCandidate.turnIndex` the same way, and the dashboard's evaluation tab jumps to a
+     * turn by that number using its own mirrored parser in `frontend/src/components/script-viewer.tsx`.
+     * A change here that shifts indices sends a reviewer to the wrong turn, silently. Change one
+     * parser only with the other in hand.
      */
     fun parse(script: String): List<DialogueTurn> {
         if (script.isBlank()) return emptyList()

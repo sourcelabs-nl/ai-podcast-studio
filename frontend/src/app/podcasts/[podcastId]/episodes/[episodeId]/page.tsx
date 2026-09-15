@@ -20,15 +20,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ScriptContent } from "@/components/script-viewer";
+import { ScriptContent, countScriptTurns } from "@/components/script-viewer";
 import { ArticlesTab } from "@/components/articles-tab";
 import { CostsTab } from "@/components/costs-tab";
+import { EvaluationTab } from "@/components/evaluation-tab";
 import { PublicationsTab } from "@/components/publications-tab";
 import { PublishWizard } from "@/components/publish-wizard";
 import { useTabParam } from "@/hooks/use-tab-param";
 
 const WORDS_PER_MINUTE = 150;
-const TABS = ["script", "articles", "publications", "costs"] as const;
+const TABS = ["script", "articles", "publications", "costs", "evaluation"] as const;
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   GENERATED: "outline",
@@ -61,6 +62,9 @@ export default function EpisodeDetailPage() {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [sameDayPublished, setSameDayPublished] = useState(false);
   const [currentTab, setTab] = useTabParam("script", TABS);
+  // The turn the Evaluation tab asked to look at. Page state rather than a second URL parameter:
+  // useTabParam writes the URL with router.replace, so a second synced parameter would race it.
+  const [focusedTurn, setFocusedTurn] = useState<number | null>(null);
 
   const fetchPublished = useCallback((userId: string, podcastId: string, episodeId: string) => {
     fetch(`/api/users/${userId}/podcasts/${podcastId}/episodes/${episodeId}/publications`)
@@ -152,6 +156,18 @@ export default function EpisodeDetailPage() {
   const handleArticleCountLoaded = useCallback((count: number) => {
     setArticleCount(count);
   }, []);
+
+  // The evaluation endpoints address turns by index; a jump is only offered for an index this
+  // script actually renders, so drift between the two parsers cannot send the reader to a wrong turn.
+  const turnCount = useMemo(
+    () => (episode && podcast ? countScriptTurns(episode.scriptText, podcast.style) : 0),
+    [episode, podcast]
+  );
+
+  const handleJumpToTurn = useCallback((turn: number) => {
+    setFocusedTurn(turn);
+    setTab("script");
+  }, [setTab]);
 
   const scriptStats = useMemo(() => {
     if (!episode) return { wordCount: 0, estimatedMinutes: 0 };
@@ -408,7 +424,13 @@ export default function EpisodeDetailPage() {
         );
       })()}
 
-      <Tabs value={currentTab} onValueChange={(v) => setTab(v as typeof TABS[number])}>
+      <Tabs
+        value={currentTab}
+        onValueChange={(v) => {
+          setFocusedTurn(null);
+          setTab(v as typeof TABS[number]);
+        }}
+      >
         <TabsList>
           <TabsTrigger value="script">Script</TabsTrigger>
           <TabsTrigger value="articles">
@@ -416,6 +438,7 @@ export default function EpisodeDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="publications">Publications</TabsTrigger>
           <TabsTrigger value="costs">Costs</TabsTrigger>
+          <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
         </TabsList>
 
         <TabsContent value="script">
@@ -424,6 +447,8 @@ export default function EpisodeDetailPage() {
               scriptText={episode.scriptText}
               style={podcast.style}
               speakerNames={podcast.speakerNames}
+              focusedTurn={focusedTurn}
+              showTurnNumbers
             />
           </div>
         </TabsContent>
@@ -455,6 +480,18 @@ export default function EpisodeDetailPage() {
         <TabsContent value="costs">
           <div className="mt-4">
             <CostsTab costs={episode.costs} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="evaluation">
+          <div className="mt-4">
+            <EvaluationTab
+              userId={selectedUser.id}
+              podcastId={params.podcastId}
+              episodeId={episode.id}
+              turnCount={turnCount}
+              onJumpToTurn={handleJumpToTurn}
+            />
           </div>
         </TabsContent>
       </Tabs>
