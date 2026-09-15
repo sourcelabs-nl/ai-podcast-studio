@@ -2,7 +2,7 @@
 
 Self-hosted pipeline that monitors content sources (websites, RSS feeds, X accounts), filters and summarizes relevant content using an LLM, converts the summaries to audio via TTS, and delivers them as a podcast feed consumable by any podcast app.
 
-Hear it in action: [The Agentic AI Podcast on Spotify](https://open.spotify.com/show/3sNWski1Zw9mGauajOdToS?si=ebd2ba77b3dc4f38), a daily briefing produced entirely by this project.
+Hear it in action: [The Daily Agentic AI Podcast on Spotify](https://open.spotify.com/show/3sNWski1Zw9mGauajOdToS?si=ebd2ba77b3dc4f38), a daily briefing produced entirely by this project.
 
 ## How It Works
 
@@ -10,59 +10,105 @@ Hear it in action: [The Agentic AI Podcast on Spotify](https://open.spotify.com/
 
 You point the app at a handful of websites, RSS feeds, and X accounts that you care about. In the background it keeps an eye on them and collects new posts as they appear. On a schedule you choose (say, every morning at 6), it reads through everything new, decides what's actually worth talking about, writes a podcast script in your preferred style, optionally pauses for you to review/edit it, records it as audio, and publishes the episode so any podcast app can subscribe. You can listen to the finished episode straight from the dashboard.
 
-```mermaid
-flowchart LR
-    H1(("You")):::human -->|configure sources,<br/>topic, schedule, style| A["Your sources<br/>(websites, RSS, X)"]
-    A --> B[("Collected<br/>posts")]
-    B --> C["Pick what's<br/>worth covering"]
-    C --> D["Write the<br/>script"]
-    D --> R{"Require<br/>review?"}
-    R -->|"yes"| H2(("You")):::human
-    H2 -->|"edit / approve / discard"| E["Record the<br/>audio"]
-    R -->|"no"| E
-    E --> F["Publish<br/>(RSS, FTP, SoundCloud)"]
-    F --> H3(("You")):::human
-    H3 -->|"listen in the dashboard<br/>or any podcast app"| F
+![How an episode gets made](docs/images/readme-01-the-big-picture.svg)
 
-    classDef human fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e
+<details><summary>Diagram source</summary>
+
+```mermaid
+graph LR
+    YOU["You: pick sources, topic,<br/>schedule and style"]:::consumer --> APP
+    SRC["Websites, RSS feeds,<br/>X accounts"]:::external --> APP
+    APP["AI Podcast Studio"]:::platform --> EP[("Episode: audio, recap,<br/>show notes")]:::datastore
+    EP --> OUT["RSS feed, FTP,<br/>SoundCloud"]:::external
+    OUT --> LISTEN["Any podcast app"]:::consumer
 ```
 
+</details>
+
 If anything goes wrong partway through, the app remembers exactly where it got stuck and you can resume from that point with one click, so it doesn't waste money redoing the work that already succeeded.
+
+### Pipeline stages
+
+Every LLM call in the app belongs to one of four stages. A stage is the unit of model choice, cost
+and timeout: each one resolves its own model per podcast (falling back to `app.llm.defaults`), gets
+its own request timeout, and reports its own token usage and cost. The first three produce an
+episode. The fourth reads one back.
+
+![The four pipeline stages](docs/images/readme-02-pipeline-stages.svg)
+
+<details><summary>Diagram source</summary>
+
+```mermaid
+graph LR
+    ART[("Collected articles")]:::datastore --> FILTER
+    FILTER["FILTER<br/>score and summarise<br/>each article"]:::service --> DEDUP
+    DEDUP["DEDUP<br/>cluster today against<br/>what already aired"]:::service --> COMPOSE
+    COMPOSE["COMPOSE<br/>write the script"]:::service --> SCRIPT
+    SCRIPT[("Episode script")]:::datastore --> TTS["Audio and publishing"]:::service
+    SCRIPT --> EVAL
+    EVAL["EVAL<br/>judge the finished script"]:::platform --> SCORES[("Attention scores")]:::datastore
+    KNOW["Prompt rules<br/>(knowledge/)"]:::artefact -->|shape the prompt| COMPOSE
+    SCORES -->|read by hand| KNOW
+```
+
+</details>
+
+`FILTER`, `DEDUP` and `COMPOSE` run in order and are what an episode is billed for. `EVAL` is not
+part of producing an episode: it runs afterwards, over a script that already exists, so its cost is
+recorded on the score rather than on the episode. That separation is deliberate, because an episode
+is produced once and may be judged many times.
+
+The return path along the bottom is the point of the whole arrangement, and it is deliberately not
+automatic. What the judge measures is read by a person and fed back into the prompt rules, so why a
+rule is worded the way it is gets written down where whoever changes it next will find it.
+
+Watching your sources, recording the audio and publishing the episode are not LLM stages and cost
+nothing per token. The five steps below walk through the whole run in order, stages and all.
 
 ### Step 1: Watching your sources
 
 The app polls your sources continuously in the background, on whatever interval you set per source. Different sites are checked in parallel; sources that share the same host are checked one at a time with a small delay so you don't get rate-limited (this matters for community-run services like Nitter). If a source keeps failing, the app slows down its polling automatically and eventually disables it if the failures look permanent (a 404 or a dead DNS, for example). A client error counts as permanent unless its status asks to be retried (a 408 or a 429), so the dashboard flags a source that is never coming back straight away rather than after hours of backoff. New posts are deduplicated across your sources so an X account and its Nitter mirror don't both add the same content.
 
+![Watching your sources](docs/images/readme-03-step-1-watching-your-sources.svg)
+
+<details><summary>Diagram source</summary>
+
 ```mermaid
-flowchart LR
-    S1["RSS feed"] --> P["Background poller"]
-    S2["Website"] --> P
-    S3["X account"] --> P
-    S4["Nitter mirror"] --> P
-    P --> H["Drop duplicates<br/>(same post from<br/>multiple sources)"]
-    H --> POSTS[("Collected posts")]
-    P -. "if a source keeps failing" .-> BO["Slow down,<br/>eventually disable"]
+graph LR
+    S1["RSS feeds"]:::external --> P
+    S2["Websites"]:::external --> P
+    S3["X accounts and<br/>Nitter mirrors"]:::external --> P
+    P["Background poller"]:::platform --> H["Drop duplicates across<br/>sources"]:::service
+    H --> POSTS[("Collected posts")]:::datastore
+    P -->|"a source that keeps failing"| BO["Poll slower,<br/>eventually disable"]:::muted
 ```
+
+</details>
 
 ### Step 2: Picking what's worth covering
 
-When it's time to generate an episode, the app reads the unprocessed posts and turns them into articles. Long-form posts (news articles, blog posts) become one article each. Short-form posts (tweets) are grouped by author and then by conversation: a tweet plus its replies become a single article, with the original tweet's URL and title. Grouping by author first matters when one source is a combined feed carrying many accounts (a Narro feed, say) rather than a single account, so one person's reply chain is never spliced onto someone else's post. Then a fast, cheap language model reads every article and gives it a relevance score from 0 to 10, a short summary, and (if you configured subtopics) tags it with the subtopic it belongs to. Anything below your relevance threshold is dropped. Scoring is the longest part of generation when there's a big backlog, so the dashboard shows it live (for example "Scoring 142 / 318") on the generating episode row.
+When it's time to generate an episode, the app reads the unprocessed posts and turns them into articles. Long-form posts (news articles, blog posts) become one article each. Short-form posts (tweets) are grouped by author and then by conversation: a tweet plus its replies become a single article, with the original tweet's URL and title. Grouping by author first matters when one source is a combined feed carrying many accounts (a Narro feed, say) rather than a single account, so one person's reply chain is never spliced onto someone else's post. Narro marks a reply in its own way, which is translated into the same form a Nitter mirror uses while the feed is being read, so threading works identically whichever of the two a source happens to be. Then a fast, cheap language model reads every article and gives it a relevance score from 0 to 10, a short summary, and (if you configured subtopics) tags it with the subtopic it belongs to. Anything below your relevance threshold is dropped. Scoring is the longest part of generation when there's a big backlog, so the dashboard shows it live (for example "Scoring 142 / 318") on the generating episode row.
 
 Most of that work happens before generation starts: when polling a source finishes, its new articles are scored right away rather than waiting for the scheduled run, so the backlog is usually already ranked by the time an episode is due. Eager scoring respects the same per-podcast cost gate as the rest of the pipeline. If the last poll round is nevertheless too old when a scheduled generation begins, a catch-up poll runs first so the episode isn't built from stale sources.
 
-Which articles are on the table is decided by the episode's window rather than by how old an article is. A run covers the stretch from the podcast's previous scheduled slot to the slot it is serving: 24 hours on a daily weekday schedule, reaching back across the weekend on the Monday run, worked out from your cron instead of assumed. When an earlier episode failed or was discarded, the window stretches back to where coverage actually ended, so no day's content is orphaned between two episodes; `app.episode.max-window-days` caps how far that can reach. The window is stored on the episode, so a retry, a regeneration and a re-run all work from the same period the original run did. And because a window is only worth composing once the sources have caught up with it, generation is deferred while any enabled source has not yet polled past the window's end. That wait is bounded by `app.episode.poll-coverage-deadline-minutes`, after which the episode is generated anyway and the sources still behind are named in the log.
+Which articles are on the table is decided by the episode's window rather than by how old an article is, and a window is only worth composing once the sources have caught up with it. See [Episode windows and re-running a past day](#episode-windows-and-re-running-a-past-day).
+
+![Picking what's worth covering](docs/images/readme-04-step-2-picking-what-s-worth-covering.svg)
+
+<details><summary>Diagram source</summary>
 
 ```mermaid
-flowchart LR
-    POSTS[("Collected posts")] --> AGG{"Post type?"}
-    AGG -->|"news / blog"| ART1["One post,<br/>one article"]
-    AGG -->|"tweets"| TH["Group tweet<br/>+ its replies"]
-    TH --> ART2["Conversation<br/>article"]
-    ART1 --> SCORE["Read it,<br/>score it,<br/>summarize it"]
-    ART2 --> SCORE
-    SCORE -->|"not interesting"| DROP["Dropped"]
-    SCORE -->|"keeper"| READY["Ready for the script"]
+graph LR
+    POSTS[("Collected posts")]:::datastore --> AGG{"Post type?"}:::decision
+    AGG -->|"news, blog"| ART1["One post,<br/>one article"]:::service
+    AGG -->|"tweets"| TH["A tweet and its replies,<br/>grouped by author"]:::service
+    ART1 --> SCORE
+    TH --> SCORE
+    SCORE["FILTER: score 0-10,<br/>summarise, tag subtopic"]:::platform --> DROP["Below your threshold:<br/>dropped"]:::muted
+    SCORE --> READY[("Articles ready<br/>for the script")]:::datastore
 ```
+
+</details>
 
 ### Step 3: Writing the script
 
@@ -70,19 +116,23 @@ A second, smarter language model writes the actual episode. Before it starts, th
 
 A few guards keep this stage predictable: the number of articles fed into a single compose request is capped to the highest-relevance ones so a big backlog can't blow past the model's context, both the compose request and the topic-grouping call ahead of it bound their output tokens (the grouping budget scales with how many articles it has to sort, and a response the model truncates is salvaged rather than thrown away), each stage has a timeout sized to what that stage actually takes rather than one value shared across the pipeline, every request to OpenRouter states the quantizations it will accept and insists the endpoint honour the parameters it sends (the same model is served by two dozen endpoints of varying fidelity, and a lossy one follows instructions worse), each stage states its own reasoning budget, in the form the routed provider actually reads, rather than omitting it and inheriting whatever the routed model happens to do by default (composition plans ahead; topic grouping, scoring and the recap ask for none, since reasoning tokens are billed as output and are drawn from the same allowance as the answer itself, which on a model that reasons by default is enough to consume the whole budget and return nothing), the compose call is retried on a transient provider fault so one malformed response doesn't discard the whole run, and for dialogue and interview styles the speaker tags the model emits are checked against the podcast's configured roles. An invalid tag (a leaked tool-call artifact, say) is re-prompted with a bounded number of retries and, if it persists, fails at the compose stage rather than surfacing later as a missing voice during TTS. The topic grouping is held to its own contract too: a cluster that selects no article at all is invalid, and a response where most of them do that is degenerate and fails the stage loudly, instead of quietly yielding an episode built from a handful of stories.
 
+![Writing the script](docs/images/readme-05-step-3-writing-the-script.svg)
+
+<details><summary>Diagram source</summary>
+
 ```mermaid
-flowchart TD
-    READY["Today's articles"] --> DEDUP["Group by topic,<br/>compare to recent episodes"]
-    HIST[("Past episodes<br/>(searchable)")] --> DEDUP
-    DEDUP -->|"new / follow-up / skip"| COMP["Script writer"]
-    SUBT["Your subtopic weights<br/>(more time on what matters,<br/>capped rapid-fire for the rest)"] --> COMP
-    ROT["Rotated openings,<br/>transitions, sign-offs"] --> COMP
-    T1["Search past episodes<br/>(avoid repeating)"] --> COMP
-    T2["Web search<br/>(extra context, optional)"] --> COMP
-    COMP --> SCRIPT["Episode script"]
-    SCRIPT --> RECAP["Short recap<br/>+ show notes"]
-    SCRIPT --> SRC["Sources page,<br/>grouped by topic"]
+graph LR
+    READY[("Today's articles")]:::datastore --> DEDUP
+    HIST[("Past episodes,<br/>full-text searchable")]:::datastore --> DEDUP
+    DEDUP["DEDUP: group by topic,<br/>compare to recent episodes"]:::service -->|"new, follow-up, skip"| COMP
+    SUBT["Subtopic weights"]:::artefact --> COMP
+    ROT["Rotated openings,<br/>transitions, sign-offs"]:::artefact --> COMP
+    WEB["Web search<br/>(optional)"]:::external --> COMP
+    COMP["COMPOSE: write<br/>the script"]:::platform --> SCRIPT[("Episode script")]:::datastore
+    SCRIPT --> RECAP["Recap, show notes,<br/>sources page"]:::service
 ```
+
+</details>
 
 If you turned on "require review", the pipeline pauses here so you can read, edit, or discard the script before any audio is recorded.
 
@@ -90,34 +140,84 @@ If you turned on "require review", the pipeline pauses here so you can read, edi
 
 The finished script is sent to a text-to-speech provider of your choice (OpenAI, ElevenLabs, or Inworld). Before sending, the app cleans the script up for TTS: it strips out em-dashes and en-dashes (which TTS models tend to read out loud as "dash"), and it injects pronunciation hints if you've set up a pronunciation dictionary for the podcast. With Inworld it also vets the delivery directions the script writer wrote: a cue may adjust warmth, energy or pace, but one asking for a flat or hard-to-hear read (deadpan, monotone, whispering) is dropped, because the engine obeys it literally and the turn comes out sounding broken. Phoneme spellings are checked the same way: the script writer may only use IPA for terms in the podcast's pronunciation dictionary, and one it invents for any other word is stripped before synthesis, because the engine reads an unintended transcription out as a mispronounced word. Long scripts are split into chunks at the most natural boundary available (a paragraph break first, then a line break, then a sentence end, then a word gap) so the TTS model doesn't choke and the splices land where a speaker would already pause, then the resulting audio chunks are stitched back together into a single MP3. A short silence is prepended so players don't clip the first word, encoded to match the sample rate, channel count, and bitrate of the speech chunks (providers differ: Inworld returns 48kHz audio, ElevenLabs 44.1kHz). Stitching is a stream copy, so a file whose format changed partway through would be rejected by some podcast platforms. Inworld follows the provider's own generating-speech guidance: every chunk is sent along with the text of the chunks before it, so intonation carries across a splice instead of resetting; free-form delivery directions the script writer emits (`[warm and conversational with an easy pace]`) are re-emitted at the head of each following chunk so a direction isn't lost when a turn is split, and are stripped on models that would read them aloud; non-verbal tags are spelled exactly as Inworld documents them; and the podcast's language is sent explicitly rather than left to auto-detection. It defaults to the `inworld-tts-2` model, exposes Inworld's `STABLE` / `BALANCED` / `CREATIVE` delivery modes per podcast, and offers an **Enhanced Audio Quality** setting, which applies denoising to reduce background noise and artifacts. ElevenLabs and Inworld support multiple voices for dialogue and interview styles; the speaker tags in those scripts are parsed tolerantly, so an occasional malformed tag from the script writer never silently drops a spoken turn. Transient hiccups during generation (a rate limit, a dropped connection, a timeout) are retried automatically per chunk with exponential backoff, so a single flaky request doesn't fail the whole episode.
 
+![Recording the audio](docs/images/readme-06-step-4-recording-the-audio.svg)
+
+<details><summary>Diagram source</summary>
+
 ```mermaid
-flowchart LR
-    SCRIPT["Script"] --> SAN["Clean up for TTS<br/>(remove dashes,<br/>add pronunciations)"]
-    SAN --> CHUNK["Split into chunks<br/>at sentence boundaries"]
-    CHUNK --> TTS{"Your TTS<br/>provider"}
-    TTS -->|"OpenAI"| O["Single voice"]
-    TTS -->|"ElevenLabs"| EL["Single or<br/>multi-voice"]
-    TTS -->|"Inworld"| IW["Expressive,<br/>multi-voice"]
-    O --> FF["Stitch chunks<br/>into one MP3"]
-    EL --> FF
-    IW --> FF
-    FF --> MP3["Finished episode"]
+graph LR
+    SCRIPT[("Episode script")]:::datastore --> SAN["Clean up: dashes, pronunciations,<br/>delivery cues, phoneme spans"]:::service
+    SAN --> CHUNK["Split at the most natural<br/>boundary available"]:::service
+    CHUNK --> TTS["Speech synthesis"]:::platform
+    PROV["OpenAI, ElevenLabs,<br/>Inworld"]:::external --> TTS
+    TTS --> FF["Stitch chunks<br/>into one MP3"]:::service
+    FF --> MP3[("Finished episode")]:::datastore
 ```
+
+</details>
 
 ### Step 5: Publishing, and recovering from failures
 
-The MP3, recap, and show notes become an episode in your podcast's RSS feed. The feed is available two ways: a live HTTP endpoint, and a static `feed.xml` file written to disk so you can host the whole podcast on a static file server, S3, or a CDN. From the dashboard you can also publish individual episodes to FTP or SoundCloud. If anything in steps 2-4 fails partway through (a flaky API, a hit cost limit, a TTS timeout), the app remembers which stage failed and keeps all the work it had already done. A single "Retry" click resumes from that exact stage, so the LLM calls you already paid for aren't repeated. Regenerating an episode is different from retrying one: it recomposes from the articles an episode already chose, so an episode that failed before it got that far is rejected up front with a clear message rather than producing another failed episode.
+The MP3, recap, and show notes become an episode in your podcast's RSS feed. The feed is available two ways: a live HTTP endpoint, and a static `feed.xml` file written to disk so you can host the whole podcast on a static file server, S3, or a CDN. From the dashboard you can also publish individual episodes to FTP or SoundCloud. If anything in steps 2-4 fails partway through (a flaky API, a hit cost limit, a TTS timeout), the app remembers which stage failed and keeps all the work it had already done. A single "Retry" click resumes from that exact stage, so the LLM calls you already paid for aren't repeated. Retrying, regenerating and re-running a whole day are three different things: see [Episode windows and re-running a past day](#episode-windows-and-re-running-a-past-day).
+
+![Publishing the episode](docs/images/readme-07-step-5-publishing-and-recovering-from-failures.svg)
+
+<details><summary>Diagram source</summary>
 
 ```mermaid
-flowchart LR
-    MP3["Finished episode"] --> RSS["RSS feed<br/>(podcast apps subscribe)"]
-    MP3 --> FTP["FTP upload<br/>(your own server)"]
-    MP3 --> SC["SoundCloud<br/>(auto playlist per podcast)"]
-
-    F1["Stage failed?"] -. "click Retry" .-> RESUME["Resume from<br/>where it stopped"]
+graph LR
+    MP3[("Finished episode")]:::datastore --> PUB["Publishing"]:::platform
+    PUB --> RSS["RSS feed, live<br/>and as static feed.xml"]:::external
+    PUB --> FTP["FTP, your own server"]:::external
+    PUB --> SC["SoundCloud, one<br/>playlist per podcast"]:::external
 ```
 
+</details>
+
 Each user can create multiple podcasts, each with its own sources, topic, language, models, TTS provider/voices, style, and generation schedule. See [docs/configuration.md](docs/configuration.md) for every setting.
+
+## Episode Windows and Re-Running a Past Day
+
+An episode covers a stretch of time, not "whatever is new". That stretch is the **window**: the
+half-open range from the podcast's previous scheduled slot to the slot this run is serving, worked
+out from your cron in the podcast's timezone rather than assumed. A weekday-daily schedule gives 24
+hours on Tuesday through Friday and reaches back across the weekend on the Monday run, with no
+weekday logic written down anywhere.
+
+**Gaps heal themselves.** If an earlier episode failed or was discarded, the window stretches back to
+where coverage actually ended, so no day's content is orphaned between two episodes. Failed and
+discarded episodes do not count as coverage, which is what makes this work. `app.episode.max-window-days`
+(default 7) caps how far back that can reach, so a podcast left idle for a month does not try to
+cover the month in one episode.
+
+**The window is stored on the episode**, written once when the episode is created and never
+recomputed. That is the feature underneath the feature: a retry, a re-run and a regeneration all
+select from the same period the original run started with, instead of recomputing from whatever is
+current. The script is written for the day the window ends too, so a re-run of Wednesday's episode
+still opens as Wednesday's episode however much later you start it.
+
+**Generation waits for the sources.** While any enabled source has not yet polled past the window's
+end, the slot stays due and nothing is created, because composing a window the sources have not
+caught up with produces an episode missing its own content. That wait is bounded by
+`app.episode.poll-coverage-deadline-minutes` (default 30), after which the episode is generated
+anyway and the sources still behind are named in the log.
+
+**Re-running a past day** rebuilds an episode from the window it belongs to:
+
+```
+POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/rerun
+```
+
+It answers 202 with a new GENERATING episode and leaves the source episode untouched: the re-run is a
+new episode with its own status and publications. Two conditions apply. The source episode must be
+FAILED or DISCARDED, so a day that is already out has to be discarded first, and its articles must
+still be unused, which discarding restores. This is API-only today; the dashboard exposes retry and
+regenerate but not re-run.
+
+Re-running is not the same as regenerating. A regeneration recomposes from the articles an episode
+already chose, so an episode that failed before it got that far is refused up front with a clear
+message rather than producing another failed episode. A re-run goes back to the window and selects
+again.
 
 ## Architecture
 
@@ -125,14 +225,86 @@ A small Spring Boot backend handles everything (polling sources, running the LLM
 
 Background work runs on Kotlin coroutines rather than thread pools: coroutine roots never block, blocking I/O (HTTP, database, file, TTS) is confined to `Dispatchers.IO`, transactional work stays on one dispatcher, and provider and publisher abstractions are `suspend` functions. Manually triggered generation follows the same rule: the request starts the run in the background and returns immediately, reporting a conflict if that podcast is already generating.
 
+![Architecture](docs/images/readme-08-architecture.svg)
+
+<details><summary>Diagram source</summary>
+
 ```mermaid
-flowchart LR
-    USER(("You")) -->|browse, edit,<br/>approve, listen| FE["Next.js Dashboard<br/>(frontend/)"]
-    FE -->|HTTP /api/*| BE["Spring Boot Backend<br/>(localhost:8085)"]
-    BE --> DB[("SQLite<br/>./data/*.db")]
-    BE --> FS[("Audio + feed.xml<br/>./data/episodes/")]
-    BE -.->|optional| EXT["External APIs<br/>OpenRouter, OpenAI, ElevenLabs,<br/>Inworld, Tavily, FTP, SoundCloud, X"]
+graph LR
+    USER["You"]:::consumer -->|"browse, edit,<br/>approve, listen"| FE
+    FE["Next.js dashboard<br/>(frontend/)"]:::service -->|"HTTP /api/*"| BE
+    BE["Spring Boot backend<br/>(localhost:8085)"]:::platform --> DB[("SQLite<br/>./data/*.db")]:::datastore
+    BE --> FS[("Audio and feed.xml<br/>./data/episodes/")]:::datastore
+    BE --> EXT["OpenRouter, OpenAI, ElevenLabs,<br/>Inworld, Tavily, FTP, SoundCloud, X"]:::external
 ```
+
+</details>
+
+## Script Evaluation
+
+An episode that is factually fine can still lose the listener, and "does this hold attention" is not
+something you can grep for. The app measures it in two layers, split because their properties differ
+rather than their difficulty.
+
+**Structural metrics** are computed by reading the script and never call a model. Turn counts, words
+per speaker and the share each one takes, turn length against the four-sentence cap, backchannel
+shaped turns, runs of consecutive turns by one speaker. They are free, stable forever, and always
+agree with the script they describe, so they are recomputed on every read and never stored. Read
+them at `GET /users/{userId}/podcasts/{podcastId}/metrics`.
+
+**The judge** covers what counting cannot. Whether a promise is genuinely deferred depends on what
+the turns in between are about, and whether a line is a joke is a judgement. So `EVAL` asks a model
+one question per script, and asks it only for **positions, never for measurements**: which turn makes
+a forward-looking promise and which turn pays it off, which turns carry a humour beat and who speaks
+them, which topics the opening teaser names. Distances, counts, balance and the overall score are
+then computed from those turn indices in Kotlin.
+
+That constraint is what makes the judge auditable. An anchor can be checked by opening the script at
+that turn and looking; a count or a 1-10 rating cannot be checked, could not be attributed to any
+particular rule, and would drift between model versions with nothing to notice the drift. Scores are
+versioned and stored with the judge model that produced them, and a comparison refuses to mix rows
+from different scorer versions rather than averaging quantities that are not the same quantity.
+
+### Three modes
+
+The judge is configured under `app.eval.judge.mode`:
+
+| Mode | What happens |
+|---|---|
+| `OFF` | No judge call, no score row, so the feature costs nothing when it is not wanted. |
+| `ADVISE` | Every generated episode is judged once, the score is stored and reported, and the episode proceeds whatever it says. The default. |
+| `ENFORCE` | The score is compared against `app.eval.judge.norm` and the run acts on the result. |
+
+`app.eval.judge.norm` deliberately has no default, and `ENFORCE` falls back to advising while it is
+unset, saying so in the log. Where that line belongs is a fact about the distribution of judged
+scores over the archive, not something anyone can reason out in advance: a plausible-looking default
+would be indistinguishable in the output from a measured one and would reject episodes on no
+evidence. Run in `ADVISE` first, read the distribution, then set a norm.
+
+Scoring is reached over HTTP, never by querying the database:
+`POST /users/{userId}/podcasts/{podcastId}/scores` scores a range of episodes (skipping any already
+scored at the current version), and `GET .../episodes/{episodeId}/scores` reads them back.
+
+## Knowledge Bundle
+
+`knowledge/` is what we have measured about the models and APIs this project depends on, why the
+prompt rules are shaped the way they are, and what has been tried and rejected. It is a plain
+[Open Knowledge Format](https://github.com/OpenKnowledgeFormat) v0.2 directory: markdown with YAML
+frontmatter, no loader, no build step. Nothing in the application reads it and no automated process
+writes to it, which is the point. It is written for whoever changes a prompt next.
+
+It exists because the other stores cannot hold this. Git records what changed and when, the OpenSpec
+archive records why a change was made, and neither can state what a measurement showed or what was
+tried and abandoned. So an entry records the thing that would otherwise have to be rediscovered: that
+steering instructions cost ten seconds of pace per episode, that phoneme spans are mangled under a
+creative delivery mode, that turn length is judged by ear and is not a defect.
+
+Every entry carries its provenance. `generated` names the actor that produced the content and when,
+`verified` is a separate list of confirmation events so an unchecked entry is distinguishable from
+one a person reviewed, and a finding about a third-party model carries the method, the model version
+and an absolute `stale_after` instant past which it is a hypothesis to re-measure rather than a fact.
+`knowledge/log.md` is newest first, so recent activity reads with
+`grep "^## \[" knowledge/log.md | head -10`.
 
 ## Prerequisites
 
@@ -249,7 +421,7 @@ If recap generation produced an empty or low-quality recap, a **regenerate-recap
 
 ### Cost Tracking
 
-Episode responses include token usage and costs broken down per pipeline stage: **Scoring**, **Dedup**, **Compose**, **Recap**, **TTS**, and **Research**, plus the number of TTS synthesis calls an episode made. LLM cost comes from the provider's own reported charge wherever one is available (OpenRouter returns the exact cost of every call, and a cached call replays the cost of the original), falling back to the per-model rates configured in `application.yaml` for calls that report nothing. Each episode records where its cost came from, so an actual charge is distinguishable from an estimate, including the mixed case where only some stages reported one. Stage costs are tracked with sub-cent precision, so a stage that costs a fraction of a cent is not rounded away to zero. The dashboard renders this breakdown in a dedicated **Costs** tab on the episode detail page. Pricing is configured per model in `application.yaml`; see [docs/configuration.md#model-configuration](docs/configuration.md#model-configuration). Before any LLM call, a **cost gate** estimates the total spend and skips the run if it would exceed a configurable threshold (`maxLlmCostCents` per podcast, or the global `app.llm.max-cost-cents`).
+Episode responses include token usage and costs broken down per pipeline stage: **Scoring**, **Dedup**, **Compose**, **Recap**, **TTS**, and **Research**, plus the number of TTS synthesis calls an episode made. LLM cost comes from the provider's own reported charge wherever one is available (OpenRouter returns the exact cost of every call, and a cached call replays the cost of the original), falling back to the per-model rates configured in `application.yaml` for calls that report nothing. Each episode records where its cost came from, so an actual charge is distinguishable from an estimate, including the mixed case where only some stages reported one. Stage costs are tracked with sub-cent precision, so a stage that costs a fraction of a cent is not rounded away to zero. The dashboard renders this breakdown in a dedicated **Costs** tab on the episode detail page. Pricing is configured per model in `application.yaml`; see [docs/configuration.md#model-configuration](docs/configuration.md#model-configuration). Before any LLM call, a **cost gate** estimates the total spend and skips the run if it would exceed a configurable threshold (`maxLlmCostCents` per podcast, or the global `app.llm.max-cost-cents`). The `EVAL` stage is deliberately absent from this breakdown: judging happens after the episode exists and may happen many times, so its cost is recorded on the score row instead. Folding it in would corrupt both the per-episode economics and the cost gate.
 
 ## Deep-Dive Web Research
 
