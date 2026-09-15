@@ -55,6 +55,13 @@ calibration.
 
 ## [2026-09-15] Record
 
+Recorded why a turn may not echo the previous speaker, from the episode 219
+"Let's." turn. Noted that the backchannel device is what made a one-word turn
+stop looking wrong, and that the structural metrics had already flagged it with
+nothing reading them.
+
+## [2026-09-15] Record
+
 Added the backchannel device and the reference-show turn-length finding it rests
 on, mined from the 2026-09-14 session where the reference analysis was done.
 

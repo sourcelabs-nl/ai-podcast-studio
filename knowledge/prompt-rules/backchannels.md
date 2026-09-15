@@ -33,4 +33,4 @@ listening.
 
 Proposal and reasoning: OpenSpec change `backchannels-in-interviews`.
 
-Related: [[adjacent-turns-must-not-repeat]]
+Related: [[adjacent-turns-must-not-repeat]], [[echo-turns]]

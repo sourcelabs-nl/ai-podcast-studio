@@ -22,3 +22,4 @@ falsify the entry. What a rule says is in the code; why it is there is here.
 - [CURIOSITY HOOKS may work against the cliffhanger rule](curiosity-hooks-conflict.md)
 - [A backchannel is what lets an idea run long](backchannels.md)
 - [Two turns by one speaker are fine; two turns saying the same thing are not](adjacent-turns-must-not-repeat.md)
+- [A short turn has to bring its own words](echo-turns.md)
