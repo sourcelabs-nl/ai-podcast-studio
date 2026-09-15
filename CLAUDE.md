@@ -14,14 +14,12 @@ Kotlin/Spring Boot application. See `README.md` for the full project description
 
 Use the provided scripts to start and stop the application:
 
-- **Start:** `./start.sh` — runs the app in the background, logs to `app.log`, PID stored in `.app.pid`
-- **Stop:** `./stop.sh` — gracefully stops the app (force-kills after 10s timeout)
+- **Start:** `./start.sh`: runs the app in the background, logs to `app.log`, PID stored in `.app.pid`
+- **Stop:** `./stop.sh`: gracefully stops the app (force-kills after 10s timeout)
 
 Required environment variable (managed via direnv `.envrc`): `APP_ENCRYPTION_MASTER_KEY`. All provider credentials are managed via the UI/API.
 
 ## Testing
-
-Use **MockK** (not Mockito) for all Kotlin tests. For Spring integration tests, use `@MockkBean` from the `springmockk` library (`com.ninja-squad:springmockk`) to inject mocks into the Spring context.
 
 **Never leave the project in a broken state.** Every commit must compile and all tests must pass. When a code change breaks existing tests, fix those tests as part of the same change. Run `mvn test` before considering any change complete. If constructor signatures change, update all test files that instantiate the class.
 
@@ -31,17 +29,11 @@ After fixing code review violations, always re-run the code reviewer (`/code-rev
 
 ## Architecture Guidelines
 
-Controllers validate input, delegate to services, and map responses — no business logic. Never duplicate logic that already exists in a service. For the full set of architectural review rules (controller hygiene, service layer, Spring Data JDBC, database consistency, testing, Jackson 3.x), see the `code-review` skill or run `/code-review`.
+Controllers validate input, delegate to services, and map responses: no business logic. Never duplicate logic that already exists in a service.
 
-**Concurrency:** Use Kotlin coroutines for async/background work — never use `ExecutorService` or `java.util.concurrent` thread pools directly. Use `Dispatchers.IO` for I/O-bound coroutine scopes (HTTP requests, database calls, file I/O) — never `Dispatchers.Default`, which is sized to CPU cores and meant for computation only.
+The rules that apply to one kind of file live in `.claude/rules/`, keyed to the paths they govern, and load when such a file is touched: controllers, entities, repositories, schedulers, migrations, tests, `application.yaml`, main Kotlin sources (concurrency, transactions, parameter objects, Jackson) and `knowledge/` entries. For the full set of review rules see the `code-review` skill or run `/code-review`.
 
-**Transactions:** Any function that performs multiple writes across tables (or multiple writes that must be atomic) must be annotated with `@Transactional`. Remember that `@Transactional` only works on public methods called through the Spring proxy (not on private methods or internal self-calls).
-
-**Jackson:** Configure Jackson features via Spring Boot properties (`spring.jackson.*` in `application.yaml`), not programmatically. Inject the Spring-managed `JsonMapper` bean when custom mapper configuration is needed (e.g., for `BeanOutputConverter` in Spring AI). See the `spring-boot` skill (Rule SB6) for details.
-
-**Parameter objects:** When a function's parameter list grows long (more than 4-5 params), and the parameters are functionally related, wrap them in a Kotlin `data class` instead of adding more positional arguments. Long positional call sites are fragile under change and hurt readability. Concrete example: `InworldApiClient.synthesizeSpeech(...)` takes mandatory request identity (userId, voiceId, text, modelId) plus an `InworldSynthesisOptions(speed, temperature, deliveryMode)` data class for optional knobs — extending the options doesn't ripple through every caller. Apply this anywhere optional/related fields cluster (TTS settings, LLM request params, search filters, etc.).
-
-**Post-implementation check:** After every code change, validate that the architecture guidelines are respected — especially controller hygiene (no business logic, no direct repository access) and proper service layer delegation. Fix violations before considering the change complete.
+**Post-implementation check:** After every code change, validate that the architecture guidelines are respected, especially controller hygiene (no business logic, no direct repository access) and proper service layer delegation. Fix violations before considering the change complete.
 
 ## Code Navigation (LSP)
 
@@ -57,9 +49,9 @@ Whenever code changes are made to the application, always restart it (`./stop.sh
 
 ## External API Integration
 
-When adding or modifying calls to external APIs (Inworld, ElevenLabs, OpenAI, etc.), always verify the request payload against the actual API documentation before implementing. Proto/gRPC-based APIs often use string enums (e.g., `"ON"` / `"OFF"`) rather than booleans — do not assume field types. After implementing an external API change, test it against the live API before considering the task complete.
+When adding or modifying calls to external APIs (Inworld, ElevenLabs, OpenAI, etc.), always verify the request payload against the actual API documentation before implementing. Proto/gRPC-based APIs often use string enums (e.g., `"ON"` / `"OFF"`) rather than booleans, so do not assume field types. After implementing an external API change, test it against the live API before considering the task complete.
 
-OpenRouter reports its own cost per call, and the pipeline uses that provider-reported value wherever it is present, so the configured rates only matter as a fallback (a call that reports nothing, a stage running on the direct `openai` provider, and the pre-flight estimates that run before any call). When adding or updating model pricing in `application.yaml` (e.g., `input-cost-per-mtok`, `output-cost-per-mtok`), still verify the pricing on the provider's website (e.g., https://openrouter.ai/{provider}/{model}/pricing) before setting values. Do not guess or use training data for pricing, it changes frequently.
+OpenRouter reports its own cost per call, and the pipeline uses that provider-reported value wherever it is present, so the configured rates only matter as a fallback (a call that reports nothing, a stage running on the direct `openai` provider, and the pre-flight estimates that run before any call). Model pricing is never guessed: see `.claude/rules/application-yaml.md`.
 
 ## Production Database
 
@@ -80,26 +72,8 @@ reads it, and no automated process writes to it.
 **Three layers.** The raw layer is the episode archive and its scripts, probe
 output, score rows, reference transcripts, the git history, the OpenSpec archive
 and past session transcripts; it is cited, never rewritten. The bundle is the
-layer the agent owns and maintains. This file is the configuration: the
-conventions live here, the contents do not. Read `knowledge/index.md` for those.
-
-**What belongs there.** Only knowledge no other store keeps. Git already records
-what changed and when, the OpenSpec archive why. Link to a commit or an archived
-change rather than summarising it, and keep entries to what neither can state:
-what was measured, and what was tried and rejected. Material drawn from a
-session transcript is reformulated into a finished entry, never pasted:
-`knowledge/` is in git and therefore permanent.
-
-**Types**: `finding`, `rule-rationale`, `experiment`, `reference`. A type outside
-that set is a judgement made in review, not an error.
-
-**Provenance**: `generated` names the actor that produced the current content
-(`human:<id>` or a model id) and when. `verified` is a separate list of
-confirmation events, so an unchecked entry is distinguishable from one a machine
-confirmed and one a person reviewed. `status` is lifecycle only (`draft`,
-`stable`, `deprecated`) and never strength of evidence. A `finding` about a
-third-party model carries `method`, `model_version` and an absolute
-`stale_after`; past that instant it is a hypothesis to re-measure.
+layer the agent owns and maintains. Read `knowledge/index.md` for its contents,
+and `.claude/rules/knowledge-entries.md` for how an entry is written.
 
 **Three operations:**
 
@@ -114,16 +88,13 @@ third-party model carries `method`, `model_version` and an absolute
    cross-references. Lint removes and merges as well as adds, and rewrites any
    entry whose body has started narrating its own edit history.
 
-`knowledge/log.md` is newest first, each entry beginning `## [YYYY-MM-DD]`, so
-recent activity reads with `grep "^## \[" knowledge/log.md | head -10`.
-
 **Boundary with the machine-local memory store**: what belongs to the repository
 goes in `knowledge/`; what belongs to this machine and to how we work together
 stays in memory.
 
 ## OpenSpec Workflow
 
-All code changes must go through an OpenSpec change — either created before implementation (`/opsx:new`) or retroactively after implementation (`/opsx:new` covering the work done). Never implement features without a corresponding OpenSpec change.
+All code changes must go through an OpenSpec change, either created before implementation (`/opsx:new`) or retroactively after implementation (`/opsx:new` covering the work done). Never implement features without a corresponding OpenSpec change.
 
 For small changes (e.g. a one-function prompt tweak, a copy fix, a localized bug fix), it is fine to implement first and retrofit the OpenSpec change after the fact rather than creating it up front. Larger or architectural changes should still create the OpenSpec change before implementation.
 
