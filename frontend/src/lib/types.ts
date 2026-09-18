@@ -342,8 +342,8 @@ export interface EvaluationRun {
  * Latency percentiles for one pipeline stage, in milliseconds. Mirrors backend
  * `StageLatencyResponse`.
  *
- * The percentiles are null when the stage issued no qualifying requests in the window;
- * `samples` says how many requests they rest on.
+ * The percentiles are null when the stage issued no qualifying requests; `samples` says how many
+ * requests they rest on, which for a single episode is usually a handful.
  */
 export interface StageLatency {
   stage: string;
@@ -356,11 +356,36 @@ export interface StageLatency {
 }
 
 /**
- * Per-request LLM latency over a rolling window across all episodes. Mirrors backend
- * `LlmCallLatencyResponse`. Carries no episode attribution: the figures describe the window,
- * never the episode they may be displayed next to.
+ * Per-request LLM latency, either over a rolling window across all episodes or for one episode.
+ * Mirrors backend `LlmCallLatencyResponse`.
+ *
+ * `since` is the start of the window, and is null for an episode: an episode is a bounded set of
+ * requests rather than a period.
  */
 export interface LlmCallLatencyResponse {
-  since: string;
+  since: string | null;
   stages: StageLatency[];
+}
+
+/** One recorded LLM request of an episode. Mirrors backend `LlmCallResponse`. */
+export interface LlmCall {
+  startedAt: string;
+  stage: string;
+  model: string;
+  durationMs: number;
+  outcome: string;
+  cacheHit: boolean;
+}
+
+/**
+ * One episode's individual LLM requests. Mirrors backend `EpisodeLlmCallsResponse`.
+ *
+ * `predatesAttribution` is true for an episode generated before requests recorded which episode
+ * they belonged to. Such an episode has no requests and never will, which is a fact about the
+ * records rather than about the episode, and an empty list alone cannot say which of the two it is.
+ */
+export interface EpisodeLlmCallsResponse {
+  episodeId: number;
+  predatesAttribution: boolean;
+  requests: LlmCall[];
 }

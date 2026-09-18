@@ -29,7 +29,8 @@ class DialogueComposer(
         log.info("[LLM] Composing dialogue from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(
-            podcast.userId, composeModelDef, podcast, toolBudget, useCache = !context.bypassLlmCache
+            podcast.userId, composeModelDef, podcast, toolBudget,
+            useCache = !context.bypassLlmCache, episodeId = context.episodeId
         )
         val prompt = buildPrompt(articles, podcast, context)
 

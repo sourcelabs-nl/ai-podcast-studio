@@ -31,13 +31,18 @@ import kotlin.time.TimeSource
  * ignores temperature, so without a bypass k repetitions of one prompt variant would be a single
  * model call and k-1 replays of its answer, and the spread they were run to measure would be zero
  * by construction. Not writing either keeps an evaluation from displacing what production reads.
+ *
+ * [episodeId] is the episode every request from this instance belongs to, or null for a caller that
+ * has no episode. A fresh instance is built per call site, so it is per-generation without being
+ * shared, and it reaches the recorded row without depending on which thread issues the request.
  */
 class CachingChatModel(
     private val delegate: ChatModel,
     private val llmCacheRepository: LlmCacheRepository,
     private val resolvedModel: ResolvedModel,
     private val llmCallLogService: LlmCallLogService,
-    private val cacheEnabled: Boolean = true
+    private val cacheEnabled: Boolean = true,
+    private val episodeId: Long? = null
 ) : ChatModel {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -143,7 +148,8 @@ class CachingChatModel(
                 inputTokens = usage.inputTokens,
                 outputTokens = usage.outputTokens,
                 reportedCostUsd = usage.reportedCostUsd,
-                cacheHit = cacheHit
+                cacheHit = cacheHit,
+                episodeId = episodeId
             )
         )
     }
@@ -164,7 +170,8 @@ class CachingChatModel(
                 outputTokens = 0,
                 cacheHit = false,
                 outcome = LlmCallOutcome.ERROR,
-                errorType = error.javaClass.simpleName
+                errorType = error.javaClass.simpleName,
+                episodeId = episodeId
             )
         )
     }

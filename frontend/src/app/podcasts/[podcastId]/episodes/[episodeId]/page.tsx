@@ -487,7 +487,7 @@ export default function EpisodeDetailPage() {
 
         <TabsContent value="latency">
           <div className="mt-4">
-            <LatencyTab />
+            <LatencyTab episodeId={episode.id} />
           </div>
         </TabsContent>
 

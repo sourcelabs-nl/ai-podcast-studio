@@ -8,6 +8,7 @@ import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -19,6 +20,9 @@ import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.model.Generation
 import org.springframework.ai.chat.prompt.Prompt
 import org.springframework.ai.openai.OpenAiChatOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import java.net.SocketTimeoutException
 
 /**
@@ -39,7 +43,7 @@ class CachingChatModelTelemetryTest {
         stage = PipelineStage.COMPOSE
     )
     private val model =
-        CachingChatModel(delegate, llmCacheRepository, resolvedModel, llmCallLogService)
+        CachingChatModel(delegate, llmCacheRepository, resolvedModel, llmCallLogService, episodeId = 42)
 
     private val prompt = Prompt("Write the script", OpenAiChatOptions.builder().model("test-model").build())
 
@@ -120,5 +124,67 @@ class CachingChatModelTelemetryTest {
 
         assertEquals(2, recorded.size)
         assertTrue(recorded.all { it.outcome == LlmCallOutcome.OK && !it.cacheHit })
+    }
+
+    @Test
+    fun `every kind of record names the episode the request was issued for`() {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } returns response()
+        val success = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(success)) } returns Unit
+        model.call(prompt)
+        assertEquals(42L, success.captured.episodeId)
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns LlmCache(
+            promptHash = "hash",
+            model = "test-model",
+            response = "A cached script",
+            createdAt = "2026-09-15T10:00:00Z",
+            inputTokens = 200,
+            outputTokens = 50
+        )
+        val hit = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(hit)) } returns Unit
+        model.call(prompt)
+        assertEquals(42L, hit.captured.episodeId)
+
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } throws SocketTimeoutException("timeout")
+        val failure = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(failure)) } returns Unit
+        assertThrows(SocketTimeoutException::class.java) { model.call(prompt) }
+        assertEquals(42L, failure.captured.episodeId)
+    }
+
+    @Test
+    fun `a caller with no episode records none`() {
+        val unattributed =
+            CachingChatModel(delegate, llmCacheRepository, resolvedModel, llmCallLogService)
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } returns response()
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        unattributed.call(prompt)
+
+        assertNull(recorded.captured.episodeId)
+    }
+
+    /**
+     * The composers issue their request inside `withContext(Dispatchers.IO)`, so the request runs on
+     * a different thread from the one the stage started on. This is why the episode travels as a
+     * constructor parameter rather than in thread-bound ambient state, which would arrive empty here
+     * and silently record nothing for exactly the stage this tab is most often opened for.
+     */
+    @Test
+    fun `the episode survives the request being issued on another thread`() = runTest {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } returns response()
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        withContext(Dispatchers.IO) { model.call(prompt) }
+
+        assertEquals(42L, recorded.captured.episodeId)
     }
 }

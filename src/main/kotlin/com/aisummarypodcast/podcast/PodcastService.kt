@@ -106,10 +106,10 @@ class PodcastService(
                 // The episode's own window, so a retry reselects from the same period the run
                 // started with. An episode from before windows were recorded falls back to now.
                 val window = episodeWindowResolver.windowOf(episode) ?: episodeWindowResolver.resolveForNow(podcast)
-                val eligible = llmPipeline.aggregateScoreAndFilter(podcast, window, onProgress)
+                val eligible = llmPipeline.aggregateScoreAndFilter(podcast, window, episode.id, onProgress)
                     ?: throw IllegalStateException("No eligible articles for retry in window $window")
 
-                val dedupResult = llmPipeline.dedup(eligible, podcast, onProgress)
+                val dedupResult = llmPipeline.dedup(eligible, podcast, episode.id, onProgress)
                     ?: throw IllegalStateException("All articles filtered as duplicates during retry")
 
                 episodeService.saveDedupResults(episode, dedupResult)
@@ -119,7 +119,8 @@ class PodcastService(
                     ComposeContext(
                         followUpAnnotations = dedupResult.followUpAnnotations,
                         topicLabels = dedupResult.topicLabels,
-                        episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+                        episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
+                        episodeId = episode.id
                     ),
                     onProgress
                 )
@@ -139,7 +140,8 @@ class PodcastService(
                     filteredArticles, podcast,
                     ComposeContext(
                         topicLabels = topicLabels,
-                        episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+                        episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
+                        episodeId = episode.id
                     ),
                     onProgress
                 )
@@ -312,13 +314,13 @@ class PodcastService(
             }
 
             // Stage 1-2: Aggregate, score, find eligible articles
-            val eligible = llmPipeline.aggregateScoreAndFilter(podcast, window, onProgress) ?: run {
+            val eligible = llmPipeline.aggregateScoreAndFilter(podcast, window, generatingEpisode.id, onProgress) ?: run {
                 episodeService.deleteGeneratingEpisode(generatingEpisode.id!!)
                 return GenerateBriefingResult(episode = null)
             }
 
             // Stage 3: Dedup filter
-            val dedupResult = llmPipeline.dedup(eligible, podcast, onProgress) ?: run {
+            val dedupResult = llmPipeline.dedup(eligible, podcast, generatingEpisode.id, onProgress) ?: run {
                 episodeService.deleteGeneratingEpisode(generatingEpisode.id!!)
                 return GenerateBriefingResult(episode = null)
             }
@@ -336,7 +338,8 @@ class PodcastService(
                 ComposeContext(
                     followUpAnnotations = dedupResult.followUpAnnotations,
                     topicLabels = dedupResult.topicLabels,
-                    episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+                    episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
+                    episodeId = generatingEpisode.id
                 ),
                 onProgress
             )
@@ -480,7 +483,8 @@ class PodcastService(
             followUpAnnotations = followUpAnnotations,
             topicLabels = topicLabels,
             episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
-            bypassLlmCache = bypassLlmCache
+            bypassLlmCache = bypassLlmCache,
+            episodeId = generatingEpisode.id
         )
         val result = llmPipeline.recompose(articles, podcast, context) { stage, detail ->
             eventPublisher.publishEvent(

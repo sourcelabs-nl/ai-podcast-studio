@@ -25,9 +25,15 @@ class EpisodeRecapGenerator(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    suspend fun generate(scriptText: String, podcast: Podcast, filterModelDef: ResolvedModel, topicLabels: List<String> = emptyList()): RecapResult {
+    suspend fun generate(
+        scriptText: String,
+        podcast: Podcast,
+        filterModelDef: ResolvedModel,
+        topicLabels: List<String> = emptyList(),
+        episodeId: Long? = null
+    ): RecapResult {
         log.info("[LLM] Generating recap of previous episode for podcast '{}' ({})", podcast.name, podcast.id)
-        val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef)
+        val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef, episodeId = episodeId)
         val prompt = buildPrompt(scriptText, topicLabels)
 
         val (result, elapsed) = measureTimedValue {

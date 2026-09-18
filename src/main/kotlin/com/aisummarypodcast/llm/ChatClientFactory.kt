@@ -27,9 +27,18 @@ class ChatClientFactory(
     /**
      * [useCache] is false for an evaluation run, so repeated identical prompts each reach the
      * model instead of replaying one cached answer. See [CachingChatModel].
+     *
+     * [episodeId] attributes the recorded telemetry to an episode. It defaults to null for the
+     * callers that genuinely have no episode, such as preview and ad-hoc source scoring; recording
+     * no episode there is the truthful answer rather than a gap.
      */
-    fun createForModel(userId: String, resolvedModel: ResolvedModel, useCache: Boolean = true): ChatClient {
-        return ChatClient.builder(buildCachingModel(userId, resolvedModel, useCache)).build()
+    fun createForModel(
+        userId: String,
+        resolvedModel: ResolvedModel,
+        useCache: Boolean = true,
+        episodeId: Long? = null
+    ): ChatClient {
+        return ChatClient.builder(buildCachingModel(userId, resolvedModel, useCache, episodeId)).build()
     }
 
     /**
@@ -45,10 +54,11 @@ class ChatClientFactory(
         resolvedModel: ResolvedModel,
         podcast: Podcast,
         toolBudget: ToolBudget,
-        useCache: Boolean = true
+        useCache: Boolean = true,
+        episodeId: Long? = null
     ): ChatClient {
         val tools = buildComposeTools(userId, podcast, toolBudget)
-        return ChatClient.builder(buildCachingModel(userId, resolvedModel, useCache))
+        return ChatClient.builder(buildCachingModel(userId, resolvedModel, useCache, episodeId))
             .defaultTools(*tools.toTypedArray())
             .build()
     }
@@ -91,7 +101,8 @@ class ChatClientFactory(
     private fun buildCachingModel(
         userId: String,
         resolvedModel: ResolvedModel,
-        useCache: Boolean
+        useCache: Boolean,
+        episodeId: Long?
     ): CachingChatModel {
         val config = providerConfigService.resolveConfig(userId, ApiKeyCategory.LLM, resolvedModel.provider)
             ?: throw IllegalStateException(
@@ -103,6 +114,6 @@ class ChatClientFactory(
         val chatModel = OpenAiChatModel.builder()
             .openAiClient(openAiClient)
             .build()
-        return CachingChatModel(chatModel, llmCacheRepository, resolvedModel, llmCallLogService, useCache)
+        return CachingChatModel(chatModel, llmCacheRepository, resolvedModel, llmCallLogService, useCache, episodeId)
     }
 }

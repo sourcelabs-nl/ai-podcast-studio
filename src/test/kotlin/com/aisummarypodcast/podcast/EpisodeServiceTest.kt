@@ -77,7 +77,7 @@ class EpisodeServiceTest {
 
     private fun setupRecapMocks(podcast: Podcast) {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
-        coEvery { episodeRecapGenerator.generate(any(), podcast, filterModelDef, any()) } returns RecapResult(
+        coEvery { episodeRecapGenerator.generate(any(), podcast, filterModelDef, any(), 5L) } returns RecapResult(
             recap = "Recap text.", usage = TokenUsage(800, 60), costCents = 0,
             costSource = LlmCostSource.TABLE
         )
@@ -194,7 +194,7 @@ class EpisodeServiceTest {
         every { episodeRepository.save(any()) } answers { firstArg<Episode>().copy(id = 5) }
         every { podcastRepository.save(any()) } answers { firstArg() }
         every { modelResolver.resolve(reviewPodcast, PipelineStage.FILTER) } returns filterModelDef
-        coEvery { episodeRecapGenerator.generate(any(), reviewPodcast, filterModelDef) } throws RuntimeException("LLM error")
+        coEvery { episodeRecapGenerator.generate(any(), reviewPodcast, filterModelDef, any(), 5L) } throws RuntimeException("LLM error")
 
         episodeService.createEpisodeFromPipelineResult(reviewPodcast, result)
 

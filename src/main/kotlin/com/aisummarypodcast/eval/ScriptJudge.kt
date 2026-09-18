@@ -43,11 +43,11 @@ class ScriptJudge(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    suspend fun judge(script: String, userId: String, evalModel: ResolvedModel): ScriptJudgement {
+    suspend fun judge(script: String, userId: String, evalModel: ResolvedModel, episodeId: Long? = null): ScriptJudgement {
         val numbered = numberTurns(script)
         require(numbered.isNotEmpty()) { "Cannot judge a script with no speaker turns" }
 
-        val chatClient = chatClientFactory.createForModel(userId, evalModel)
+        val chatClient = chatClientFactory.createForModel(userId, evalModel, episodeId = episodeId)
         val prompt = buildPrompt(numbered)
         var attempt = 0
 

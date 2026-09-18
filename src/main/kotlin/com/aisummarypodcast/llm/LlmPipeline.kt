@@ -121,6 +121,7 @@ class LlmPipeline(
     suspend fun aggregateScoreAndFilter(
         podcast: Podcast,
         window: EpisodeWindow,
+        episodeId: Long? = null,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): List<Article>? {
         val sources = sourceRepository.findByPodcastId(podcast.id)
@@ -176,7 +177,9 @@ class LlmPipeline(
             onProgress("scoring", mapOf("articleCount" to unscored.size))
             log.info("[LLM] Scoring and summarizing {} articles for podcast '{}' ({})", unscored.size, podcast.name, podcast.id)
             val (scoredArticles, scoringDuration) = measureTimedValue {
-                articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels) { done, total ->
+                articleScoreSummarizer.scoreSummarize(
+                    unscored, podcast, filterModelDef, ScoringContext(sourceLabels, episodeId)
+                ) { done, total ->
                     onProgress("scoring", mapOf("articleCount" to total, "scoredCount" to done))
                 }
             }
@@ -238,12 +241,13 @@ class LlmPipeline(
         // Step 4: score (persists relevanceScore/summary/subtopic/tokens, same as generation)
         log.info("[Eager] Eagerly scoring {} ready-source articles for podcast '{}' ({})", unscored.size, podcast.name, podcast.id)
         val sourceLabels = readySources.associate { it.id to extractDomainAndPath(it.url) }
-        articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels)
+        articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, ScoringContext(sourceLabels))
     }
 
     suspend fun dedup(
         eligible: List<Article>,
         podcast: Podcast,
+        episodeId: Long? = null,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): DedupStageResult? {
         val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
@@ -255,7 +259,7 @@ class LlmPipeline(
         // Dedup retries internally (see TopicDedupFilter). If it still fails, we deliberately let the
         // exception propagate to fail the episode rather than silently composing un-deduped articles —
         // skipping dedup can produce a low-quality episode that repeats recently-covered topics.
-        val dedupResult = topicDedupFilter.filter(eligible, history, podcast.userId, dedupModelDef)
+        val dedupResult = topicDedupFilter.filter(eligible, history, podcast.userId, dedupModelDef, episodeId)
 
         if (dedupResult.filteredArticles.isEmpty()) {
             log.info("[LLM] All articles filtered as duplicates for podcast '{}' ({}) — skipping briefing generation", podcast.name, podcast.id)
@@ -401,8 +405,8 @@ class LlmPipeline(
 
     suspend fun run(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult? {
         val window = episodeWindowResolver.resolveForNow(podcast)
-        val eligible = aggregateScoreAndFilter(podcast, window, onProgress) ?: return null
-        val dedupStageResult = dedup(eligible, podcast, onProgress) ?: return null
+        val eligible = aggregateScoreAndFilter(podcast, window, onProgress = onProgress) ?: return null
+        val dedupStageResult = dedup(eligible, podcast, onProgress = onProgress) ?: return null
         val composeStageResult = compose(
             dedupStageResult.filteredArticles, podcast,
             ComposeContext(
@@ -554,7 +558,9 @@ class LlmPipeline(
         if (unscored.isNotEmpty()) {
             onProgress("scoring", mapOf("articleCount" to unscored.size))
             log.info("[LLM Preview] Scoring {} articles for podcast '{}' ({})", unscored.size, podcast.name, podcast.id)
-            articleScoreSummarizer.scoreSummarize(unscored, podcast, filterModelDef, sourceLabels) { done, total ->
+            articleScoreSummarizer.scoreSummarize(
+                unscored, podcast, filterModelDef, ScoringContext(sourceLabels)
+            ) { done, total ->
                 onProgress("scoring", mapOf("articleCount" to total, "scoredCount" to done))
             }
         }

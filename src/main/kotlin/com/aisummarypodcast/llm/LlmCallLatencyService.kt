@@ -1,30 +1,75 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.LlmCallRepository
+import com.aisummarypodcast.store.LlmCallScope
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import java.time.Duration
 import java.time.Instant
 
 /**
  * Reads back the measured latency of LLM requests, per stage, against the timeout each stage is
- * configured with.
+ * configured with, either over a recent window across all episodes or for one episode.
  *
- * Every stage is reported even when it issued nothing in the window, with a zero sample count: a
- * stage that is silently absent reads as "no problem here", while a percentile over three requests
- * reads as authoritative unless the count is shown next to it.
+ * Every stage is reported even when it issued nothing, with a zero sample count: a stage that is
+ * silently absent reads as "no problem here", while a percentile over three requests reads as
+ * authoritative unless the count is shown next to it.
  */
 @Service
 class LlmCallLatencyService(
     private val llmCallRepository: LlmCallRepository,
+    private val episodeRepository: EpisodeRepository,
     private val appProperties: AppProperties
 ) {
 
     fun latencySince(window: Duration): LlmCallLatencyResponse {
         val since = Instant.now().minus(window)
-        val measured = llmCallRepository.latencyPercentilesSince(since.toString()).associateBy { it.stage }
+        return LlmCallLatencyResponse(
+            since = since.toString(),
+            stages = stagesFor(LlmCallScope(cutoff = since.toString()))
+        )
+    }
 
-        val stages = PipelineStage.entries.map { stage ->
+    /** No window applies: every request the episode issued counts, whenever it was issued. */
+    fun latencyForEpisode(episodeId: Long): LlmCallLatencyResponse =
+        LlmCallLatencyResponse(since = null, stages = stagesFor(LlmCallScope(episodeId = episodeId)))
+
+    fun requestsForEpisode(episodeId: Long): EpisodeLlmCallsResponse {
+        val requests = llmCallRepository.requestsForEpisode(episodeId).map {
+            LlmCallResponse(
+                startedAt = it.startedAt,
+                stage = it.stage,
+                model = it.model,
+                durationMs = it.durationMs,
+                outcome = it.outcome,
+                cacheHit = it.cacheHit
+            )
+        }
+        return EpisodeLlmCallsResponse(
+            episodeId = episodeId,
+            predatesAttribution = requests.isEmpty() && predatesAttribution(episodeId),
+            requests = requests
+        )
+    }
+
+    /**
+     * Whether this episode was generated before any request recorded an episode. Below the earliest
+     * attributed request, no row could have named an episode regardless of what the episode did, so
+     * its empty result says nothing about the episode itself.
+     *
+     * With no attributed request anywhere, every episode predates attribution, which is true.
+     */
+    private fun predatesAttribution(episodeId: Long): Boolean {
+        val episode = episodeRepository.findByIdOrNull(episodeId) ?: return false
+        val earliest = llmCallRepository.earliestAttributedStart() ?: return true
+        return episode.generatedAt < earliest
+    }
+
+    private fun stagesFor(scope: LlmCallScope): List<StageLatencyResponse> {
+        val measured = llmCallRepository.latencyPercentiles(scope).associateBy { it.stage }
+        return PipelineStage.entries.map { stage ->
             val latency = measured[stage.value]
             StageLatencyResponse(
                 stage = stage.value,
@@ -36,6 +81,5 @@ class LlmCallLatencyService(
                 timeoutMs = stage.timeout(appProperties.llm.timeouts).toMillis()
             )
         }
-        return LlmCallLatencyResponse(since = since.toString(), stages = stages)
     }
 }

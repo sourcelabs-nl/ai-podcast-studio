@@ -104,7 +104,7 @@ class EpisodeScoringService(
         // archive at once, and letting one unreadable script abort the run would throw away every
         // episode after it along with the calls already paid for.
         val judgement = try {
-            scriptJudge.judge(episode.scriptText, podcast.userId, evalModel)
+            scriptJudge.judge(episode.scriptText, podcast.userId, evalModel, episode.id)
         } catch (e: CancellationException) {
             // Cancellation is the caller unwinding, not a script the judge could not read.
             throw e

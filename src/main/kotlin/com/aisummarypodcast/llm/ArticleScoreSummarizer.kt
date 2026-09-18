@@ -59,10 +59,10 @@ class ArticleScoreSummarizer(
         articles: List<Article>,
         podcast: Podcast,
         filterModelDef: ResolvedModel,
-        sourceLabels: Map<String, String> = emptyMap(),
+        context: ScoringContext = ScoringContext(),
         onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> }
     ): List<Article> {
-        val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef)
+        val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef, episodeId = context.episodeId)
         val model = filterModelDef.model
         val semaphore = Semaphore(scoringProperties.concurrency)
         val retry = retryRegistry.retry("article-scoring")
@@ -76,7 +76,7 @@ class ArticleScoreSummarizer(
                 articles.map { article ->
                     async {
                         semaphore.withPermit {
-                            val sourceLabel = sourceLabels[article.sourceId]
+                            val sourceLabel = context.sourceLabels[article.sourceId]
                             log.info("[LLM] Scoring and summarizing article {}: '{}' (source: {})", article.id, article.title, sourceLabel ?: article.sourceId)
                             try {
                                 val prompt = buildPrompt(article, podcast)
@@ -131,7 +131,7 @@ class ArticleScoreSummarizer(
                                     updated
                                 }
                             } catch (e: Exception) {
-                                log.error("[LLM] Error scoring/summarizing article '{}' (source: {}): {}", article.title, sourceLabels[article.sourceId] ?: article.sourceId, e.message, e)
+                                log.error("[LLM] Error scoring/summarizing article '{}' (source: {}): {}", article.title, context.sourceLabels[article.sourceId] ?: article.sourceId, e.message, e)
                                 null
                             } finally {
                                 val done = completed.incrementAndGet()

@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Test
 import org.springframework.dao.DataAccessResourceFailureException
@@ -64,5 +65,19 @@ class LlmCallLogServiceTest {
         assertDoesNotThrow { service.record(record) }
 
         verify { repository.save(any<LlmCall>()) }
+    }
+
+    @Test
+    fun `the episode reaches the row, and its absence is written as no episode`() {
+        val saved = slot<LlmCall>()
+        every { repository.save(capture(saved)) } answers { saved.captured }
+
+        service.record(record.copy(episodeId = 224))
+        assertEquals(224L, saved.captured.episodeId)
+
+        service.record(record)
+        assertNull(saved.captured.episodeId)
+        assertEquals("compose", saved.captured.stage)
+        assertEquals(1500L, saved.captured.durationMs)
     }
 }

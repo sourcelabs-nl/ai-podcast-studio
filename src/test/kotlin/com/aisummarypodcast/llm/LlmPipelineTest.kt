@@ -174,7 +174,7 @@ class LlmPipelineTest {
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns listOf(unlinkedPost)
         every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
-        coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) } returns listOf(scored)
+        coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, ScoringContext(mapOf("s1" to "example.com/feed")), any()) } returns listOf(scored)
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns listOf(scored)
         every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
         coEvery { topicDedupFilter.filter(listOf(scored), EpisodeHistory.EMPTY, "u1", filterModelDef) } returns
@@ -188,7 +188,7 @@ class LlmPipelineTest {
             assertEquals("Today in tech...", result!!.script)
 
             verify { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) }
-            coVerify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) }
+            coVerify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, ScoringContext(mapOf("s1" to "example.com/feed")), any()) }
         }
     }
 
@@ -541,13 +541,13 @@ class LlmPipelineTest {
         every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
-        coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) } returns
+        coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, ScoringContext(mapOf("s1" to "example.com/feed"))) } returns
             listOf(createdArticle.copy(relevanceScore = 7))
 
         pipeline.scoreReadySources(podcast)
 
         verify { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) }
-        coVerify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) }
+        coVerify { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, ScoringContext(mapOf("s1" to "example.com/feed"))) }
     }
 
     @Test

@@ -57,7 +57,7 @@ class EpisodeScoringServiceTest {
         every { repository.findByEpisodeIdAndScorerVersion(7L, any()) } returns null
         every { modelResolver.resolve(podcast, PipelineStage.EVAL) } returns
             ResolvedModel("openrouter", "judge-model", null, PipelineStage.EVAL)
-        coEvery { scriptJudge.judge(any(), "user-1", any()) } returns
+        coEvery { scriptJudge.judge(any(), "user-1", any(), 7L) } returns
             ScriptJudgement(anchors, TokenUsage(100, 20), 1)
         every { repository.save(any<EpisodeScore>()) } answers { firstArg() }
     }
@@ -167,7 +167,7 @@ class EpisodeScoringServiceTest {
     @Test
     fun `a script the judge cannot answer for is skipped, not fatal`() = runTest {
         stubJudgeReturning(weakAnchors)
-        coEvery { scriptJudge.judge(any(), any(), any()) } throws
+        coEvery { scriptJudge.judge(any(), any(), any(), 7L) } throws
             IllegalStateException("Judge returned no parseable anchors")
         val service = serviceWith(JudgeMode.ADVISE)
 

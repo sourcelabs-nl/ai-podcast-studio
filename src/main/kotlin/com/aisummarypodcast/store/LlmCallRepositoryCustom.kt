@@ -13,8 +13,42 @@ data class LlmCallLatency(
     val p99Ms: Long?
 )
 
+/** One recorded request, as listed for a single episode. */
+data class LlmCallRow(
+    val startedAt: String,
+    val stage: String,
+    val model: String,
+    val durationMs: Long,
+    val outcome: String,
+    val cacheHit: Boolean
+)
+
+/**
+ * Which requests a latency read covers.
+ *
+ * An [episodeId] and a [cutoff] are alternatives rather than filters that combine. An episode is a
+ * bounded set of requests rather than a period, so intersecting it with a window could only hide
+ * some of its requests and would make the answer depend on when the page was opened.
+ */
+data class LlmCallScope(
+    val cutoff: String? = null,
+    val episodeId: Long? = null
+)
+
 interface LlmCallRepositoryCustom {
-    fun latencyPercentilesSince(cutoff: String): List<LlmCallLatency>
+    fun latencyPercentiles(scope: LlmCallScope): List<LlmCallLatency>
+
+    /** Every recorded request of one episode, newest first, including cached and failed ones. */
+    fun requestsForEpisode(episodeId: Long): List<LlmCallRow>
+
+    /**
+     * The start time of the earliest request that names an episode, or null when no request does.
+     *
+     * This is what separates an episode that issued nothing from one generated before requests
+     * carried an episode at all: below this point no row could have been attributed. Derived rather
+     * than configured, so there is no deploy-time constant to keep correct.
+     */
+    fun earliestAttributedStart(): String?
 }
 
 /**
@@ -22,26 +56,28 @@ interface LlmCallRepositoryCustom {
  * rows into the JVM, and they are exact rather than sketched: at this table's volume an exact answer
  * is affordable, and a timeout decision should not rest on an approximation nobody can check.
  *
- * Only successful, non-cached rows qualify. A cache hit performed no request, and a failed call
- * reports the time until it failed, which for a timeout is the timeout itself: counting either would
- * describe the application rather than the provider.
+ * Only successful, non-cached rows qualify for the percentiles. A cache hit performed no request,
+ * and a failed call reports the time until it failed, which for a timeout is the timeout itself:
+ * counting either would describe the application rather than the provider. The per-episode request
+ * list includes both, because it describes what the episode did rather than what the provider's
+ * latency was.
  */
 @Repository
 class LlmCallRepositoryCustomImpl(
     private val jdbcClient: JdbcClient
 ) : LlmCallRepositoryCustom {
 
-    override fun latencyPercentilesSince(cutoff: String): List<LlmCallLatency> {
+    override fun latencyPercentiles(scope: LlmCallScope): List<LlmCallLatency> {
         val stages = jdbcClient.sql(
             """
             SELECT stage, COUNT(*) AS samples
             FROM llm_calls
-            WHERE started_at >= :cutoff AND cache_hit = 0 AND outcome = 'ok'
+            WHERE cache_hit = 0 AND outcome = 'ok' ${scope.sqlCondition()}
             GROUP BY stage
             ORDER BY stage
             """.trimIndent()
         )
-            .param("cutoff", cutoff)
+            .bind(scope)
             .query { rs, _ -> rs.getString("stage") to rs.getInt("samples") }
             .list()
 
@@ -49,36 +85,71 @@ class LlmCallRepositoryCustomImpl(
             LlmCallLatency(
                 stage = stage,
                 samples = samples,
-                p50Ms = percentile(stage, cutoff, samples, 50),
-                p90Ms = percentile(stage, cutoff, samples, 90),
-                p95Ms = percentile(stage, cutoff, samples, 95),
-                p99Ms = percentile(stage, cutoff, samples, 99)
+                p50Ms = percentile(stage, scope, samples, 50),
+                p90Ms = percentile(stage, scope, samples, 90),
+                p95Ms = percentile(stage, scope, samples, 95),
+                p99Ms = percentile(stage, scope, samples, 99)
             )
         }
     }
 
+    override fun requestsForEpisode(episodeId: Long): List<LlmCallRow> =
+        jdbcClient.sql(
+            """
+            SELECT started_at, stage, model, duration_ms, outcome, cache_hit
+            FROM llm_calls
+            WHERE episode_id = :episodeId
+            ORDER BY started_at DESC, id DESC
+            """.trimIndent()
+        )
+            .param("episodeId", episodeId)
+            .query { rs, _ ->
+                LlmCallRow(
+                    startedAt = rs.getString("started_at"),
+                    stage = rs.getString("stage"),
+                    model = rs.getString("model"),
+                    durationMs = rs.getLong("duration_ms"),
+                    outcome = rs.getString("outcome"),
+                    cacheHit = rs.getBoolean("cache_hit")
+                )
+            }
+            .list()
+
+    override fun earliestAttributedStart(): String? =
+        jdbcClient.sql("SELECT MIN(started_at) FROM llm_calls WHERE episode_id IS NOT NULL")
+            .query(String::class.java)
+            .optional()
+            .orElse(null)
+
     /**
      * Nearest-rank: the smallest duration at or below which [percentile] percent of the samples fall.
      * The rank is clamped to the last row so that p99 of a handful of samples is the slowest of them
-     * rather than an offset past the end.
+     * rather than an offset past the end. For one episode that is the common case rather than an
+     * edge: a stage issues a handful of requests, so p99 is the slowest observed one.
      */
-    private fun percentile(stage: String, cutoff: String, samples: Int, percentile: Int): Long? {
+    private fun percentile(stage: String, scope: LlmCallScope, samples: Int, percentile: Int): Long? {
         if (samples == 0) return null
         val rank = Math.ceil(samples * percentile / 100.0).toInt().coerceIn(1, samples)
         return jdbcClient.sql(
             """
             SELECT duration_ms
             FROM llm_calls
-            WHERE started_at >= :cutoff AND cache_hit = 0 AND outcome = 'ok' AND stage = :stage
+            WHERE cache_hit = 0 AND outcome = 'ok' AND stage = :stage ${scope.sqlCondition()}
             ORDER BY duration_ms
             LIMIT 1 OFFSET :offset
             """.trimIndent()
         )
-            .param("cutoff", cutoff)
             .param("stage", stage)
             .param("offset", rank - 1)
+            .bind(scope)
             .query(Long::class.java)
             .optional()
             .orElse(null)
     }
+
+    private fun LlmCallScope.sqlCondition(): String =
+        if (episodeId != null) "AND episode_id = :episodeId" else "AND started_at >= :cutoff"
+
+    private fun JdbcClient.StatementSpec.bind(scope: LlmCallScope): JdbcClient.StatementSpec =
+        if (scope.episodeId != null) param("episodeId", scope.episodeId) else param("cutoff", scope.cutoff)
 }

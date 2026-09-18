@@ -25,6 +25,10 @@ import java.time.LocalDate
  * [bypassLlmCache] is set by an evaluation run comparing repetitions of one prompt variant. The
  * LLM cache keys on model and prompt text and ignores temperature, so without it the second and
  * later repetitions replay the first one's script and the comparison measures nothing.
+ *
+ * [episodeId] is the episode being composed, used to attribute the recorded request telemetry. It
+ * travels here rather than as a parameter on every composer because every compose path already
+ * carries this object, and a preview has no episode to name, so it stays null.
  */
 data class ComposeContext(
     val ttsScriptGuidelines: String = "",
@@ -32,5 +36,6 @@ data class ComposeContext(
     val topicLabels: List<String> = emptyList(),
     val episodeDate: LocalDate = LocalDate.now(),
     val nextEpisodeDate: LocalDate? = null,
-    val bypassLlmCache: Boolean = false
+    val bypassLlmCache: Boolean = false,
+    val episodeId: Long? = null
 )

@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { LlmCallLatencyResponse, StageLatency } from "@/lib/types";
+import type {
+  EpisodeLlmCallsResponse,
+  LlmCall,
+  LlmCallLatencyResponse,
+  StageLatency,
+} from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -10,8 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-const WINDOW_DAYS = 7;
 
 /**
  * Stage labels. `filter` is shown as "Scoring" because the cost table above this one already calls
@@ -24,6 +27,10 @@ const STAGE_LABELS: Record<string, string> = {
   compose: "Compose",
   eval: "Eval",
 };
+
+function stageLabel(stage: string): string {
+  return STAGE_LABELS[stage] ?? stage;
+}
 
 /**
  * Durations span three orders of magnitude here: a scoring p50 is hundreds of milliseconds while a
@@ -39,8 +46,18 @@ function formatMs(ms: number | null): string {
   return `${minutes}m ${rest}s`;
 }
 
+function formatTime(startedAt: string): string {
+  const parsed = new Date(startedAt);
+  if (Number.isNaN(parsed.getTime())) return startedAt;
+  return parsed.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function StageRow({ stage }: { stage: StageLatency }) {
-  const label = STAGE_LABELS[stage.stage] ?? stage.stage;
+  const label = stageLabel(stage.stage);
 
   // A stage that issued nothing is shown rather than dropped: an absent row reads as "nothing to
   // worry about here", which is exactly what no data does not tell you.
@@ -49,7 +66,7 @@ function StageRow({ stage }: { stage: StageLatency }) {
       <TableRow>
         <TableCell className="font-medium">{label}</TableCell>
         <TableCell className="text-right text-muted-foreground" colSpan={5}>
-          no requests in this window
+          no requests
         </TableCell>
         <TableCell className="text-right tabular-nums text-muted-foreground">
           {formatMs(stage.timeoutMs)}
@@ -74,17 +91,67 @@ function StageRow({ stage }: { stage: StageLatency }) {
 }
 
 /**
- * Per-request LLM latency, shown against the timeout each stage is configured with.
- *
- * Fetches its own data rather than receiving it from the episode page: these figures cover a window
- * across all episodes and carry no episode attribution, so they must not travel in the episode's
- * data path, and a failure to load them must not affect the rest of the page.
- *
- * It sits on an episode's page while describing a window, so the heading says so. A tab of its own
- * makes that easier to hold onto than a block under the episode's cost table would.
+ * A request's outcome, where anything other than a plain successful call is marked. A cache hit
+ * performed no request and a failure reports the time until it failed, so neither duration next to
+ * them should be read as a provider's latency.
  */
-export function LatencyTab() {
+function RequestOutcome({ request }: { request: LlmCall }) {
+  if (request.cacheHit) {
+    return <span className="text-muted-foreground">cached</span>;
+  }
+  if (request.outcome !== "ok") {
+    return <span className="text-destructive">{request.outcome}</span>;
+  }
+  return <span className="text-muted-foreground">ok</span>;
+}
+
+function RequestList({ requests }: { requests: LlmCall[] }) {
+  return (
+    <Table>
+      <TableHeader className="bg-muted/50">
+        <TableRow>
+          <TableHead>Started</TableHead>
+          <TableHead>Stage</TableHead>
+          <TableHead>Model</TableHead>
+          <TableHead className="text-right">Duration</TableHead>
+          <TableHead className="text-right">Outcome</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {requests.map((request, index) => (
+          <TableRow key={`${request.startedAt}-${index}`}>
+            <TableCell className="tabular-nums text-muted-foreground">
+              {formatTime(request.startedAt)}
+            </TableCell>
+            <TableCell className="font-medium">{stageLabel(request.stage)}</TableCell>
+            <TableCell className="text-muted-foreground">{request.model}</TableCell>
+            <TableCell className="text-right tabular-nums">
+              {request.cacheHit ? "—" : formatMs(request.durationMs)}
+            </TableCell>
+            <TableCell className="text-right">
+              <RequestOutcome request={request} />
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+/**
+ * This episode's LLM request latency, shown against the timeout each stage is configured with, with
+ * the episode's individual requests beneath it.
+ *
+ * Fetches its own data rather than receiving it from the episode page: these figures come from the
+ * request telemetry rather than the episode's own cost accounting, and a failure to load them must
+ * not affect the rest of the page.
+ *
+ * An episode issues a handful of requests per stage, so p99 is the slowest of them rather than a
+ * tail estimate. The list is what answers which request was slow; the percentiles summarize it.
+ */
+export function LatencyTab({ episodeId }: { episodeId: number }) {
   const [latency, setLatency] = useState<LlmCallLatencyResponse | null>(null);
+  const [calls, setCalls] = useState<EpisodeLlmCallsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
@@ -93,21 +160,26 @@ export function LatencyTab() {
 
     async function load() {
       try {
-        const res = await fetch(`/api/llm/calls/latency?days=${WINDOW_DAYS}`);
+        const [latencyRes, callsRes] = await Promise.all([
+          fetch(`/api/llm/calls/latency?episodeId=${episodeId}`),
+          fetch(`/api/llm/calls/episodes/${episodeId}`),
+        ]);
         if (cancelled) return;
-        if (!res.ok) {
+        if (!latencyRes.ok || !callsRes.ok) {
           setFailed(true);
           return;
         }
-        const body = (await res.json()) as LlmCallLatencyResponse;
+        const latencyBody = (await latencyRes.json()) as LlmCallLatencyResponse;
+        const callsBody = (await callsRes.json()) as EpisodeLlmCallsResponse;
         if (cancelled) return;
-        // A 200 carrying an unexpected body would otherwise reach `stages.map` during render and
-        // throw there, taking the whole Costs tab down with it: this block must fail alone.
-        if (!Array.isArray(body?.stages)) {
+        // A 200 carrying an unexpected body would otherwise reach `.map` during render and throw
+        // there, taking the whole page down with it: this block must fail alone.
+        if (!Array.isArray(latencyBody?.stages) || !Array.isArray(callsBody?.requests)) {
           setFailed(true);
           return;
         }
-        setLatency(body);
+        setLatency(latencyBody);
+        setCalls(callsBody);
       } catch {
         if (!cancelled) setFailed(true);
       } finally {
@@ -119,44 +191,77 @@ export function LatencyTab() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [episodeId]);
 
-  return (
-    <div className="space-y-2">
-      <div>
+  if (loading) {
+    return <p className="text-sm text-muted-foreground italic">Loading latency…</p>;
+  }
+
+  if (failed) {
+    return <p className="text-sm text-destructive">Could not load LLM request latency.</p>;
+  }
+
+  if (calls?.predatesAttribution) {
+    return (
+      <div className="space-y-2">
         <h3 className="text-sm font-semibold">LLM request latency</h3>
-        <p className="text-xs text-muted-foreground">
-          Per-request timings across all episodes over the last {WINDOW_DAYS} days, not this episode.
-          Cache hits and failed requests are excluded.
+        <p className="text-sm text-muted-foreground">
+          This episode was generated before requests recorded which episode they belonged to, so
+          none of its requests can be shown. Episodes generated from now on will have them.
         </p>
       </div>
+    );
+  }
 
-      {loading && <p className="text-sm text-muted-foreground italic">Loading latency…</p>}
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div>
+          <h3 className="text-sm font-semibold">LLM request latency</h3>
+          <p className="text-xs text-muted-foreground">
+            Per-request timings for this episode, against each stage&apos;s configured timeout. Cache
+            hits and failed requests are excluded from the percentiles.
+          </p>
+        </div>
 
-      {!loading && failed && (
-        <p className="text-sm text-destructive">Could not load LLM request latency.</p>
-      )}
+        {latency && (
+          <Table>
+            <TableHeader className="bg-muted/50">
+              <TableRow>
+                <TableHead>Stage</TableHead>
+                <TableHead className="text-right">Requests</TableHead>
+                <TableHead className="text-right">p50</TableHead>
+                <TableHead className="text-right">p90</TableHead>
+                <TableHead className="text-right">p95</TableHead>
+                <TableHead className="text-right">p99</TableHead>
+                <TableHead className="text-right">Timeout</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {latency.stages.map((stage) => (
+                <StageRow key={stage.stage} stage={stage} />
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
-      {!loading && !failed && latency && (
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead>Stage</TableHead>
-              <TableHead className="text-right">Requests</TableHead>
-              <TableHead className="text-right">p50</TableHead>
-              <TableHead className="text-right">p90</TableHead>
-              <TableHead className="text-right">p95</TableHead>
-              <TableHead className="text-right">p99</TableHead>
-              <TableHead className="text-right">Timeout</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {latency.stages.map((stage) => (
-              <StageRow key={stage.stage} stage={stage} />
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      <div className="space-y-2">
+        <div>
+          <h3 className="text-sm font-semibold">Requests</h3>
+          <p className="text-xs text-muted-foreground">
+            Every request this episode issued, newest first, including cache hits and failures.
+          </p>
+        </div>
+
+        {calls && calls.requests.length > 0 ? (
+          <RequestList requests={calls.requests} />
+        ) : (
+          <p className="text-sm text-muted-foreground italic">
+            This episode issued no recorded requests.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

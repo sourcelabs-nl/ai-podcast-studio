@@ -93,7 +93,8 @@ class TopicDedupFilter(
         candidates: List<Article>,
         history: EpisodeHistory,
         userId: String,
-        modelDef: ResolvedModel
+        modelDef: ResolvedModel,
+        episodeId: Long? = null
     ): DedupFilterResult {
         if (candidates.isEmpty()) {
             return DedupFilterResult(emptyList(), TokenUsage(0, 0))
@@ -101,7 +102,7 @@ class TopicDedupFilter(
 
         log.info("[Dedup] Filtering {} candidates against {} historical articles and {} covered topic(s)",
             candidates.size, history.articles.size, history.coveredTopics.size)
-        val chatClient = chatClientFactory.createForModel(userId, modelDef)
+        val chatClient = chatClientFactory.createForModel(userId, modelDef, episodeId = episodeId)
         val prompt = buildPrompt(candidates, history)
 
         val outputTokenBudget = dedupOutputTokenBudget(candidates.size)

@@ -14,6 +14,10 @@ import org.springframework.data.relational.core.mapping.Table
  *
  * [cacheHit] rows performed no network request and [outcome] `error` rows report the time until the
  * failure (a timeout reports the timeout), so both are excluded when latency is read back.
+ *
+ * [episodeId] is the episode the request was issued for. It is null for requests issued outside a
+ * generation, such as a preview or ad-hoc source scoring, and for every row written before the
+ * column existed.
  */
 @Table("llm_calls")
 data class LlmCall(
@@ -29,5 +33,6 @@ data class LlmCall(
     val cacheHit: Boolean,
     val outcome: String,
     val errorType: String? = null,
+    val episodeId: Long? = null,
     @Version val version: Long? = null
 )

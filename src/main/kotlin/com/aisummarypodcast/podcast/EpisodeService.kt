@@ -241,7 +241,7 @@ class EpisodeService(
     private suspend fun generateAndStoreRecap(episode: Episode, podcast: Podcast, topicLabels: List<String> = emptyList()): Episode {
         return try {
             val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
-            val recapResult = episodeRecapGenerator.generate(episode.scriptText, podcast, filterModelDef, topicLabels)
+            val recapResult = episodeRecapGenerator.generate(episode.scriptText, podcast, filterModelDef, topicLabels, episode.id)
             val withStages = episode.copy(
                 recap = recapResult.recap,
                 recapInputTokens = recapResult.usage.inputTokens,

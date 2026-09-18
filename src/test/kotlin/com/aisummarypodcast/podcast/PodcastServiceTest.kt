@@ -219,7 +219,7 @@ class PodcastServiceTest {
         // The re-run must not satisfy today's cron slot, hence updateLastGenerated = false.
         every { episodeService.createGeneratingEpisode(podcast, window, false) } returns rerun
         every { episodeService.updatePipelineStage(any(), any()) } returns Unit
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, any()) } returns null
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 206L, any()) } returns null
         every { episodeService.deleteGeneratingEpisode(any()) } returns Unit
 
         val result = podcastService.rerunEpisodeAsync(discarded, podcast)
@@ -263,12 +263,12 @@ class PodcastServiceTest {
         every { episodeService.resetForRetry(failed) } returns failed
         every { episodeService.updatePipelineStage(any(), any()) } returns Unit
         every { episodeService.failEpisode(any(), any(), any()) } returns failed
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, any()) } returns null
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 191L, any()) } returns null
 
         podcastService.retryEpisode(failed, podcast)
 
         // The retry runs in the background, so the call is awaited rather than asserted inline.
-        coVerify(timeout = 2_000) { llmPipeline.aggregateScoreAndFilter(podcast, window, any()) }
+        coVerify(timeout = 2_000) { llmPipeline.aggregateScoreAndFilter(podcast, window, 191L, any()) }
     }
 
     @Test
@@ -335,7 +335,8 @@ class PodcastServiceTest {
             llmPipeline.recompose(
                 listOf(article), podcast,
                 ComposeContext(
-                    topicLabels = listOf("Topic"), episodeDate = episodeDate, bypassLlmCache = true
+                    topicLabels = listOf("Topic"), episodeDate = episodeDate, bypassLlmCache = true,
+                    episodeId = 192L
                 ),
                 any()
             )
@@ -368,7 +369,7 @@ class PodcastServiceTest {
         coVerify(timeout = 5000) {
             llmPipeline.recompose(
                 listOf(article), podcast,
-                ComposeContext(followUpAnnotations = annotations, topicLabels = listOf("Topic"), episodeDate = episodeDate),
+                ComposeContext(followUpAnnotations = annotations, topicLabels = listOf("Topic"), episodeDate = episodeDate, episodeId = 192L),
                 any()
             )
         }

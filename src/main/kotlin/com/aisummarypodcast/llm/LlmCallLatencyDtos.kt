@@ -12,7 +12,35 @@ data class StageLatencyResponse(
     val timeoutMs: Long
 )
 
+/**
+ * [since] is the start of the window the percentiles cover, and is null when they cover one
+ * episode: an episode is a bounded set of requests rather than a period.
+ */
 data class LlmCallLatencyResponse(
-    val since: String,
+    val since: String?,
     val stages: List<StageLatencyResponse>
+)
+
+/** One recorded request of an episode. */
+data class LlmCallResponse(
+    val startedAt: String,
+    val stage: String,
+    val model: String,
+    val durationMs: Long,
+    val outcome: String,
+    val cacheHit: Boolean
+)
+
+/**
+ * One episode's individual requests.
+ *
+ * [predatesAttribution] is true when the episode was generated before requests recorded which
+ * episode they belonged to. Such an episode has no requests and never will, which is a fact about
+ * the records rather than about the episode, and an empty list alone cannot say which of the two
+ * it is.
+ */
+data class EpisodeLlmCallsResponse(
+    val episodeId: Long,
+    val predatesAttribution: Boolean,
+    val requests: List<LlmCallResponse>
 )
