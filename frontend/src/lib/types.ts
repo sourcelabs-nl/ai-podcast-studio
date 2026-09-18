@@ -337,3 +337,30 @@ export interface EvaluationRun {
   cacheHit: boolean;
   toolsFiredJson: string;
 }
+
+/**
+ * Latency percentiles for one pipeline stage, in milliseconds. Mirrors backend
+ * `StageLatencyResponse`.
+ *
+ * The percentiles are null when the stage issued no qualifying requests in the window;
+ * `samples` says how many requests they rest on.
+ */
+export interface StageLatency {
+  stage: string;
+  samples: number;
+  p50Ms: number | null;
+  p90Ms: number | null;
+  p95Ms: number | null;
+  p99Ms: number | null;
+  timeoutMs: number;
+}
+
+/**
+ * Per-request LLM latency over a rolling window across all episodes. Mirrors backend
+ * `LlmCallLatencyResponse`. Carries no episode attribution: the figures describe the window,
+ * never the episode they may be displayed next to.
+ */
+export interface LlmCallLatencyResponse {
+  since: string;
+  stages: StageLatency[];
+}

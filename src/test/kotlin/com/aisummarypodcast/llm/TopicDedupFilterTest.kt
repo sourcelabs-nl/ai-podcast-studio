@@ -54,7 +54,7 @@ class TopicDedupFilterTest {
             article(2, "Claude 4 Announced")
         )
 
-        val prompt = filter.buildPrompt(candidates, emptyList())
+        val prompt = filter.buildPrompt(candidates, EpisodeHistory.EMPTY)
 
         assertTrue(prompt.contains("1. [example.com] GPT-5 Released"))
         assertTrue(prompt.contains("2. [example.com] Claude 4 Announced"))
@@ -65,7 +65,7 @@ class TopicDedupFilterTest {
         val candidates = listOf(article(1, "New Article"))
         val historical = listOf(article(10, "Old Article", "Old summary"))
 
-        val prompt = filter.buildPrompt(candidates, historical)
+        val prompt = filter.buildPrompt(candidates, EpisodeHistory(historical, emptyList()))
 
         assertTrue(prompt.contains("Historical articles from recent episodes"))
         assertTrue(prompt.contains("- [example.com] Old Article"))
@@ -78,7 +78,7 @@ class TopicDedupFilterTest {
         val longTitle = "X".repeat(500)
         val historical = listOf(article(10, longTitle, "Old summary"))
 
-        val prompt = filter.buildPrompt(listOf(article(1, "New Article")), historical)
+        val prompt = filter.buildPrompt(listOf(article(1, "New Article")), EpisodeHistory(historical, emptyList()))
 
         // The full 500-char title must not appear; it is truncated with an ellipsis.
         assertTrue(!prompt.contains(longTitle))
@@ -89,14 +89,14 @@ class TopicDedupFilterTest {
     fun `buildPrompt excludes historical section when no historical articles`() {
         val candidates = listOf(article(1, "New Article"))
 
-        val prompt = filter.buildPrompt(candidates, emptyList())
+        val prompt = filter.buildPrompt(candidates, EpisodeHistory.EMPTY)
 
         assertTrue(!prompt.contains("Historical articles from recent episodes"))
     }
 
     @Test
     fun `buildPrompt includes dedup rules`() {
-        val prompt = filter.buildPrompt(listOf(article(1, "Test")), emptyList())
+        val prompt = filter.buildPrompt(listOf(article(1, "Test")), EpisodeHistory.EMPTY)
 
         assertTrue(prompt.contains("CONTINUATION"))
         assertTrue(prompt.contains("NEW"))
@@ -462,5 +462,35 @@ class TopicDedupFilterTest {
         val result = filter.parseOrSalvage(raw, listOf(article(1, "A"), article(2, "B")))
 
         assertEquals(2, result.clusters.size)
+    }
+
+    // --- Covered topics (episode 222's repeated DeepSeek release) ---
+
+    @Test
+    fun `buildPrompt includes the topics recent episodes covered`() {
+        val history = EpisodeHistory(
+            articles = emptyList(),
+            coveredTopics = listOf("DeepSeek v4.1 Flash vs GLM 5.3 Flash comparison", "Gemini 3.8 Live")
+        )
+
+        val prompt = filter.buildPrompt(listOf(article(1, "DeepSeek KV cache report")), history)
+
+        assertTrue(prompt.contains("Topics already covered in recent episodes"))
+        assertTrue(prompt.contains("- DeepSeek v4.1 Flash vs GLM 5.3 Flash comparison"))
+        assertTrue(prompt.contains("- Gemini 3.8 Live"))
+    }
+
+    @Test
+    fun `buildPrompt excludes the covered-topics section when there are none`() {
+        val prompt = filter.buildPrompt(listOf(article(1, "New Article")), EpisodeHistory.EMPTY)
+
+        assertTrue(!prompt.contains("Topics already covered in recent episodes"))
+    }
+
+    @Test
+    fun `buildPrompt tells the model a fresh analysis of a covered release is a continuation`() {
+        val prompt = filter.buildPrompt(listOf(article(1, "Test")), EpisodeHistory.EMPTY)
+
+        assertTrue(prompt.contains("is a CONTINUATION, not a NEW release"))
     }
 }

@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 private data class ChunkWork(val voiceId: String, val text: String)
 
-private data class SynthesisOutput(val audio: List<ByteArray>, val characters: Int)
+private data class SynthesisOutput(val audio: List<AudioChunk>, val characters: Int)
 
 @Component
 class InworldTtsProvider(
@@ -119,7 +119,6 @@ class InworldTtsProvider(
         return TtsResult(
             audioChunks = audioChunks.audio,
             totalCharacters = audioChunks.characters,
-            requiresConcatenation = chunks.size > 1,
             model = modelId
         )
     }
@@ -149,7 +148,6 @@ class InworldTtsProvider(
         return TtsResult(
             audioChunks = audioChunks.audio,
             totalCharacters = audioChunks.characters,
-            requiresConcatenation = audioChunks.audio.size > 1,
             model = modelId
         )
     }
@@ -179,7 +177,7 @@ class InworldTtsProvider(
                         val response = synthesizeWithRetry(request.userId, chunk.voiceId, chunk.text, modelId, chunkOptions)
                         totalCharacters.addAndGet(response.processedCharactersCount)
                         request.progress?.onChunkCompleted(completed.incrementAndGet(), work.size)
-                        Base64.getDecoder().decode(response.audioContent)
+                        AudioChunk(chunk.voiceId, Base64.getDecoder().decode(response.audioContent))
                     }
                 }
             }.awaitAll()

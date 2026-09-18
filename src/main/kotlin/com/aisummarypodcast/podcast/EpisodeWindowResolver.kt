@@ -68,6 +68,41 @@ class EpisodeWindowResolver(
     fun episodeDateOf(podcast: Podcast, window: EpisodeWindow): LocalDate =
         LocalDate.ofInstant(window.end, zoneOf(podcast))
 
+    /**
+     * The day the next episode after [episodeDate] is scheduled for, or null when the cron is
+     * unparseable or fires no further slot within [NEXT_SLOT_SEARCH_DAYS].
+     *
+     * The compose prompt uses this to state when the show is back. Without it the model invents a
+     * return promise, and a weekday cron ("0 0 15 * * MON-FRI") signed off with "we'll be back next
+     * week" on a Wednesday. The search walks forward from the start of [episodeDate] and keeps the
+     * first slot landing on a later day, so a cron with several slots per day still yields the next
+     * distinct episode day rather than the same day again.
+     */
+    fun nextEpisodeDateAfter(podcast: Podcast, episodeDate: LocalDate): LocalDate? {
+        val cron = parseCron(podcast, "The script will not state when the show is back") ?: return null
+
+        // The walk is deliberately zone-naive, unlike previousSlot: [episodeDate] was already read
+        // in the podcast's zone upstream (episodeDateOf), and the cron's own fields are local time,
+        // so comparing local dates keeps both sides in that same zone. Converting here would apply
+        // the zone a second time and could shift the answer by a day.
+        val limit = episodeDate.plusDays(NEXT_SLOT_SEARCH_DAYS)
+        var cursor = episodeDate.atStartOfDay()
+        var steps = 0
+        while (steps++ < MAX_SLOT_STEPS) {
+            val next = cron.next(cursor) ?: break
+            val nextDate = next.toLocalDate()
+            if (nextDate.isAfter(limit)) break
+            if (nextDate.isAfter(episodeDate)) return nextDate
+            cursor = next
+        }
+
+        log.warn(
+            "[Window] Cron '{}' of podcast '{}' ({}) has no slot in the {} days after {}",
+            podcast.cron, podcast.name, podcast.id, NEXT_SLOT_SEARCH_DAYS, episodeDate
+        )
+        return null
+    }
+
     /** The window for the scheduled slot at [windowEnd]. */
     fun resolve(podcast: Podcast, windowEnd: Instant): EpisodeWindow {
         val floor = windowEnd.minus(maxWindowDays(podcast), ChronoUnit.DAYS)
@@ -98,6 +133,22 @@ class EpisodeWindowResolver(
     }
 
     /**
+     * The podcast's cron, or null when it cannot be parsed. [consequence] completes the warning with
+     * what the caller does instead, so one unreadable cron is reported the same way wherever it is
+     * read.
+     */
+    private fun parseCron(podcast: Podcast, consequence: String): CronExpression? =
+        try {
+            CronExpression.parse(podcast.cron)
+        } catch (e: Exception) {
+            log.warn(
+                "[Window] Invalid cron '{}' for podcast '{}' ({}): {}. {}",
+                podcast.cron, podcast.name, podcast.id, e.message, consequence
+            )
+            null
+        }
+
+    /**
      * The podcast's timezone, falling back to UTC when it is unparseable. Shared so the scheduler
      * and the window agree on which zone the cron is read in.
      */
@@ -122,15 +173,7 @@ class EpisodeWindowResolver(
      */
     private fun previousSlot(podcast: Podcast, windowEnd: Instant, floor: Instant): Instant {
         val zone = zoneOf(podcast)
-        val cron = try {
-            CronExpression.parse(podcast.cron)
-        } catch (e: Exception) {
-            log.warn(
-                "[Window] Invalid cron '{}' for podcast '{}' ({}): {}. Using the {}-day cap as the window start",
-                podcast.cron, podcast.name, podcast.id, e.message, maxWindowDays(podcast)
-            )
-            return floor
-        }
+        val cron = parseCron(podcast, "Using the ${maxWindowDays(podcast)}-day cap as the window start") ?: return floor
 
         val endLocal = LocalDateTime.ofInstant(windowEnd, zone)
         var cursor = LocalDateTime.ofInstant(floor, zone)
@@ -157,6 +200,10 @@ class EpisodeWindowResolver(
         // The slots inside the cap are enumerated forward, so a cron firing every minute over a
         // multi-day cap would otherwise walk thousands of steps on every scheduler tick.
         const val MAX_SLOT_STEPS = 1_000
+
+        // How far ahead a next slot is looked for. A cron that fires less often than this (say,
+        // monthly) gets no "we're back on ..." line rather than one promising a date a month out.
+        const val NEXT_SLOT_SEARCH_DAYS = 14L
     }
 
     /**

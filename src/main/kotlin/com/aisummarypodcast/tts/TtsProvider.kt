@@ -37,10 +37,21 @@ data class TtsRequest(
     }
 }
 
+/**
+ * One synthesized audio segment, tagged with the voice that produced it so that the concatenator
+ * can level each voice separately. Providers that mix several speakers into one segment (ElevenLabs
+ * dialogue batches) tag every such segment with [MIXED_VOICE]: the provider has already balanced the
+ * speakers within the segment, so the segments are levelled together rather than individually.
+ */
+class AudioChunk(val voiceId: String, val bytes: ByteArray) {
+    companion object {
+        const val MIXED_VOICE = "__mixed__"
+    }
+}
+
 data class TtsResult(
-    val audioChunks: List<ByteArray>,
+    val audioChunks: List<AudioChunk>,
     val totalCharacters: Int,
-    val requiresConcatenation: Boolean,
     val model: String
 )
 

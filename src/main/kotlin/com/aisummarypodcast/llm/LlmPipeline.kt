@@ -251,11 +251,11 @@ class LlmPipeline(
 
         onProgress("deduplicating", mapOf("articleCount" to eligible.size))
 
-        val historicalArticles = articleEligibilityService.findHistoricalArticles(podcast)
+        val history = articleEligibilityService.findHistory(podcast)
         // Dedup retries internally (see TopicDedupFilter). If it still fails, we deliberately let the
         // exception propagate to fail the episode rather than silently composing un-deduped articles —
         // skipping dedup can produce a low-quality episode that repeats recently-covered topics.
-        val dedupResult = topicDedupFilter.filter(eligible, historicalArticles, podcast.userId, dedupModelDef)
+        val dedupResult = topicDedupFilter.filter(eligible, history, podcast.userId, dedupModelDef)
 
         if (dedupResult.filteredArticles.isEmpty()) {
             log.info("[LLM] All articles filtered as duplicates for podcast '{}' ({}) — skipping briefing generation", podcast.name, podcast.id)
@@ -361,7 +361,8 @@ class LlmPipeline(
 
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         val composeContext = context.copy(
-            ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
+            ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
+            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate)
         )
 
         // Retried only on a transient provider fault (see the `compose` instance): an invalid or
@@ -467,7 +468,8 @@ class LlmPipeline(
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         val composeContext = context.copy(
-            ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap())
+            ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
+            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate)
         )
 
         onProgress("composing", mapOf("articleCount" to articles.size))
@@ -569,10 +571,10 @@ class LlmPipeline(
         onProgress("deduplicating", mapOf("articleCount" to eligible.size))
 
         val dedupModelDef = modelResolver.resolve(podcast, PipelineStage.DEDUP)
-        val historicalArticles = articleEligibilityService.findHistoricalArticles(podcast)
+        val history = articleEligibilityService.findHistory(podcast)
         // Let a dedup failure surface (the preview controller reports it as an error event) rather
         // than silently previewing un-deduped articles — consistent with the generation path.
-        val dedupResult = topicDedupFilter.filter(eligible, historicalArticles, podcast.userId, dedupModelDef)
+        val dedupResult = topicDedupFilter.filter(eligible, history, podcast.userId, dedupModelDef)
 
         if (dedupResult.filteredArticles.isEmpty()) {
             log.info("[LLM Preview] All articles filtered as duplicates for podcast '{}' ({})", podcast.name, podcast.id)
@@ -589,7 +591,8 @@ class LlmPipeline(
             ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
             followUpAnnotations = followUpAnnotations,
             topicLabels = dedupResult.filteredArticles.mapNotNull { it.topic }.distinct(),
-            episodeDate = episodeDate
+            episodeDate = episodeDate,
+            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, episodeDate)
         )
 
         // Same transient-fault retry as the compose stage above.

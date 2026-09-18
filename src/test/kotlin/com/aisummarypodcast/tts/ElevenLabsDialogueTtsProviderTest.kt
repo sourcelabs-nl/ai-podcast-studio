@@ -31,7 +31,6 @@ class ElevenLabsDialogueTtsProviderTest {
         val result = provider.generate(request)
 
         assertEquals(1, result.audioChunks.size)
-        assertFalse(result.requiresConcatenation)
         assertEquals(15, result.totalCharacters)
 
         verify {
@@ -87,7 +86,7 @@ class ElevenLabsDialogueTtsProviderTest {
     }
 
     @Test
-    fun `short dialogue produces single batch with requiresConcatenation false`() = runTest {
+    fun `short dialogue produces a single batch`() = runTest {
         val shortText = "a".repeat(2000)
         val request = TtsRequest(
             script = "<host>$shortText</host><cohost>$shortText</cohost>",
@@ -102,12 +101,11 @@ class ElevenLabsDialogueTtsProviderTest {
         val result = provider.generate(request)
 
         assertEquals(1, result.audioChunks.size)
-        assertFalse(result.requiresConcatenation)
         verify(exactly = 1) { apiClient.textToDialogue("u1", any(), null) }
     }
 
     @Test
-    fun `long dialogue is split into multiple batches with requiresConcatenation true`() = runTest {
+    fun `long dialogue is split into multiple batches`() = runTest {
         val longText = "a".repeat(3000)
         val request = TtsRequest(
             script = "<host>$longText</host><cohost>$longText</cohost><host>$longText</host>",
@@ -123,7 +121,6 @@ class ElevenLabsDialogueTtsProviderTest {
 
         // 3 turns of 3000 chars each: each turn alone fits in a batch, but no two fit together (6000 > 5000)
         assertEquals(3, result.audioChunks.size)
-        assertTrue(result.requiresConcatenation)
         assertEquals(9000, result.totalCharacters)
         verify(exactly = 3) { apiClient.textToDialogue("u1", any(), null) }
     }

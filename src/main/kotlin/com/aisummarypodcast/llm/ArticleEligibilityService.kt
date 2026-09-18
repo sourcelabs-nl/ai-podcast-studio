@@ -36,20 +36,45 @@ class ArticleEligibilityService(
         val threshold = podcast.relevanceThreshold
         val candidates = articleRepository.findRelevantUnprocessedBySourceIds(sourceIds, threshold)
 
-        val filtered = candidates.filter { article ->
+        val datable = dropEvergreen(candidates)
+
+        val filtered = datable.filter { article ->
             val publishedAt = article.publishedAt?.let { parseInstantOrNull(it) } ?: return@filter true
             !publishedAt.isBefore(window.start) && publishedAt.isBefore(window.end)
         }
 
-        if (filtered.size < candidates.size) {
+        if (filtered.size < datable.size) {
             log.info("[Eligibility] Window {} filtered {} → {} articles for podcast '{}'",
-                window, candidates.size, filtered.size, podcast.name)
+                window, datable.size, filtered.size, podcast.name)
         } else {
             log.info("[Eligibility] Window {} kept all {} candidate articles for podcast '{}'",
-                window, candidates.size, podcast.name)
+                window, datable.size, podcast.name)
         }
 
         return filtered
+    }
+
+    /**
+     * Drops the [NewsType.EVERGREEN] articles, which carry no datable event and so have no place in
+     * an episode about what happened.
+     *
+     * The window filter below cannot do this. An evergreen page's `publishedAt` is the moment
+     * someone submitted the link, not the moment anything happened, so it lands inside every window
+     * it is offered to and looks as fresh as a genuine announcement. Episode 222 read out the
+     * openspec.dev landing page — star count, install line and compatibility list — because nothing
+     * between fetching that page and composing the script could tell it apart from news.
+     *
+     * A null classification is kept, on the same grounds as an article with no `publishedAt`: a
+     * classification we failed to obtain must not silently delete content. That also leaves every
+     * article scored before [NewsType] existed untouched.
+     */
+    private fun dropEvergreen(candidates: List<Article>): List<Article> {
+        val (evergreen, rest) = candidates.partition { NewsType.parse(it.newsType) == NewsType.EVERGREEN }
+        if (evergreen.isEmpty()) return rest
+
+        log.info("[Eligibility] Dropped {} evergreen article(s) with no datable development: {}",
+            evergreen.size, evergreen.joinToString("; ") { "'${it.title}' (${it.url})" })
+        return rest
     }
 
     /**
@@ -74,21 +99,34 @@ class ArticleEligibilityService(
         return !episodeArticleRepository.isArticleLinkedToPublishedEpisode(articleId)
     }
 
-    fun findHistoricalArticles(podcast: Podcast): List<Article> {
+    /**
+     * What the podcast's recent episodes already covered, in both the forms the dedup stage needs.
+     *
+     * One pass over the same episode links yields both: the article rows they point at, and the
+     * dedup cluster labels stored alongside them.
+     */
+    fun findHistory(podcast: Podcast): EpisodeHistory {
         val lookback = podcast.recapLookbackEpisodes ?: appProperties.episode.recapLookbackEpisodes
         val recentEpisodes = episodeRepository.findRecentGeneratedByPodcastId(podcast.id, lookback)
-        if (recentEpisodes.isEmpty()) return emptyList()
+        if (recentEpisodes.isEmpty()) return EpisodeHistory.EMPTY
 
         val allArticles = mutableListOf<Article>()
+        val topics = mutableListOf<String>()
         for (episode in recentEpisodes) {
             val links = episodeArticleRepository.findByEpisodeId(episode.id!!)
             for (link in links) {
                 articleRepository.findByIdOrNull(link.articleId)?.let { allArticles.add(it) }
+                link.topic?.takeIf { it.isNotBlank() }?.let { topics.add(it) }
             }
         }
 
         // Episodes arrive most-recent-first, so capping the deduped list keeps the freshest
         // articles and bounds the dedup prompt regardless of how many articles each episode pulled in.
-        return allArticles.distinctBy { it.id }.take(appProperties.llm.dedup.maxHistoricalArticles)
+        // Topics are not capped the same way: one label per cluster is an order of magnitude fewer
+        // lines than the articles they came from, and a label dropped is a topic the filter forgets.
+        return EpisodeHistory(
+            articles = allArticles.distinctBy { it.id }.take(appProperties.llm.dedup.maxHistoricalArticles),
+            coveredTopics = topics.distinct()
+        )
     }
 }

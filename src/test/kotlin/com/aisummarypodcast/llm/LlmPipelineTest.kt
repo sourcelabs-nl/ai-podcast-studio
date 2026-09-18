@@ -71,6 +71,7 @@ class LlmPipelineTest {
     private val episodeWindowResolver = mockk<EpisodeWindowResolver> {
         every { resolveForNow(any()) } returns window
         every { episodeDateOf(any(), any()) } returns LocalDate.of(2026, 3, 18)
+        every { nextEpisodeDateAfter(any(), any()) } returns LocalDate.of(2026, 3, 19)
     }
 
     private val appProperties = AppProperties(
@@ -107,8 +108,8 @@ class LlmPipelineTest {
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns articles
-        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        coEvery { topicDedupFilter.filter(articles, emptyList(), podcast.userId, filterModelDef) } returns
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
+        coEvery { topicDedupFilter.filter(articles, EpisodeHistory.EMPTY, podcast.userId, filterModelDef) } returns
             DedupFilterResult(articles.map { FilteredArticle(it) }, TokenUsage(100, 50))
     }
 
@@ -175,8 +176,8 @@ class LlmPipelineTest {
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
         coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, mapOf("s1" to "example.com/feed"), any()) } returns listOf(scored)
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns listOf(scored)
-        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        coEvery { topicDedupFilter.filter(listOf(scored), emptyList(), "u1", filterModelDef) } returns
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
+        coEvery { topicDedupFilter.filter(listOf(scored), EpisodeHistory.EMPTY, "u1", filterModelDef) } returns
             DedupFilterResult(listOf(FilteredArticle(scored)), TokenUsage(100, 50))
         coEvery { briefingComposer.compose(listOf(scored), podcast, composeModelDef, any()) } returns compositionResult
 
@@ -199,7 +200,7 @@ class LlmPipelineTest {
         // A degenerating dedup response repeats the same two articles many times over. Without
         // de-duplication these repeats would consume the compose cap and starve the episode.
         val repeated = (1..30).flatMap { eligible.map { article -> FilteredArticle(article) } }
-        coEvery { topicDedupFilter.filter(eligible, emptyList(), "u1", filterModelDef) } returns
+        coEvery { topicDedupFilter.filter(eligible, EpisodeHistory.EMPTY, "u1", filterModelDef) } returns
             DedupFilterResult(repeated, TokenUsage(100, 50))
 
         val composed = slot<List<Article>>()
@@ -222,7 +223,7 @@ class LlmPipelineTest {
         runTest { pipeline.run(podcast) }
 
         verify { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) }
-        verify { articleEligibilityService.findHistoricalArticles(podcast) }
+        verify { articleEligibilityService.findHistory(podcast) }
     }
 
     @Test
@@ -241,8 +242,8 @@ class LlmPipelineTest {
 
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
-        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        coEvery { topicDedupFilter.filter(eligible, emptyList(), "u1", filterModelDef) } returns
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
+        coEvery { topicDedupFilter.filter(eligible, EpisodeHistory.EMPTY, "u1", filterModelDef) } returns
             DedupFilterResult(eligible.map { FilteredArticle(it) }, TokenUsage(100, 50))
 
         runTest {
@@ -282,16 +283,19 @@ class LlmPipelineTest {
 
     @Test
     fun `calls dedup filter with eligible and historical articles`() {
-        val historical = listOf(Article(id = 99, sourceId = "s1", title = "Old", body = "old", url = "http://old.com", contentHash = "h99"))
+        val history = EpisodeHistory(
+            articles = listOf(Article(id = 99, sourceId = "s1", title = "Old", body = "old", url = "http://old.com", contentHash = "h99")),
+            coveredTopics = listOf("An already covered topic")
+        )
         setupBasicPipeline()
-        every { articleEligibilityService.findHistoricalArticles(podcast) } returns historical
-        coEvery { topicDedupFilter.filter(listOf(scoredArticle), historical, "u1", filterModelDef) } returns
+        every { articleEligibilityService.findHistory(podcast) } returns history
+        coEvery { topicDedupFilter.filter(listOf(scoredArticle), history, "u1", filterModelDef) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle)), TokenUsage(100, 50))
         coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest { pipeline.run(podcast) }
 
-        coVerify { topicDedupFilter.filter(listOf(scoredArticle), historical, "u1", filterModelDef) }
+        coVerify { topicDedupFilter.filter(listOf(scoredArticle), history, "u1", filterModelDef) }
     }
 
     @Test
@@ -462,8 +466,8 @@ class LlmPipelineTest {
         val filteredArticle = FilteredArticle(scoredArticle, topic = "AI Safety")
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
-        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
-        coEvery { topicDedupFilter.filter(listOf(scoredArticle), emptyList(), "u1", filterModelDef) } returns
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
+        coEvery { topicDedupFilter.filter(listOf(scoredArticle), EpisodeHistory.EMPTY, "u1", filterModelDef) } returns
             DedupFilterResult(listOf(filteredArticle), TokenUsage(100, 50))
 
         runTest {
@@ -481,7 +485,7 @@ class LlmPipelineTest {
     fun `dedup returns null when all articles filtered`() {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
-        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
         coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(emptyList(), TokenUsage(100, 50))
 
@@ -496,7 +500,7 @@ class LlmPipelineTest {
     fun `dedup propagates exception when filter fails so the episode fails`() {
         every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
         every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
-        every { articleEligibilityService.findHistoricalArticles(podcast) } returns emptyList()
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
         coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } throws
             IllegalStateException("No content to map due to end-of-input")
 

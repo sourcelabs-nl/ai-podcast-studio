@@ -117,6 +117,7 @@ class BriefingComposer(
         val openingDirective = PromptVarietyDescriptors.describe(variety.openingStyle)
         val transitionsDirective = PromptVarietyDescriptors.describe(variety.transitionVocab)
         val signOffDirective = PromptVarietyDescriptors.describe(variety.signOffShape)
+        val nextEpisodeBlock = buildNextEpisodeBlock(podcast.language, context.episodeDate, context.nextEpisodeDate)
 
         return """
             $stylePrompt
@@ -142,7 +143,7 @@ class BriefingComposer(
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise. Use clear verbal signposts and smooth transitions so listeners always know where they are. $transitionsDirective${buildAudienceBlock()}
             - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not every story warrants peak emphasis; reserve the strongest emphasis for the news that truly stands out. This tempers emphasis only, NOT the playful tone from the HUMOR & TONE rule, which applies throughout
-            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$languageInstruction$customInstructionsBlock
+            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$nextEpisodeBlock$languageInstruction$customInstructionsBlock
 
             Article summaries:
             $summaryBlock$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock

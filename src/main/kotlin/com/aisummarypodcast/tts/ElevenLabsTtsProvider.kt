@@ -31,12 +31,13 @@ class ElevenLabsTtsProvider(
         val audioChunks = withContext(Dispatchers.IO) {
             chunks.mapIndexed { index, chunk ->
                 log.info("Generating ElevenLabs TTS chunk {}/{} ({} chars)", index + 1, chunks.size, chunk.length)
-                apiClient.textToSpeech(request.userId, voiceId, chunk, voiceSettings)
-                    .also { request.progress?.onChunkCompleted(index + 1, chunks.size) }
+                val bytes = apiClient.textToSpeech(request.userId, voiceId, chunk, voiceSettings)
+                request.progress?.onChunkCompleted(index + 1, chunks.size)
+                AudioChunk(voiceId, bytes)
             }
         }
 
         // eleven_v3 is dialogue-only; single-speaker TTS uses eleven_flash_v2_5
-        return TtsResult(audioChunks, totalCharacters, requiresConcatenation = chunks.size > 1, model = "eleven_flash_v2_5")
+        return TtsResult(audioChunks, totalCharacters, model = "eleven_flash_v2_5")
     }
 }

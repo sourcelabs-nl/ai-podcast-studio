@@ -3,6 +3,31 @@
 Newest first. Each entry begins with `## [YYYY-MM-DD] <operation>` so recent
 activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
+## [2026-09-17] Record
+
+Measured whether the compose stage should return JSON turns instead of tagged
+free text, after episode 222 shipped with its second half attributed to the wrong
+speaker: [[evals/structured-output-for-scripts]]. Free text malformed its speaker
+tags in three runs out of three; structured output did not, and the truncation
+objection that had been argued against it did not reproduce. Structured output
+loses control of script length instead, which is the axis that carries the TTS
+cost, so it is not adopted yet.
+
+## [2026-09-17] Record
+
+A listener-reported repeat across two consecutive episodes turned out to be one
+statistic carried by two unrelated articles, which article-level dedup cannot
+see. Recorded as a new prompt-rules entry. The base rate is unmeasured: the scan
+that reported none was reading a wrong endpoint and was discarded.
+
+## [2026-09-17] Record
+
+Extended the phoneme-span finding. The per-chunk STABLE guard has not closed the
+literal-read failure in production, and the failure does not reproduce in an
+isolated one-chunk request. The Inworld documentation's English-IPA-only
+constraint is not the cause: a listening comparison judged the existing
+Dutch-vowel dictionary value correct and the English-standard respelling wrong.
+
 ## [2026-09-15] Record
 
 Ran the CURIOSITY HOOKS ablation, the first experiment the cache bypass makes

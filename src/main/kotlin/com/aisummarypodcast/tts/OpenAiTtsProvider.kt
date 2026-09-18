@@ -47,11 +47,11 @@ class OpenAiTtsProvider(
                 log.info("Generating TTS chunk {}/{} ({} chars)", index + 1, chunks.size, chunk.length)
                 val response = speechModel.call(TextToSpeechPrompt(chunk, options))
                 request.progress?.onChunkCompleted(index + 1, chunks.size)
-                response.result.output
+                AudioChunk(voice, response.result.output)
             }
         }
 
-        return TtsResult(audioChunks, totalCharacters, requiresConcatenation = chunks.size > 1, model = "tts-1")
+        return TtsResult(audioChunks, totalCharacters, model = "tts-1")
     }
 
     private fun createSpeechModel(userId: String): OpenAiAudioSpeechModel {

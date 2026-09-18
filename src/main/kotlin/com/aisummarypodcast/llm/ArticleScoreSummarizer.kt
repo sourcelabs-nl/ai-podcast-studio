@@ -26,7 +26,9 @@ import kotlin.math.roundToInt
 data class ScoreSummarizeResult(
     val relevanceScore: Int = 0,
     val summary: String = "",
-    val subtopic: String? = null
+    val subtopic: String? = null,
+    /** A [NewsType] name; see the enum for why the scoring stage is the only place this can be decided. */
+    val newsType: String? = null
 )
 
 @Component
@@ -109,11 +111,13 @@ class ArticleScoreSummarizer(
                                     val score = result?.relevanceScore ?: 0
                                     val summary = result?.summary?.takeIf { it.isNotBlank() }
                                     val subtopic = normalizeSubtopic(result?.subtopic, podcast)
+                                    val newsType = NewsType.parse(result?.newsType)
 
                                     val updated = article.copy(
                                         relevanceScore = score,
                                         summary = summary,
                                         subtopic = subtopic,
+                                        newsType = newsType?.name,
                                         llmInputTokens = (article.llmInputTokens ?: 0) + usage.inputTokens,
                                         llmOutputTokens = (article.llmOutputTokens ?: 0) + usage.outputTokens,
                                         llmCostCents = CostEstimator.addNullableCosts(article.llmCostCents, costCents),
@@ -123,7 +127,7 @@ class ArticleScoreSummarizer(
                                     )
                                     articleRepository.save(updated)
 
-                                    log.info("[LLM] Article '{}' scored {} — summary: {} chars (source: {})", article.title, score, summary?.length ?: 0, sourceLabel ?: article.sourceId)
+                                    log.info("[LLM] Article '{}' scored {} as {} — summary: {} chars (source: {})", article.title, score, newsType ?: "UNCLASSIFIED", summary?.length ?: 0, sourceLabel ?: article.sourceId)
                                     updated
                                 }
                             } catch (e: Exception) {
@@ -197,6 +201,7 @@ class ArticleScoreSummarizer(
 
         val schemaLines = buildString {
             append("- \"relevanceScore\" (integer 0-10)\n")
+            append("- \"newsType\" (exactly one of \"DEVELOPMENT\", \"RETROSPECTIVE\", \"EVERGREEN\")\n")
             if (subtopicsConfigured) {
                 append("- \"subtopic\" (one of the subtopic names listed above, or null if none apply)\n")
             }
@@ -206,9 +211,18 @@ class ArticleScoreSummarizer(
         return """
             You are a relevance scorer and summarizer. Given the topic of interest and content, perform the following:
             1. Rate the content's relevance to the topic on a scale of 0-10
-            2. Summarize the relevant information in $summaryLengthInstruction, filtering out any irrelevant parts
+            2. Classify what the content is in time, as "newsType"
+            3. Summarize the relevant information in $summaryLengthInstruction, filtering out any irrelevant parts
 
-            Write directly about what happened — say "Anthropic launched X" not "The article discusses Anthropic launching X".
+            Classify "newsType" as exactly one of:
+            - "DEVELOPMENT": it reports something that has just happened — a launch, release, announcement, publication, incident or result presented as new.
+            - "RETROSPECTIVE": it analyses, benchmarks, reviews or comments on something that was already released or already known. The analysis itself may be new; the thing it examines is not. Judge this from the content's own words: phrases like "when X was released", "after using it for a while", "revisiting", or a report about an already-shipped product are all RETROSPECTIVE.
+            - "EVERGREEN": it is a landing page, README, documentation or marketing copy describing something that exists, with no datable event in it at all. Star counts, feature lists, install instructions and compatibility tables are not events.
+
+            Write directly about the subject — say "Anthropic launched X", not "The article discusses Anthropic launching X". But never assert an event the content does not report:
+            - For a DEVELOPMENT, state what happened.
+            - For a RETROSPECTIVE, lead with what is newly revealed or measured, and do NOT describe the underlying thing as newly released. Write "a technical report on X details..." or "a benchmark of X found...", never "X was released".
+            - For an EVERGREEN page, describe what the thing is, and do not imply anything happened.
 
             Topic of interest: ${podcast.topic}$subtopicBlock
 

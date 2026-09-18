@@ -30,3 +30,6 @@ fixes nothing a listener can hear while suppressing an adjacency that is
 legitimate. Nothing in the pipeline detects repeated content between adjacent
 turns, and nothing should unless it can tell a redundant restatement from a
 deliberate one.
+
+Related: [[dedup-guards-articles-not-claims]], for the same question at the
+cross-episode grain.

@@ -24,6 +24,7 @@ Negative results are recorded on the same terms as positive ones.
 - [The judged baseline over the archive](judged-baseline-2026-09.md)
 - [Repeating a prompt variant needs an explicit cache bypass](evaluation-run-cache-bypass.md)
 - [Removing CURIOSITY HOOKS cuts the cheap promises, not the real ones](curiosity-hooks-ablation.md)
+- [Structured output fixes the speaker tags and breaks the length](structured-output-for-scripts.md)
 
 The [[curiosity-hooks-conflict]] ablation has been run: see
 [[curiosity-hooks-ablation]].

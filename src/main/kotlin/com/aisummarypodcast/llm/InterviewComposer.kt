@@ -109,6 +109,7 @@ class InterviewComposer(
         val openingDirective = PromptVarietyDescriptors.describe(variety.openingStyle)
         val transitionsDirective = PromptVarietyDescriptors.describe(variety.transitionVocab)
         val signOffDirective = PromptVarietyDescriptors.describe(variety.signOffShape)
+        val nextEpisodeBlock = buildNextEpisodeBlock(podcast.language, context.episodeDate, context.nextEpisodeDate)
         val teaserDirective = PromptVarietyDescriptors.describe(variety.teaserShape)
         val topicEntryDirective = PromptVarietyDescriptors.describe(variety.topicEntryPattern)
         val penultimateDirective = PromptVarietyDescriptors.describe(variety.penultimateExchangeShape)
@@ -162,7 +163,7 @@ class InterviewComposer(
             - STRICT TURN LENGTH: The expert MUST NOT speak for more than 3-4 sentences in a single turn. This is a HARD RULE, not a suggestion. After 3-4 sentences, the interviewer MUST jump in, even if it's just a short reaction. Long expert monologues are the number one cause of listener drop-off. Keep the rhythm tight
             - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not every story warrants peak emphasis; reserve the strongest emphasis for the news that truly stands out. This tempers emphasis only, NOT the playful tone from the HUMOR & TONE rule, which applies throughout
             - PENULTIMATE EXCHANGE: $penultimateDirective
-            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes
+            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$nextEpisodeBlock
 
             Speaker transitions:
             - Speaker transitions must sound natural: do NOT start a turn with a bare name address. Instead, use conversational bridges, reactions, follow-ups, or connectors before transitioning

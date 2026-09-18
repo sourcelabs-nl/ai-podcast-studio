@@ -107,6 +107,7 @@ class DialogueComposer(
         val openingDirective = PromptVarietyDescriptors.describe(variety.openingStyle)
         val transitionsDirective = PromptVarietyDescriptors.describe(variety.transitionVocab)
         val signOffDirective = PromptVarietyDescriptors.describe(variety.signOffShape)
+        val nextEpisodeBlock = buildNextEpisodeBlock(podcast.language, context.episodeDate, context.nextEpisodeDate)
         val topicEntryDirective = PromptVarietyDescriptors.describe(variety.topicEntryPattern)
         val penultimateDirective = PromptVarietyDescriptors.describe(variety.penultimateExchangeShape)
 
@@ -143,7 +144,7 @@ class DialogueComposer(
             - NATURAL INTERRUPTIONS: Speakers should occasionally interrupt each other MID-TOPIC, not at the end of a complete explanation, but while the other speaker is still building their point. Keep each speaker turn to 3-5 sentences max, then have the other speaker jump in with a reaction, follow-up question, or interjection in their own voice. The original speaker then continues in their NEXT turn. Aim for 3-4 interruptions per episode, spread across different topics. Vary the interruption style across the episode (excited, skeptical, confused, connecting-dots, playful disagreement); do not reuse the same opener phrase for two interruptions
             - EMPHASIS ON IMPORTANT NEWS: When covering major announcements or surprising developments, convey their significance: use emphatic language, exclamation marks, and brief pauses to let important news land. Not every story warrants peak emphasis; reserve the strongest emphasis for the news that truly stands out. This tempers emphasis only, NOT the playful tone from the HUMOR & TONE rule, which applies throughout
             - PENULTIMATE EXCHANGE: $penultimateDirective
-            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes
+            - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$nextEpisodeBlock
 
             Speaker transitions:
             - NEVER place two consecutive tags of the same speaker (e.g., <${speakerRoles.first()}>...</${speakerRoles.first()}><${speakerRoles.first()}>...</${speakerRoles.first()}> is FORBIDDEN). Every speaker turn MUST be followed by the OTHER speaker before the same speaker can speak again

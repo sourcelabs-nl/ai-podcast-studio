@@ -97,11 +97,9 @@ class TtsPipeline(
         Files.createDirectories(episodesDir)
         val outputPath = episodesDir.resolve(fileName)
 
-        if (ttsResult.requiresConcatenation) {
-            audioConcatenator.concatenate(ttsResult.audioChunks, outputPath)
-        } else {
-            Files.write(outputPath, ttsResult.audioChunks.first())
-        }
+        // Every path goes through the concatenator, including a single chunk: that is where the
+        // per-voice levelling and the leading silence are applied.
+        audioConcatenator.concatenate(ttsResult.audioChunks, outputPath)
 
         val duration = audioDuration.calculate(outputPath)
         AudioOutput(outputPath, duration)

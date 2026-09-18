@@ -167,7 +167,7 @@ class ArticleEligibilityServiceTest {
     }
 
     @Test
-    fun `findHistoricalArticles returns articles from recent generated episodes`() {
+    fun `findHistory returns articles from recent generated episodes`() {
         val episode1 = Episode(id = 10, podcastId = "pod-1", generatedAt = "2026-03-18T10:00:00Z", scriptText = "test", status = EpisodeStatus.GENERATED)
         val episode2 = Episode(id = 9, podcastId = "pod-1", generatedAt = "2026-03-17T10:00:00Z", scriptText = "test", status = EpisodeStatus.GENERATED)
         every { episodeRepository.findRecentGeneratedByPodcastId("pod-1", 7) } returns listOf(episode1, episode2)
@@ -176,13 +176,13 @@ class ArticleEligibilityServiceTest {
         every { articleRepository.findById(1L) } returns Optional.of(article(1))
         every { articleRepository.findById(2L) } returns Optional.of(article(2))
 
-        val result = service.findHistoricalArticles(podcast)
+        val result = service.findHistory(podcast).articles
 
         assertEquals(2, result.size)
     }
 
     @Test
-    fun `findHistoricalArticles deduplicates articles shared across episodes`() {
+    fun `findHistory deduplicates articles shared across episodes`() {
         val episode1 = Episode(id = 10, podcastId = "pod-1", generatedAt = "2026-03-18T10:00:00Z", scriptText = "test", status = EpisodeStatus.GENERATED)
         val episode2 = Episode(id = 9, podcastId = "pod-1", generatedAt = "2026-03-17T10:00:00Z", scriptText = "test", status = EpisodeStatus.GENERATED)
         every { episodeRepository.findRecentGeneratedByPodcastId("pod-1", 7) } returns listOf(episode1, episode2)
@@ -190,13 +190,13 @@ class ArticleEligibilityServiceTest {
         every { episodeArticleRepository.findByEpisodeId(9) } returns listOf(EpisodeArticle(episodeId = 9, articleId = 1))
         every { articleRepository.findById(1L) } returns Optional.of(article(1))
 
-        val result = service.findHistoricalArticles(podcast)
+        val result = service.findHistory(podcast).articles
 
         assertEquals(1, result.size)
     }
 
     @Test
-    fun `findHistoricalArticles caps historical articles to the configured maximum`() {
+    fun `findHistory caps historical articles to the configured maximum`() {
         val cappedProperties = appProperties.copy(llm = LlmProperties(dedup = DedupProperties(maxHistoricalArticles = 2)))
         val cappedService = ArticleEligibilityService(
             articleRepository, episodeRepository, episodeArticleRepository, cappedProperties
@@ -212,18 +212,87 @@ class ArticleEligibilityServiceTest {
         every { articleRepository.findById(2L) } returns Optional.of(article(2))
         every { articleRepository.findById(3L) } returns Optional.of(article(3))
 
-        val result = cappedService.findHistoricalArticles(podcast)
+        val result = cappedService.findHistory(podcast).articles
 
         assertEquals(2, result.size)
         assertEquals(listOf(1L, 2L), result.map { it.id })
     }
 
     @Test
-    fun `findHistoricalArticles returns empty when no generated episodes`() {
+    fun `findHistory returns empty when no generated episodes`() {
         every { episodeRepository.findRecentGeneratedByPodcastId("pod-1", 7) } returns emptyList()
 
-        val result = service.findHistoricalArticles(podcast)
+        val result = service.findHistory(podcast).articles
 
         assertTrue(result.isEmpty())
+    }
+
+    // --- Evergreen filtering (episode 222's openspec.dev landing page) ---
+
+    private fun classified(id: Long, newsType: NewsType?) =
+        article(id).copy(newsType = newsType?.name)
+
+    @Test
+    fun `findEligibleArticles drops evergreen articles`() {
+        every { articleRepository.findRelevantUnprocessedBySourceIds(listOf("src-1"), 5) } returns listOf(
+            classified(1, NewsType.DEVELOPMENT),
+            classified(2, NewsType.EVERGREEN),
+            classified(3, NewsType.RETROSPECTIVE)
+        )
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L, 3L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticles keeps an article with no classification`() {
+        every { articleRepository.findRelevantUnprocessedBySourceIds(listOf("src-1"), 5) } returns listOf(
+            classified(1, null),
+            article(2).copy(newsType = "SOMETHING_ELSE")
+        )
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L, 2L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticles drops an evergreen article that sits inside the window`() {
+        // The landing page's publishedAt is the moment it was linked, so it always looks fresh.
+        every { articleRepository.findRelevantUnprocessedBySourceIds(listOf("src-1"), 5) } returns listOf(
+            classified(1, NewsType.EVERGREEN).copy(publishedAt = "2026-03-18T10:00:00Z")
+        )
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertTrue(result.isEmpty())
+    }
+
+    // --- Covered topics for the dedup stage ---
+
+    @Test
+    fun `findHistory returns the dedup topic labels of recent episodes`() {
+        val episode = Episode(id = 10, podcastId = "pod-1", generatedAt = "2026-03-18T10:00:00Z", scriptText = "test", status = EpisodeStatus.GENERATED)
+        every { episodeRepository.findRecentGeneratedByPodcastId("pod-1", 7) } returns listOf(episode)
+        every { episodeArticleRepository.findByEpisodeId(10) } returns listOf(
+            EpisodeArticle(episodeId = 10, articleId = 1, topic = "DeepSeek v4.1 Flash vs GLM 5.3 Flash comparison"),
+            EpisodeArticle(episodeId = 10, articleId = 2, topic = "DeepSeek v4.1 Flash vs GLM 5.3 Flash comparison"),
+            EpisodeArticle(episodeId = 10, articleId = 3, topic = null)
+        )
+        every { articleRepository.findById(1L) } returns Optional.of(article(1))
+        every { articleRepository.findById(2L) } returns Optional.of(article(2))
+        every { articleRepository.findById(3L) } returns Optional.of(article(3))
+
+        val result = service.findHistory(podcast)
+
+        assertEquals(listOf("DeepSeek v4.1 Flash vs GLM 5.3 Flash comparison"), result.coveredTopics)
+    }
+
+    @Test
+    fun `findHistory returns no topics when no generated episodes`() {
+        every { episodeRepository.findRecentGeneratedByPodcastId("pod-1", 7) } returns emptyList()
+
+        assertTrue(service.findHistory(podcast).coveredTopics.isEmpty())
     }
 }

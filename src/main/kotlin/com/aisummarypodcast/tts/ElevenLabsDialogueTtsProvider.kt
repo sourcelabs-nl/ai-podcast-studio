@@ -44,8 +44,10 @@ class ElevenLabsDialogueTtsProvider(
         val audioChunks = withContext(Dispatchers.IO) {
             batches.mapIndexed { index, batch ->
                 log.info("Generating dialogue batch {}/{} ({} turns, {} chars)", index + 1, batches.size, batch.size, batch.sumOf { it.text.length })
-                apiClient.textToDialogue(request.userId, batch, settings)
-                    .also { request.progress?.onChunkCompleted(index + 1, batches.size) }
+                val bytes = apiClient.textToDialogue(request.userId, batch, settings)
+                request.progress?.onChunkCompleted(index + 1, batches.size)
+                // A batch carries several speakers in one segment, already balanced by ElevenLabs.
+                AudioChunk(AudioChunk.MIXED_VOICE, bytes)
             }
         }
         val totalCharacters = turns.sumOf { it.text.length }
@@ -53,7 +55,6 @@ class ElevenLabsDialogueTtsProvider(
         return TtsResult(
             audioChunks = audioChunks,
             totalCharacters = totalCharacters,
-            requiresConcatenation = batches.size > 1,
             model = "eleven_v3"
         )
     }

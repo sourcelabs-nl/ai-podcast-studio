@@ -36,17 +36,13 @@ class PreviewAudioStore(
     private val root: Path get() = Path.of(appProperties.previewAudio.directory).toAbsolutePath().normalize()
 
     /** Writes [audioChunks] as one MP3 and returns the opaque id the file is reachable under. */
-    fun write(podcastId: String, audioChunks: List<ByteArray>, requiresConcatenation: Boolean): String {
+    fun write(podcastId: String, audioChunks: List<AudioChunk>): String {
         require(audioChunks.isNotEmpty()) { "Cannot store preview audio without any audio chunks" }
         val audioId = UUID.randomUUID().toString()
         val target = podcastDirectory(podcastId).resolve("$audioId.$AUDIO_EXTENSION")
         Files.createDirectories(target.parent)
 
-        if (requiresConcatenation) {
-            audioConcatenator.concatenate(audioChunks, target)
-        } else {
-            Files.write(target, audioChunks.first())
-        }
+        audioConcatenator.concatenate(audioChunks, target)
         log.info("Stored preview audio {} for podcast {} ({} bytes)", audioId, podcastId, Files.size(target))
         return audioId
     }

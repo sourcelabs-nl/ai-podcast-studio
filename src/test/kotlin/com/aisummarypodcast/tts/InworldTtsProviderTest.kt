@@ -61,7 +61,6 @@ class InworldTtsProviderTest {
 
         assertEquals(1, result.audioChunks.size)
         assertEquals(11, result.totalCharacters)
-        assertFalse(result.requiresConcatenation)
         assertEquals("inworld-tts-2", result.model)
     }
 
@@ -96,7 +95,6 @@ class InworldTtsProviderTest {
 
         assertEquals(2, result.audioChunks.size)
         assertEquals(29, result.totalCharacters)
-        assertTrue(result.requiresConcatenation)
         assertEquals(setOf("Hello there!", "Hey, how are you?"), calls.keys)
     }
 
@@ -448,10 +446,9 @@ class InworldTtsProviderTest {
         val result = provider.generate(request(script))
 
         assertTrue(result.audioChunks.size >= 3)
-        assertTrue(result.requiresConcatenation)
-        assertArrayEquals(byteArrayOf(1), result.audioChunks[0])
-        assertArrayEquals(byteArrayOf(2), result.audioChunks[1])
-        assertArrayEquals(byteArrayOf(3), result.audioChunks[2])
+        assertArrayEquals(byteArrayOf(1), result.audioChunks[0].bytes)
+        assertArrayEquals(byteArrayOf(2), result.audioChunks[1].bytes)
+        assertArrayEquals(byteArrayOf(3), result.audioChunks[2].bytes)
     }
 
     @Test
@@ -476,9 +473,9 @@ class InworldTtsProviderTest {
         )
 
         assertEquals(3, result.audioChunks.size)
-        assertArrayEquals(byteArrayOf(10), result.audioChunks[0])
-        assertArrayEquals(byteArrayOf(20), result.audioChunks[1])
-        assertArrayEquals(byteArrayOf(30), result.audioChunks[2])
+        assertArrayEquals(byteArrayOf(10), result.audioChunks[0].bytes)
+        assertArrayEquals(byteArrayOf(20), result.audioChunks[1].bytes)
+        assertArrayEquals(byteArrayOf(30), result.audioChunks[2].bytes)
         assertEquals(34, result.totalCharacters)
     }
 

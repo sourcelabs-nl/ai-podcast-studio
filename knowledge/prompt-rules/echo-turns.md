@@ -37,3 +37,6 @@ one word. Nothing surfaced it until the dashboard grew a tab that does, which is
 what the finding actually cost.
 
 Proposal and reasoning: OpenSpec change `forbid-echo-turns`.
+
+Related: [[dedup-guards-articles-not-claims]], for the same redundancy across
+episodes rather than across adjacent turns.

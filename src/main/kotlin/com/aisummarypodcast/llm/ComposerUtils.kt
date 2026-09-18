@@ -87,6 +87,28 @@ fun buildEpisodeDate(language: String, episodeDate: LocalDate = LocalDate.now())
     return episodeDate.format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", locale))
 }
 
+/**
+ * Prompt block telling the composer when the show is next on air, so the sign-off can promise the
+ * right day.
+ *
+ * Nothing in the prompt used to state the schedule: the composer knew only the episode's own date
+ * and a sign-off shape, so it guessed. A Wednesday episode of a Monday-to-Friday show closed with
+ * "we'll be back next week". The day comes from the podcast's cron
+ * (`EpisodeWindowResolver.nextEpisodeDateAfter`) and is phrased relative to [episodeDate], because
+ * "tomorrow" and "Monday" are what a host actually says.
+ *
+ * Empty when the next slot is unknown (an unparseable or very infrequent cron). An empty block is
+ * deliberately not a silent fallback to some default wording: with no block the model is free as
+ * before, which is better than a confidently wrong date.
+ */
+fun buildNextEpisodeBlock(language: String, episodeDate: LocalDate, nextEpisodeDate: LocalDate?): String {
+    if (nextEpisodeDate == null || !nextEpisodeDate.isAfter(episodeDate)) return ""
+    val locale = SupportedLanguage.fromCode(language)?.toLocale() ?: Locale.ENGLISH
+    val weekday = nextEpisodeDate.format(DateTimeFormatter.ofPattern("EEEE", locale))
+    val relative = if (nextEpisodeDate == episodeDate.plusDays(1)) "tomorrow ($weekday)" else weekday
+    return "\n            - WHEN THE SHOW IS BACK: The next episode is $relative. If the sign-off says when you will be back, say $relative and nothing else. Do NOT promise a different interval (\"next week\", \"in a few days\", \"same time next week\") and do NOT invent a publishing schedule: this show does not run on the cadence you might assume. Saying nothing about the next episode is also fine; naming the wrong day is not"
+}
+
 fun buildCustomInstructionsBlock(customInstructions: String?): String =
     customInstructions?.let { "\n\nAdditional instructions: $it" } ?: ""
 
@@ -317,6 +339,107 @@ fun normalizeSquareBracketSpeakerTags(script: String, roles: Set<String>): Strin
     return result
 }
 
+/** Every bare `<tag>` or `</tag>` in a script. Delivery markup carries attributes and is not matched. */
+private val TAG_TOKEN_PATTERN = Regex("</?(\\w+)>")
+
+/**
+ * Rewrites a closing speaker tag that does not match the turn it closes, for the [roles] this
+ * podcast actually uses.
+ *
+ * [SPEAKER_TURN_PATTERN] requires the closer to name the same role as the opener, and it matches
+ * lazily across newlines, so `<expert>…</interviewer>` does not fail: the match simply runs on to
+ * the next `</expert>`, swallowing every turn in between into one giant expert turn. Nothing
+ * downstream can see that happened. [RoleTagValidationAdvisor] reads the role off the opener and
+ * finds it valid, and the TTS parser voices the whole run in one voice.
+ *
+ * That is what happened to episode 222. Two turns were closed with the wrong role and one with a
+ * misspelled `</epxert>`, and from that point the whole back half of the episode was attributed to
+ * the wrong speaker: the expert asked the questions and the interviewer explained what a KV cache
+ * is.
+ *
+ * The opener is treated as authoritative, because it sits next to the previous turn's closer and
+ * therefore in the run of text whose speaker is already established, while the closer is the tag
+ * the model demonstrably got wrong. The reverse reading (the opener is wrong, the closer right)
+ * cannot be ruled out for any single turn, so every rewrite is logged at WARN with both roles.
+ *
+ * Deliberately narrow, like the other repairs here: only a closer directly following an opener of a
+ * known role is rewritten. An opener that never closes at all is left to
+ * [closeUnterminatedFinalTurn] and, failing that, to validation.
+ */
+fun repairMismatchedTurnClosers(script: String, roles: Set<String>): String {
+    val tokens = TAG_TOKEN_PATTERN.findAll(script).toList()
+    val rewrites = mutableListOf<Pair<IntRange, String>>()
+    var openRole: String? = null
+
+    for (token in tokens) {
+        val role = token.groupValues[1]
+        val isCloser = token.value.startsWith("</")
+
+        if (!isCloser) {
+            // An opener while a turn is still open means a missing closer, not a wrong one.
+            openRole = role.takeIf { it in roles }
+            continue
+        }
+
+        val expected = openRole ?: continue
+        if (role != expected) {
+            rewrites.add(token.range to "</$expected>")
+            log.warn("Compose LLM closed a <{}> turn with </{}>; rewrote the closer", expected, role)
+        }
+        openRole = null
+    }
+
+    if (rewrites.isEmpty()) return script
+
+    // Applied back to front so an earlier rewrite cannot shift a later range.
+    var result = script
+    for ((range, replacement) in rewrites.asReversed()) {
+        result = result.replaceRange(range, replacement)
+    }
+    return result
+}
+
+/**
+ * A description of the first structural fault in [script]'s speaker tags, or null when every turn
+ * is a matched opener/closer pair of a known role.
+ *
+ * This is the check [RoleTagValidationAdvisor] was missing. Its existing checks ask whether a tag
+ * names a valid role and whether any tag is present at all; neither can see tags that are
+ * individually valid but wrongly ordered or wrongly paired, which is the fault that actually
+ * scrambles an episode.
+ *
+ * Run on the script *after* the repairs above, so only what could not be repaired is reported and a
+ * recoverable script never costs a second compose call.
+ */
+fun findTurnStructureProblem(script: String, roles: Set<String>): String? {
+    var openRole: String? = null
+
+    for (token in TAG_TOKEN_PATTERN.findAll(script)) {
+        val role = token.groupValues[1]
+        val isCloser = token.value.startsWith("</")
+
+        if (isCloser) {
+            val expected = openRole
+                ?: return "the closing tag </$role> does not close any open turn"
+            if (role != expected) {
+                return "the <$expected> turn is closed with </$role>"
+            }
+            openRole = null
+            continue
+        }
+
+        if (openRole != null) {
+            return "the <$openRole> turn is never closed before <$role> opens"
+        }
+        if (role !in roles) {
+            return "<$role> is not a valid speaker tag"
+        }
+        openRole = role
+    }
+
+    return openRole?.let { "the final <$it> turn is never closed" }
+}
+
 /**
  * Closes a final speaker turn the compose LLM opened but never closed, for the [roles] this podcast
  * actually uses.
@@ -353,9 +476,15 @@ fun closeUnterminatedFinalTurn(script: String, roles: Set<String>): String {
 /**
  * The full clean-up a multi-speaker compose response goes through before it is stored, in the one
  * order that works: a square-bracketed opener is rewritten first so the turn becomes visible to
- * [SPEAKER_TURN_PATTERN], an unclosed final turn is closed next so it is visible too, and only then
- * is the text outside the tags stripped, since that step discards whatever the earlier ones did not
+ * [SPEAKER_TURN_PATTERN], a mismatched closer is corrected next so the turns divide where the model
+ * meant them to, an unclosed final turn is then closed so it is visible too, and only then is the
+ * text outside the tags stripped, since that step discards whatever the earlier ones did not
  * recover.
+ *
+ * The closer repair must precede [closeUnterminatedFinalTurn], which locates the tail after the
+ * last turn [SPEAKER_TURN_PATTERN] can see: run the other way round, a mismatched closer earlier in
+ * the script hides every turn after it inside one swallowing match and the tail is computed from
+ * the wrong place.
  *
  * Shared by [InterviewComposer] and [DialogueComposer], which differ only in how they arrive at
  * [roles].
@@ -363,7 +492,9 @@ fun closeUnterminatedFinalTurn(script: String, roles: Set<String>): String {
 fun cleanUpComposedScript(script: String, roles: Set<String>): String =
     stripOutsideSpeakerTags(
         closeUnterminatedFinalTurn(
-            normalizeSquareBracketSpeakerTags(script, roles), roles
+            repairMismatchedTurnClosers(
+                normalizeSquareBracketSpeakerTags(script, roles), roles
+            ), roles
         )
     )
 

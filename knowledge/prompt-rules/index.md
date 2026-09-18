@@ -23,3 +23,4 @@ falsify the entry. What a rule says is in the code; why it is there is here.
 - [A backchannel is what lets an idea run long](backchannels.md)
 - [Two turns by one speaker are fine; two turns saying the same thing are not](adjacent-turns-must-not-repeat.md)
 - [A short turn has to bring its own words](echo-turns.md)
+- [Dedup guards the article boundary, not the claim boundary](dedup-guards-articles-not-claims.md)

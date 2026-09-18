@@ -168,4 +168,61 @@ class RoleTagValidationAdvisorTest {
         assertTrue(ex.message!!.contains("function_results"))
         verify(exactly = 3) { chatModel.call(any<Prompt>()) } // 1 initial + 2 retries
     }
+
+    // --- Structure faults (episode 222) ---
+
+    @Test
+    fun `a repairable mismatched closer does not cost a retry`() {
+        // cleanUpComposedScript rewrites the closer, so the script the pipeline stores is correct
+        // and re-prompting would waste the most expensive call in the pipeline.
+        val chatModel = mockk<ChatModel>()
+        every { chatModel.call(any<Prompt>()) } returns
+            response("<expert>One.</interviewer><interviewer>Two.</interviewer>")
+
+        buildChatClient(chatModel).prompt()
+            .user("Write a script.")
+            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .call()
+            .content()
+
+        verify(exactly = 1) { chatModel.call(any<Prompt>()) }
+    }
+
+    @Test
+    fun `an unrepairable structure fault retries and self-corrects`() {
+        val chatModel = mockk<ChatModel>()
+        // Two openers in a row: the first turn is never closed and nothing can tell where it ends.
+        val broken = "<expert>One.<interviewer>Two.</interviewer><expert>Three.</expert>"
+        val valid = "<interviewer>Hi</interviewer><expert>Hello</expert>"
+        val prompts = mutableListOf<Prompt>()
+        every { chatModel.call(capture(prompts)) } returnsMany listOf(response(broken), response(valid))
+
+        val result = buildChatClient(chatModel).prompt()
+            .user("Write a script.")
+            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .call()
+            .content()
+
+        assertEquals(valid, result)
+        verify(exactly = 2) { chatModel.call(any<Prompt>()) }
+        assertTrue(prompts.last().contents.contains("speaker-tag structure error"))
+        assertTrue(prompts.last().contents.contains("the <expert> turn is never closed before <interviewer> opens"))
+    }
+
+    @Test
+    fun `a persistent structure fault fails the compose`() {
+        val chatModel = mockk<ChatModel>()
+        every { chatModel.call(any<Prompt>()) } returns
+            response("<expert>One.<interviewer>Two.</interviewer><expert>Three.</expert>")
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            buildChatClient(chatModel).prompt()
+                .user("Write a script.")
+                .advisors(RoleTagValidationAdvisor(allowedRoles))
+                .call()
+                .content()
+        }
+
+        assertTrue(error.message!!.contains("speaker tags do not pair up"))
+    }
 }

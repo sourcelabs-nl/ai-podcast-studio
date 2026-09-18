@@ -23,13 +23,14 @@ import {
 import { ScriptContent, countScriptTurns } from "@/components/script-viewer";
 import { ArticlesTab } from "@/components/articles-tab";
 import { CostsTab } from "@/components/costs-tab";
+import { LatencyTab } from "@/components/latency-tab";
 import { EvaluationTab } from "@/components/evaluation-tab";
 import { PublicationsTab } from "@/components/publications-tab";
 import { PublishWizard } from "@/components/publish-wizard";
 import { useTabParam } from "@/hooks/use-tab-param";
 
 const WORDS_PER_MINUTE = 150;
-const TABS = ["script", "articles", "publications", "costs", "evaluation"] as const;
+const TABS = ["script", "articles", "publications", "costs", "latency", "evaluation"] as const;
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   GENERATED: "outline",
@@ -438,6 +439,7 @@ export default function EpisodeDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="publications">Publications</TabsTrigger>
           <TabsTrigger value="costs">Costs</TabsTrigger>
+          <TabsTrigger value="latency">Latency</TabsTrigger>
           <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
         </TabsList>
 
@@ -480,6 +482,12 @@ export default function EpisodeDetailPage() {
         <TabsContent value="costs">
           <div className="mt-4">
             <CostsTab costs={episode.costs} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="latency">
+          <div className="mt-4">
+            <LatencyTab />
           </div>
         </TabsContent>
 

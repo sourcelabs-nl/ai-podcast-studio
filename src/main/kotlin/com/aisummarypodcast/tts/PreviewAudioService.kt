@@ -65,7 +65,7 @@ class PreviewAudioService(
         val result = provider.generate(TtsRequest.forPodcast(podcast, script, onProgress))
 
         return withContext(Dispatchers.IO) {
-            previewAudioStore.write(podcast.id, result.audioChunks, result.requiresConcatenation)
+            previewAudioStore.write(podcast.id, result.audioChunks)
         }
     }
 
@@ -102,11 +102,11 @@ class PreviewAudioService(
     }
 
     /**
-     * A multi-chunk sample still has to arrive as one playable file. It is concatenated through a
-     * throwaway temp file because ffmpeg writes to a path, and nothing about a sample is kept.
+     * A sample has to arrive as one playable file, levelled the same way an episode is. It goes
+     * through a throwaway temp file because ffmpeg writes to a path, and nothing about a sample is
+     * kept.
      */
     private suspend fun toSingleFile(result: TtsResult): ByteArray = withContext(Dispatchers.IO) {
-        if (!result.requiresConcatenation) return@withContext result.audioChunks.first()
         val temp = Files.createTempFile("preview-sample", ".mp3")
         try {
             audioConcatenator.concatenate(result.audioChunks, temp)

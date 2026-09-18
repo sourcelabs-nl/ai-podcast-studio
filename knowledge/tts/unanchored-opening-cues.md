@@ -29,4 +29,6 @@ instruction from each speaker's own first turn and keep it from their second
 onwards. A tag surviving on the second turn of a speaker is correct behaviour,
 not a leak.
 
-Related: [[pace-reducing-steering-instructions]]
+Related: [[pace-reducing-steering-instructions]], [[phoneme-spans-under-creative]]
+(whose unreproduced failure names this same `synthesisContext.previousRequests`
+window as an untested variable)

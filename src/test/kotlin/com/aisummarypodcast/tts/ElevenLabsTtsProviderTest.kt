@@ -30,7 +30,6 @@ class ElevenLabsTtsProviderTest {
 
         assertEquals(1, result.audioChunks.size)
         assertEquals(11, result.totalCharacters)
-        assertTrue(!result.requiresConcatenation)
     }
 
     @Test

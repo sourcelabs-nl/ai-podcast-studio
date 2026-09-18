@@ -21,6 +21,7 @@ import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -224,7 +225,7 @@ class ArticleScoreSummarizerTest {
 
         val prompt = scoreSummarizer.buildPrompt(article, podcast)
 
-        assertTrue(prompt.contains("say \"Anthropic launched X\" not \"The article discusses Anthropic launching X\""))
+        assertTrue(prompt.contains("say \"Anthropic launched X\", not \"The article discusses Anthropic launching X\""))
     }
 
     @Test
@@ -577,5 +578,47 @@ class ArticleScoreSummarizerTest {
 
         assertEquals(3, sentPrompts.size)
         assertEquals(3, sentPrompts.distinct().size)
+    }
+
+    // --- Temporal classification (episode 222's "DeepSeek released V4.1 Flash") ---
+
+    @Test
+    fun `prompt asks for a newsType and defines all three values`() {
+        val article = Article(
+            id = 20, sourceId = "s1", title = "DeepSeek-v4.1 Flash: Pushing the Limits of KV Cache Compression",
+            body = "When DeepSeek-V4.1 Flash was released, I thought it might just be a post-training iteration.",
+            url = "https://example.com/20", contentHash = "hash20"
+        )
+
+        val prompt = scoreSummarizer.buildPrompt(article, podcast)
+
+        assertTrue(prompt.contains("\"newsType\" (exactly one of \"DEVELOPMENT\", \"RETROSPECTIVE\", \"EVERGREEN\")"))
+        assertTrue(prompt.contains("\"DEVELOPMENT\": it reports something that has just happened"))
+        assertTrue(prompt.contains("\"RETROSPECTIVE\": it analyses, benchmarks, reviews or comments on something that was already released"))
+        assertTrue(prompt.contains("\"EVERGREEN\": it is a landing page, README, documentation or marketing copy"))
+    }
+
+    @Test
+    fun `prompt forbids framing a retrospective as a fresh release`() {
+        val article = Article(
+            id = 21, sourceId = "s1", title = "Analysis", body = "Body.",
+            url = "https://example.com/21", contentHash = "hash21"
+        )
+
+        val prompt = scoreSummarizer.buildPrompt(article, podcast)
+
+        assertTrue(prompt.contains("do NOT describe the underlying thing as newly released"))
+        assertTrue(prompt.contains("never assert an event the content does not report"))
+    }
+
+    @Test
+    fun `NewsType parses the model's answer and rejects anything else`() {
+        assertEquals(NewsType.DEVELOPMENT, NewsType.parse("DEVELOPMENT"))
+        assertEquals(NewsType.RETROSPECTIVE, NewsType.parse("retrospective"))
+        assertEquals(NewsType.EVERGREEN, NewsType.parse(" EVERGREEN "))
+        assertNull(NewsType.parse(null))
+        assertNull(NewsType.parse(""))
+        assertNull(NewsType.parse("null"))
+        assertNull(NewsType.parse("BREAKING"))
     }
 }

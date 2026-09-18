@@ -21,5 +21,11 @@ data class Article(
     val llmCostCents: Int? = null,
     /** Provider-reported cost (USD) of this article's scoring call(s); null when none was reported. */
     val llmReportedCostUsd: Double? = null,
-    val subtopic: String? = null
+    val subtopic: String? = null,
+    /**
+     * How the scoring stage placed this article in time, as a [com.aisummarypodcast.llm.NewsType]
+     * name; null when it was scored before the classification existed or the model did not answer
+     * with a known value.
+     */
+    val newsType: String? = null
 )

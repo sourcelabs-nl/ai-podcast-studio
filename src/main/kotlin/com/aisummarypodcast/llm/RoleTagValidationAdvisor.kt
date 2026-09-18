@@ -13,7 +13,7 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain
  * can't use `validateSchema()` directly because it only validates typed/JSON output, and forcing
  * a ~1000-word creative script into JSON to get it would risk truncation/escaping failures.
  *
- * Two ways a script fails validation:
+ * Three ways a script fails validation:
  *  - a tag outside [allowedRoles], such as a leaked tool-call artifact (`<function_results>`).
  *    Without this check that tag rides all the way to the TTS provider before failing with an
  *    opaque "no voice configured for role" error, the failure that took down episode 163.
@@ -21,6 +21,16 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain
  *    interview with every tag omitted; checking only for *wrong* tags read that as valid (the
  *    invalid-role set of an untagged script is empty), so a 5-minute compose was spent before
  *    [com.aisummarypodcast.tts.DialogueScriptParser] found zero turns and TTS threw.
+ *  - tags that are individually valid but wrongly paired, such as `<expert>…</interviewer>`.
+ *    [SPEAKER_TURN_PATTERN] matches lazily and requires the closer to name the opener's role, so a
+ *    mismatched pair does not fail: the match runs on to the next matching closer and swallows
+ *    every turn in between into one. Both earlier checks pass on the result, which is how episode
+ *    222 shipped with the whole back half attributed to the wrong speaker.
+ *
+ * Validation runs on the script as [cleanUpComposedScript] will leave it, not on the raw response,
+ * so a fault the repairs in `ComposerUtils` already handle never spends a second compose call. Only
+ * the invalid-role check reads the raw text, since stripping can remove a leaked tag before it is
+ * seen and the leak is worth reporting.
  *
  * Only registered by the dialogue and interview composers, where speaker tags are mandatory;
  * briefing scripts are a single voice and legitimately carry none.
@@ -81,14 +91,28 @@ class RoleTagValidationAdvisor(
             )
         }
 
-        if (hasSpeakerTag(text)) return null
+        if (!hasSpeakerTag(text)) {
+            return TagProblem(
+                summary = "produced a script with no speaker tags",
+                correction = "Your response contained no speaker tags at all. Every line of spoken " +
+                    "text must sit inside a speaker tag, and the ONLY valid tags are: " +
+                    "${allowedRoles.joinToString { "<$it>…</$it>" }}. Rewrite the ENTIRE script with " +
+                    "each turn wrapped in one of these tags, with no text outside them."
+            )
+        }
+
+        // What the pipeline will actually store, so a repairable fault is not re-prompted.
+        val structureProblem = findTurnStructureProblem(
+            cleanUpComposedScript(text, allowedRoles), allowedRoles
+        ) ?: return null
 
         return TagProblem(
-            summary = "produced a script with no speaker tags",
-            correction = "Your response contained no speaker tags at all. Every line of spoken " +
-                "text must sit inside a speaker tag, and the ONLY valid tags are: " +
-                "${allowedRoles.joinToString { "<$it>…</$it>" }}. Rewrite the ENTIRE script with " +
-                "each turn wrapped in one of these tags, with no text outside them."
+            summary = "produced a script whose speaker tags do not pair up ($structureProblem)",
+            correction = "Your response has a speaker-tag structure error: $structureProblem. " +
+                "Every turn must be a matching pair, opened with <role> and closed with the SAME " +
+                "</role>, with no turn left unclosed and no turn opened inside another. The only " +
+                "valid roles are: ${allowedRoles.joinToString { "<$it>…</$it>" }}. Rewrite the " +
+                "ENTIRE script with every turn correctly opened and closed."
         )
     }
 

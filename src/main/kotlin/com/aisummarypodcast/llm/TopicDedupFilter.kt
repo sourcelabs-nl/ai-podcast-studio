@@ -91,7 +91,7 @@ class TopicDedupFilter(
 
     suspend fun filter(
         candidates: List<Article>,
-        historicalArticles: List<Article>,
+        history: EpisodeHistory,
         userId: String,
         modelDef: ResolvedModel
     ): DedupFilterResult {
@@ -99,9 +99,10 @@ class TopicDedupFilter(
             return DedupFilterResult(emptyList(), TokenUsage(0, 0))
         }
 
-        log.info("[Dedup] Filtering {} candidates against {} historical articles", candidates.size, historicalArticles.size)
+        log.info("[Dedup] Filtering {} candidates against {} historical articles and {} covered topic(s)",
+            candidates.size, history.articles.size, history.coveredTopics.size)
         val chatClient = chatClientFactory.createForModel(userId, modelDef)
-        val prompt = buildPrompt(candidates, historicalArticles)
+        val prompt = buildPrompt(candidates, history)
 
         val outputTokenBudget = dedupOutputTokenBudget(candidates.size)
         val retry = retryRegistry.retry("topic-dedup")
@@ -389,7 +390,8 @@ class TopicDedupFilter(
             "object only, in the shape { \"clusters\": [ ... ] }. Do not include reasoning, " +
             "commentary, or markdown code fences, and do not write anything before or after the JSON."
 
-    internal fun buildPrompt(candidates: List<Article>, historicalArticles: List<Article>): String {
+    internal fun buildPrompt(candidates: List<Article>, history: EpisodeHistory): String {
+        val historicalArticles = history.articles
         val candidateBlock = candidates.mapIndexed { _, article ->
             "${article.id}. [${extractDomain(article.url)}] ${article.title}\n${article.summary ?: article.body}"
         }.joinToString("\n\n")
@@ -409,8 +411,20 @@ class TopicDedupFilter(
             """
         } else ""
 
+        val coveredTopicsBlock = if (history.coveredTopics.isNotEmpty()) {
+            // The labels this stage itself assigned on earlier runs, most recent episode first.
+            // Titles alone miss a topic whose source article was headlined about something else,
+            // which is how a DeepSeek release covered the day before was composed as fresh news.
+            val topics = history.coveredTopics.joinToString("\n") { "- $it" }
+            """
+
+            Topics already covered in recent episodes:
+            $topics
+            """
+        } else ""
+
         return """
-            You are a topic deduplication filter for a podcast pipeline. Your job is to cluster today's candidate articles by topic, compare against historical articles from recent episodes, and decide what's new vs. already covered.
+            You are a topic deduplication filter for a podcast pipeline. Your job is to cluster today's candidate articles by topic, compare against what recent episodes already covered, and decide what's new vs. already covered.
 
             For each cluster of related articles, output:
             - "topic": short label for the topic
@@ -419,6 +433,8 @@ class TopicDedupFilter(
             - "selectedArticleIds": article IDs to keep for composition (max 3 per cluster)
 
             Rules:
+            - The "Topics already covered" list is the authoritative record of what this podcast has said. A cluster matching one of those topics is a CONTINUATION even when its articles are new, from a different source, or carry a different headline.
+            - A fresh analysis, technical report, benchmark or follow-up about an already-covered release is a CONTINUATION, not a NEW release. The analysis may be new; the thing it examines is not. Say so in previousContext, so the script does not announce it a second time.
             - CONTINUATION topics with NO genuinely new information: set selectedArticleIds to empty []
             - CONTINUATION topics WITH new developments: select up to 3 articles with the new information
             - NEW topics with 3 or fewer articles: keep all
@@ -431,6 +447,7 @@ class TopicDedupFilter(
 
             Today's candidate articles:
             $candidateBlock
+            $coveredTopicsBlock
             $historicalBlock
         """.trimIndent()
     }

@@ -30,6 +30,11 @@ class PreviewAudioStoreTest {
             directory = tempDir.toString(),
             retentionMinutes = 60
         )
+        every { audioConcatenator.concatenate(any(), any()) } answers {
+            val chunks = firstArg<List<AudioChunk>>()
+            val target = secondArg<Path>()
+            Files.write(target, chunks.first().bytes)
+        }
         store = PreviewAudioStore(appProperties, audioConcatenator)
     }
 
@@ -39,7 +44,7 @@ class PreviewAudioStoreTest {
 
     @Test
     fun `a single chunk is written straight through and found again`() {
-        val audioId = store.write("podcast-1", listOf(byteArrayOf(1, 2, 3)), requiresConcatenation = false)
+        val audioId = store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1, 2, 3))))
 
         val found = store.find("podcast-1", audioId)
 
@@ -49,28 +54,28 @@ class PreviewAudioStoreTest {
 
     @Test
     fun `the audio id is an opaque uuid`() {
-        val audioId = store.write("podcast-1", listOf(byteArrayOf(1)), requiresConcatenation = false)
+        val audioId = store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1))))
 
         assertEquals(audioId, UUID.fromString(audioId).toString())
     }
 
     @Test
     fun `another podcast cannot read this podcast's preview audio`() {
-        val audioId = store.write("podcast-1", listOf(byteArrayOf(1)), requiresConcatenation = false)
+        val audioId = store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1))))
 
         assertNull(store.find("podcast-2", audioId))
     }
 
     @Test
     fun `an unknown audio id is not found`() {
-        store.write("podcast-1", listOf(byteArrayOf(1)), requiresConcatenation = false)
+        store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1))))
 
         assertNull(store.find("podcast-1", UUID.randomUUID().toString()))
     }
 
     @Test
     fun `a malformed audio id is refused before it reaches the filesystem`() {
-        store.write("podcast-1", listOf(byteArrayOf(1)), requiresConcatenation = false)
+        store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1))))
 
         assertNull(store.find("podcast-1", "../../etc/passwd"))
         assertNull(store.find("podcast-1", "not-a-uuid"))
@@ -78,7 +83,7 @@ class PreviewAudioStoreTest {
 
     @Test
     fun `the sweep deletes audio older than the retention window`() {
-        val expired = store.write("podcast-1", listOf(byteArrayOf(1)), requiresConcatenation = false)
+        val expired = store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1))))
         age(store.find("podcast-1", expired)!!, 90)
 
         val deleted = store.sweepExpired()
@@ -89,7 +94,7 @@ class PreviewAudioStoreTest {
 
     @Test
     fun `the sweep keeps audio inside the retention window`() {
-        val fresh = store.write("podcast-1", listOf(byteArrayOf(1)), requiresConcatenation = false)
+        val fresh = store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1))))
         age(store.find("podcast-1", fresh)!!, 10)
 
         val deleted = store.sweepExpired()
@@ -100,8 +105,8 @@ class PreviewAudioStoreTest {
 
     @Test
     fun `the sweep spans every podcast and removes emptied directories`() {
-        val first = store.write("podcast-1", listOf(byteArrayOf(1)), requiresConcatenation = false)
-        val second = store.write("podcast-2", listOf(byteArrayOf(2)), requiresConcatenation = false)
+        val first = store.write("podcast-1", listOf(AudioChunk("voice-1", byteArrayOf(1))))
+        val second = store.write("podcast-2", listOf(AudioChunk("voice-1", byteArrayOf(2))))
         age(store.find("podcast-1", first)!!, 90)
         age(store.find("podcast-2", second)!!, 90)
 

@@ -17,6 +17,11 @@ import java.time.LocalDate
  * announces, whether the end-of-week humor beat applies, and the prompt-variety rotation, so a
  * re-run or a regeneration of a past day must pass that day rather than rely on the default.
  *
+ * [nextEpisodeDate] is the day the show is next on air after [episodeDate], resolved by the pipeline
+ * from the podcast's cron so the sign-off can promise the right day. Like [ttsScriptGuidelines] it
+ * is derived rather than passed in, so callers leave it null and the pipeline fills it in. It stays
+ * null when the cron is unparseable or fires too infrequently to name a next day.
+ *
  * [bypassLlmCache] is set by an evaluation run comparing repetitions of one prompt variant. The
  * LLM cache keys on model and prompt text and ignores temperature, so without it the second and
  * later repetitions replay the first one's script and the comparison measures nothing.
@@ -26,5 +31,6 @@ data class ComposeContext(
     val followUpAnnotations: Map<Long, String> = emptyMap(),
     val topicLabels: List<String> = emptyList(),
     val episodeDate: LocalDate = LocalDate.now(),
+    val nextEpisodeDate: LocalDate? = null,
     val bypassLlmCache: Boolean = false
 )

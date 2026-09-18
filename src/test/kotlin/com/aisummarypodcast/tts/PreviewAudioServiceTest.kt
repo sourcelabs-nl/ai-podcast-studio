@@ -97,11 +97,15 @@ class PreviewAudioServiceTest {
         stubProvider(maxChunkSize = 100)
         val request = slot<TtsRequest>()
         coEvery { provider.generate(capture(request)) } returns TtsResult(
-            audioChunks = listOf(byteArrayOf(9)),
+            audioChunks = listOf(AudioChunk("voice-1", byteArrayOf(9))),
             totalCharacters = 10,
-            requiresConcatenation = false,
             model = "inworld-tts-2"
         )
+        every { audioConcatenator.concatenate(any(), any()) } answers {
+            val chunks = firstArg<List<AudioChunk>>()
+            val target = secondArg<java.nio.file.Path>()
+            java.nio.file.Files.write(target, chunks.first().bytes)
+        }
         val script = (1..40).joinToString("\n\n") { "Paragraph $it of the full script." }
 
         val audio = service.synthesizeSample(podcast(), script)
@@ -127,9 +131,13 @@ class PreviewAudioServiceTest {
         coEvery { provider.generate(capture(request)) } answers {
             request.captured.progress?.onChunkCompleted(1, 2)
             request.captured.progress?.onChunkCompleted(2, 2)
-            TtsResult(listOf(byteArrayOf(1), byteArrayOf(2)), 40, requiresConcatenation = true, model = "inworld-tts-2")
+            TtsResult(
+                listOf(AudioChunk("voice-1", byteArrayOf(1)), AudioChunk("voice-1", byteArrayOf(2))),
+                40,
+                model = "inworld-tts-2"
+            )
         }
-        every { previewAudioStore.write("p1", any(), true) } returns "audio-id"
+        every { previewAudioStore.write("p1", any()) } returns "audio-id"
         val reported = Collections.synchronizedList(mutableListOf<Pair<Int, Int>>())
 
         val audioId = service.generateFullAudio(podcast(), "The full script.") { completed, total ->

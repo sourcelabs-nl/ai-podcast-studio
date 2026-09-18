@@ -290,4 +290,118 @@ class ScriptCleanupTest {
             cleanUpComposedScript(script, roles)
         )
     }
+
+    // --- Mismatched closers (episode 222) ---
+
+    @Test
+    fun `repairMismatchedTurnClosers rewrites a closer naming the wrong role`() {
+        val script = "<expert>The report is out.</interviewer>\n<interviewer>Tell me more.</interviewer>"
+
+        val result = repairMismatchedTurnClosers(script, interviewRoles)
+
+        assertEquals(
+            "<expert>The report is out.</expert>\n<interviewer>Tell me more.</interviewer>",
+            result
+        )
+    }
+
+    @Test
+    fun `repairMismatchedTurnClosers rewrites a misspelled closer`() {
+        val script = "<interviewer>Hello.</interviewer>\n<expert>Hi there.</epxert>"
+
+        val result = repairMismatchedTurnClosers(script, interviewRoles)
+
+        assertEquals("<interviewer>Hello.</interviewer>\n<expert>Hi there.</expert>", result)
+    }
+
+    @Test
+    fun `repairMismatchedTurnClosers repairs every mismatch in one script`() {
+        val script = "<expert>One.</interviewer>\n<interviewer>Two.</expert>\n<expert>Three.</epxert>"
+
+        val result = repairMismatchedTurnClosers(script, interviewRoles)
+
+        assertEquals(
+            "<expert>One.</expert>\n<interviewer>Two.</interviewer>\n<expert>Three.</expert>",
+            result
+        )
+    }
+
+    @Test
+    fun `repairMismatchedTurnClosers leaves a well-formed script unchanged`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>Thanks.</expert>"
+
+        assertEquals(script, repairMismatchedTurnClosers(script, interviewRoles))
+    }
+
+    @Test
+    fun `repairMismatchedTurnClosers leaves delivery markup alone`() {
+        val script = "<expert>Wait <break time=\"1s\" /> for it.</expert>"
+
+        assertEquals(script, repairMismatchedTurnClosers(script, interviewRoles))
+    }
+
+    @Test
+    fun `cleanUpComposedScript repairs a mismatched closer before stripping`() {
+        // Without the repair the lazy turn pattern swallows the interviewer turn into the expert's,
+        // and the whole run is voiced as one speaker.
+        val script = "<expert>One.</interviewer>\n<interviewer>Two.</interviewer>\n<expert>Three.</expert>"
+
+        val result = cleanUpComposedScript(script, interviewRoles)
+
+        assertEquals(
+            "<expert>One.</expert>\n<interviewer>Two.</interviewer>\n<expert>Three.</expert>",
+            result
+        )
+    }
+
+    // --- Structure validation ---
+
+    @Test
+    fun `findTurnStructureProblem accepts a well-formed script`() {
+        val script = "<interviewer>Welcome.</interviewer>\n<expert>Thanks.</expert>"
+
+        assertEquals(null, findTurnStructureProblem(script, interviewRoles))
+    }
+
+    @Test
+    fun `findTurnStructureProblem reports a mismatched closer`() {
+        val problem = findTurnStructureProblem("<expert>One.</interviewer>", interviewRoles)
+
+        assertEquals("the <expert> turn is closed with </interviewer>", problem)
+    }
+
+    @Test
+    fun `findTurnStructureProblem reports a turn that never closes`() {
+        val problem = findTurnStructureProblem("<expert>One.\n<interviewer>Two.</interviewer>", interviewRoles)
+
+        assertEquals("the <expert> turn is never closed before <interviewer> opens", problem)
+    }
+
+    @Test
+    fun `findTurnStructureProblem reports an unclosed final turn`() {
+        val problem = findTurnStructureProblem("<interviewer>One.</interviewer>\n<expert>Two.", interviewRoles)
+
+        assertEquals("the final <expert> turn is never closed", problem)
+    }
+
+    @Test
+    fun `findTurnStructureProblem reports a closer with nothing open`() {
+        val problem = findTurnStructureProblem("<interviewer>One.</interviewer></expert>", interviewRoles)
+
+        assertEquals("the closing tag </expert> does not close any open turn", problem)
+    }
+
+    @Test
+    fun `findTurnStructureProblem reports a tag that is not a speaker role`() {
+        val problem = findTurnStructureProblem("<function_results>data</function_results>", interviewRoles)
+
+        assertEquals("<function_results> is not a valid speaker tag", problem)
+    }
+
+    @Test
+    fun `findTurnStructureProblem accepts a script the repairs have already fixed`() {
+        val script = "<expert>One.</interviewer>\n<interviewer>Two.</interviewer>"
+
+        assertEquals(null, findTurnStructureProblem(cleanUpComposedScript(script, interviewRoles), interviewRoles))
+    }
 }

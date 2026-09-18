@@ -184,4 +184,42 @@ class EpisodeWindowResolverTest {
 
         assertEquals(LocalDate.of(2026, 9, 10), resolver().episodeDateOf(podcast, window))
     }
+
+    @Test
+    fun `the next episode of a weekday show is the following day mid-week`() {
+        assertEquals(
+            LocalDate.of(2026, 9, 17),
+            resolver().nextEpisodeDateAfter(podcast, LocalDate.of(2026, 9, 16))
+        )
+    }
+
+    @Test
+    fun `the next episode after a Friday is the following Monday`() {
+        assertEquals(
+            LocalDate.of(2026, 9, 14),
+            resolver().nextEpisodeDateAfter(podcast, LocalDate.of(2026, 9, 11))
+        )
+    }
+
+    @Test
+    fun `a cron firing several times a day yields the next distinct day`() {
+        val twiceDaily = podcast.copy(cron = "0 0 7,15 * * MON-FRI")
+
+        assertEquals(
+            LocalDate.of(2026, 9, 17),
+            resolver().nextEpisodeDateAfter(twiceDaily, LocalDate.of(2026, 9, 16))
+        )
+    }
+
+    @Test
+    fun `an unparseable cron names no next episode`() {
+        assertNull(resolver().nextEpisodeDateAfter(podcast.copy(cron = "not a cron"), LocalDate.of(2026, 9, 16)))
+    }
+
+    @Test
+    fun `a cron firing less often than the search horizon names no next episode`() {
+        val quarterly = podcast.copy(cron = "0 0 15 1 1,4,7,10 *")
+
+        assertNull(resolver().nextEpisodeDateAfter(quarterly, LocalDate.of(2026, 9, 16)))
+    }
 }
