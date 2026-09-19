@@ -403,61 +403,6 @@ class LlmPipeline(
         )
     }
 
-    suspend fun run(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PipelineResult? {
-        val window = episodeWindowResolver.resolveForNow(podcast)
-        val eligible = aggregateScoreAndFilter(podcast, window, onProgress = onProgress) ?: return null
-        val dedupStageResult = dedup(eligible, podcast, onProgress = onProgress) ?: return null
-        val composeStageResult = compose(
-            dedupStageResult.filteredArticles, podcast,
-            ComposeContext(
-                followUpAnnotations = dedupStageResult.followUpAnnotations,
-                topicLabels = dedupStageResult.topicLabels,
-                episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
-            ),
-            onProgress
-        )
-
-        val processedArticleIds = dedupStageResult.filteredArticles.map { it.article.id!! }
-        val articleTopics = dedupStageResult.filteredArticles
-            .filter { it.topic != null }
-            .associate { it.article.id!! to it.topic!! }
-
-        val totalCostCents = CostEstimator.addNullableCosts(dedupStageResult.dedupCostCents, composeStageResult.composeCostCents)
-
-        log.info("[LLM] Pipeline complete for podcast '{}' ({}): {} articles processed into briefing", podcast.name, podcast.id, processedArticleIds.size)
-        return PipelineResult(
-            script = composeStageResult.script,
-            filterModel = dedupStageResult.filterModel,
-            composeModel = composeStageResult.composeModel,
-            llmInputTokens = dedupStageResult.usage.inputTokens + composeStageResult.usage.inputTokens,
-            llmOutputTokens = dedupStageResult.usage.outputTokens + composeStageResult.usage.outputTokens,
-            llmCostCents = totalCostCents,
-            llmCostSource = LlmCostSource.aggregate(
-                listOf(dedupStageResult.scoreCostSource, dedupStageResult.dedupCostSource, composeStageResult.composeCostSource)
-            ),
-            processedArticleIds = processedArticleIds,
-            articleTopics = articleTopics,
-            followUpAnnotations = dedupStageResult.followUpAnnotations,
-            dedupModel = dedupStageResult.dedupModel,
-            topicOrder = composeStageResult.topicOrder,
-            researchCalls = composeStageResult.researchCalls,
-            researchCostCents = composeStageResult.researchCostCents,
-            scoreInputTokens = dedupStageResult.scoreInputTokens,
-            scoreOutputTokens = dedupStageResult.scoreOutputTokens,
-            scoreCostCents = dedupStageResult.scoreCostCents,
-            scoreReportedCostCents = dedupStageResult.scoreReportedCostCents,
-            dedupInputTokens = dedupStageResult.usage.inputTokens,
-            dedupOutputTokens = dedupStageResult.usage.outputTokens,
-            dedupCostCents = dedupStageResult.dedupCostCents ?: 0,
-            dedupReportedCostCents = dedupStageResult.dedupReportedCostCents,
-            composeInputTokens = composeStageResult.usage.inputTokens,
-            composeOutputTokens = composeStageResult.usage.outputTokens,
-            composeCostCents = composeStageResult.composeCostCents ?: 0,
-            composeReportedCostCents = composeStageResult.composeReportedCostCents,
-            provenance = composeStageResult.provenance
-        )
-    }
-
     /**
      * Recomposes an episode from articles that were already selected and scored. The context's
      * [ComposeContext.episodeDate] is the day the source episode covered, not the day the

@@ -113,14 +113,37 @@ class LlmPipelineTest {
             DedupFilterResult(articles.map { FilteredArticle(it) }, TokenUsage(100, 50))
     }
 
+    /**
+     * Drives the stages in the order `PodcastService.runGenerationPipeline` drives them: select,
+     * dedup, compose. The pipeline deliberately exposes no single method that does all three, so a
+     * test that wants the whole sequence walks the same calls production makes rather than a
+     * convenience entry point only tests would keep alive.
+     *
+     * Returns null at the point production would abandon the episode: no eligible articles, or
+     * everything filtered away as duplicates.
+     */
+    private suspend fun composeThroughStages(
+        podcast: Podcast = this.podcast,
+        pipeline: LlmPipeline = this.pipeline
+    ): ComposeStageResult? {
+        val eligible = pipeline.aggregateScoreAndFilter(podcast, window) ?: return null
+        val dedupResult = pipeline.dedup(eligible, podcast) ?: return null
+        return pipeline.compose(
+            dedupResult.filteredArticles, podcast,
+            ComposeContext(
+                followUpAnnotations = dedupResult.followUpAnnotations,
+                topicLabels = dedupResult.topicLabels,
+                episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
+            )
+        )
+    }
+
     @Test
     fun `returns null when podcast has no sources`() {
         every { sourceRepository.findByPodcastId("p1") } returns emptyList()
 
         runTest {
-            val result = pipeline.run(podcast)
-
-            assertNull(result)
+            assertNull(pipeline.aggregateScoreAndFilter(podcast, window))
         }
     }
 
@@ -135,9 +158,7 @@ class LlmPipelineTest {
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns emptyList()
 
         runTest {
-            val result = pipeline.run(podcast)
-
-            assertNull(result)
+            assertNull(pipeline.aggregateScoreAndFilter(podcast, window))
         }
     }
 
@@ -148,9 +169,10 @@ class LlmPipelineTest {
             DedupFilterResult(emptyList(), TokenUsage(100, 50))
 
         runTest {
-            val result = pipeline.run(podcast)
+            val eligible = pipeline.aggregateScoreAndFilter(podcast, window)
 
-            assertNull(result)
+            assertNotNull(eligible)
+            assertNull(pipeline.dedup(eligible!!, podcast))
         }
     }
 
@@ -182,7 +204,7 @@ class LlmPipelineTest {
         coEvery { briefingComposer.compose(listOf(scored), podcast, composeModelDef, any()) } returns compositionResult
 
         runTest {
-            val result = pipeline.run(podcast)
+            val result = composeThroughStages()
 
             assertNotNull(result)
             assertEquals("Today in tech...", result!!.script)
@@ -209,7 +231,7 @@ class LlmPipelineTest {
         } returns CompositionResult("Script", TokenUsage(500, 200))
 
         runTest {
-            pipeline.run(podcast)
+            composeThroughStages()
 
             assertEquals(listOf(1L, 2L), composed.captured.map { it.id })
         }
@@ -220,7 +242,7 @@ class LlmPipelineTest {
         setupBasicPipeline()
         coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        runTest { pipeline.run(podcast) }
+        runTest { composeThroughStages() }
 
         verify { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) }
         verify { articleEligibilityService.findHistory(podcast) }
@@ -293,7 +315,7 @@ class LlmPipelineTest {
             DedupFilterResult(listOf(FilteredArticle(scoredArticle)), TokenUsage(100, 50))
         coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        runTest { pipeline.run(podcast) }
+        runTest { composeThroughStages() }
 
         coVerify { topicDedupFilter.filter(listOf(scoredArticle), history, "u1", filterModelDef) }
     }
@@ -307,7 +329,7 @@ class LlmPipelineTest {
             CompositionResult("Script with follow-up", TokenUsage(500, 200))
 
         runTest {
-            val result = pipeline.run(podcast)
+            val result = composeThroughStages()
 
             assertNotNull(result)
             coVerify { briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, match { it.followUpAnnotations == mapOf(1L to "Previously covered release") }) }
@@ -321,7 +343,7 @@ class LlmPipelineTest {
         coEvery { dialogueComposer.compose(any(), any(), any(), any()) } returns CompositionResult("<host>Hello!</host>", TokenUsage(500, 200))
 
         runTest {
-            val result = pipeline.run(dialoguePodcast)
+            val result = composeThroughStages(dialoguePodcast)
 
             assertNotNull(result)
             coVerify { dialogueComposer.compose(any(), any(), any(), any()) }
@@ -336,7 +358,7 @@ class LlmPipelineTest {
         coEvery { interviewComposer.compose(any(), any(), any(), any()) } returns CompositionResult("<interviewer>Q?</interviewer>", TokenUsage(500, 200))
 
         runTest {
-            val result = pipeline.run(interviewPodcast)
+            val result = composeThroughStages(interviewPodcast)
 
             assertNotNull(result)
             coVerify { interviewComposer.compose(any(), any(), any(), any()) }
@@ -345,7 +367,7 @@ class LlmPipelineTest {
     }
 
     @Test
-    fun `includes dedup filter token usage in pipeline result`() {
+    fun `each stage reports its own token usage`() {
         setupBasicPipeline()
         coEvery { topicDedupFilter.filter(any(), any(), any(), any()) } returns
             DedupFilterResult(listOf(FilteredArticle(scoredArticle)), TokenUsage(200, 100))
@@ -353,11 +375,14 @@ class LlmPipelineTest {
             CompositionResult("Script", TokenUsage(500, 300))
 
         runTest {
-            val result = pipeline.run(podcast)
+            val eligible = pipeline.aggregateScoreAndFilter(podcast, window)
+            val dedupResult = pipeline.dedup(eligible!!, podcast)
+            val composeResult = pipeline.compose(dedupResult!!.filteredArticles, podcast)
 
-            assertNotNull(result)
-            assertEquals(700, result!!.llmInputTokens)
-            assertEquals(400, result.llmOutputTokens)
+            assertEquals(200, dedupResult.usage.inputTokens)
+            assertEquals(100, dedupResult.usage.outputTokens)
+            assertEquals(500, composeResult.usage.inputTokens)
+            assertEquals(300, composeResult.usage.outputTokens)
         }
     }
 
@@ -366,7 +391,7 @@ class LlmPipelineTest {
         setupBasicPipeline()
         coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        runTest { pipeline.run(podcast) }
+        runTest { composeThroughStages() }
 
         verify(exactly = 0) { articleRepository.save(match { it.isProcessed }) }
     }
@@ -377,7 +402,7 @@ class LlmPipelineTest {
         setupBasicPipeline(podcast = podcastWithPronunciations)
         coEvery { briefingComposer.compose(any(), any(), any(), any()) } returns CompositionResult("Script", TokenUsage(500, 200))
 
-        runTest { pipeline.run(podcastWithPronunciations) }
+        runTest { composeThroughStages(podcastWithPronunciations) }
 
         verify { ttsProviderMock.scriptGuidelines(PodcastStyle.NEWS_BRIEFING, mapOf("Anthropic" to "/ænˈθɹɒpɪk/")) }
     }
@@ -425,9 +450,8 @@ class LlmPipelineTest {
         every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns articles
 
         runTest {
-            val result = pipelineWithLowThreshold.run(podcast)
+            assertNull(pipelineWithLowThreshold.aggregateScoreAndFilter(podcast, window))
 
-            assertNull(result)
             coVerify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
         }
     }
@@ -638,8 +662,8 @@ class LlmPipelineTest {
             CompositionResult("Script", TokenUsage(500, 200))
         }
 
-        var result: PipelineResult? = null
-        runTest { result = retryingPipeline.run(podcast) }
+        var result: ComposeStageResult? = null
+        runTest { result = composeThroughStages(pipeline = retryingPipeline) }
 
         assertEquals(2, attempts)
         assertEquals("Script", result?.script)
@@ -655,7 +679,9 @@ class LlmPipelineTest {
             throw IllegalStateException("Compose LLM produced a script with no speaker tags")
         }
 
-        assertThrows(IllegalStateException::class.java) { runTest { retryingPipeline.run(podcast) } }
+        assertThrows(IllegalStateException::class.java) {
+            runTest { composeThroughStages(pipeline = retryingPipeline) }
+        }
 
         assertEquals(1, attempts)
     }
