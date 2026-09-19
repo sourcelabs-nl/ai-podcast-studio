@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import type {
   BackchannelCandidate,
   EpisodeMetricsResponse,
@@ -91,6 +92,17 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/**
+ * The frame a section's content sits in.
+ *
+ * Shared rather than repeated per section so the four panels cannot drift apart. Empty and failure
+ * states deliberately stay outside it: a box drawn around one line of italic text reads as a broken
+ * panel rather than as a panel.
+ */
+function Panel({ className, children }: { className?: string; children: ReactNode }) {
+  return <div className={cn("rounded-lg border border-border p-4", className)}>{children}</div>;
+}
+
 function Empty({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground italic">{children}</p>;
 }
@@ -139,7 +151,7 @@ function ScoreCard({
   const anchors = parseAnchors(score.anchorsJson);
 
   return (
-    <div className="space-y-3 rounded-lg border border-border p-4">
+    <Panel className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold tabular-nums">{formatScore(score.overall)}</span>
@@ -192,7 +204,7 @@ function ScoreCard({
       </Table>
 
       <AnchorTables anchors={anchors} turnCount={turnCount} onJumpToTurn={onJumpToTurn} />
-    </div>
+    </Panel>
   );
 }
 
@@ -265,7 +277,7 @@ function ShapeSection({ metrics }: { metrics: ScriptMetrics }) {
   const laughTags = Object.entries(metrics.laughTagsByRole);
 
   return (
-    <div className="space-y-2">
+    <Panel className="space-y-2">
       <p className="text-sm text-muted-foreground">
         {metrics.turnCount} turns, {metrics.totalWords.toLocaleString()} words
       </p>
@@ -306,7 +318,7 @@ function ShapeSection({ metrics }: { metrics: ScriptMetrics }) {
         . A laugh tag is a proxy for humor distribution, never a humor count: a joke carrying no tag
         is invisible here.
       </p>
-    </div>
+    </Panel>
   );
 }
 
@@ -322,7 +334,7 @@ function OutliersSection({
   const { backchannelCandidates, sameSpeakerRuns } = metrics;
 
   return (
-    <div className="space-y-3">
+    <Panel className="space-y-3">
       <div>
         <h4 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
           Backchannel candidates
@@ -387,41 +399,43 @@ function OutliersSection({
           </div>
         )}
       </div>
-    </div>
+    </Panel>
   );
 }
 
 function RunsSection({ runs }: { runs: EvaluationRun[] }) {
   return (
-    <Table>
-      <TableHeader className="bg-muted/50">
-        <TableRow>
-          <TableHead>Ran at</TableHead>
-          <TableHead>Prompt</TableHead>
-          <TableHead>Variety</TableHead>
-          <TableHead>Model</TableHead>
-          <TableHead className="text-right">Temp</TableHead>
-          <TableHead>Cache</TableHead>
-          <TableHead>Tools</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {runs.map((run) => (
-          <TableRow key={run.id}>
-            <TableCell className="text-xs">{formatTimestamp(run.ranAt)}</TableCell>
-            <TableCell className="font-mono text-xs">{run.promptHash.slice(0, 8)}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">{run.varietySelection}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">{run.composeModel}</TableCell>
-            <TableCell className="text-right tabular-nums">{run.temperature}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">
-              {run.cacheBypassed ? "bypassed" : "used"}
-              {run.cacheHit ? ", hit" : ""}
-            </TableCell>
-            <TableCell className="text-xs text-muted-foreground">{run.toolsFiredJson}</TableCell>
+    <Panel>
+      <Table>
+        <TableHeader className="bg-muted/50">
+          <TableRow>
+            <TableHead>Ran at</TableHead>
+            <TableHead>Prompt</TableHead>
+            <TableHead>Variety</TableHead>
+            <TableHead>Model</TableHead>
+            <TableHead className="text-right">Temp</TableHead>
+            <TableHead>Cache</TableHead>
+            <TableHead>Tools</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {runs.map((run) => (
+            <TableRow key={run.id}>
+              <TableCell className="text-xs">{formatTimestamp(run.ranAt)}</TableCell>
+              <TableCell className="font-mono text-xs">{run.promptHash.slice(0, 8)}</TableCell>
+              <TableCell className="text-xs text-muted-foreground">{run.varietySelection}</TableCell>
+              <TableCell className="text-xs text-muted-foreground">{run.composeModel}</TableCell>
+              <TableCell className="text-right tabular-nums">{run.temperature}</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                {run.cacheBypassed ? "bypassed" : "used"}
+                {run.cacheHit ? ", hit" : ""}
+              </TableCell>
+              <TableCell className="text-xs text-muted-foreground">{run.toolsFiredJson}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Panel>
   );
 }
 
