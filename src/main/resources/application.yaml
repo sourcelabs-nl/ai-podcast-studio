@@ -207,6 +207,33 @@ app:
     dedup:
       # Cap on historical articles (most recent first) embedded in the dedup prompt for topic recall.
       max-historical-articles: 120
+      # The Jev already-covered gate ahead of the clustering call. Jev answers closed questions with
+      # constrained output, so it cannot return the prose, unparseable payloads or truncated arrays
+      # that have cost this stage four episodes. It takes the one decision in the stage that is
+      # closed (is this candidate about a topic we already covered) and leaves clustering, selection
+      # and previousContext to the generative call.
+      #
+      # Measured over 60 candidates, 20 of them drawn from the previous episode and so provably
+      # covered, against 148 covered topics: 857ms and $0.00074 for the gate against 22.9s and
+      # $0.00354 for the clustering call, catching 20/20 planted and flagging the same 4 of 40 fresh
+      # candidates the clustering call flags. Asking per candidate instead of batching costs
+      # $0.00605, nearly twice the call it relieves, because each request re-sends the covered
+      # topics. See knowledge/references/jev-decisions-endpoint.md for every figure.
+      #
+      # The endpoint is alpha, single-provider, with no OpenRouter routing fallback behind it: three
+      # consecutive requests returned "503 no healthy upstream" during these measurements. A gate
+      # that answers nothing leaves every candidate in place, so an outage costs only its latency.
+      gate:
+        enabled: true
+        # Jev is absent from /api/v1/models and is not served by /api/v1/chat/completions. The URL is
+        # configured rather than derived from the stored OpenRouter base URL, which points at the
+        # chat API and is user-editable.
+        url: https://openrouter.ai/api/alpha/decisions
+        model: typesafe/jev-1.13
+        threshold: 0.8
+        summary-max-chars: 300
+        max-request-chars: 150000
+        timeout: 30s
   briefing:
     target-words: 1500
   episode:
@@ -342,6 +369,26 @@ resilience4j:
         retry-exceptions:
           - com.aisummarypodcast.tts.InworldRateLimitException
           - com.aisummarypodcast.tts.InworldTransientException
+          - org.springframework.web.client.ResourceAccessException
+      # The already-covered gate. Retried harder than its optional status suggests, because the
+      # decisions endpoint is alpha with one provider and no OpenRouter routing fallback: in one
+      # morning it answered three consecutive requests with "503 no healthy upstream" and both
+      # chunks of a live run with "529 system_overloaded", while serving healthy requests in under
+      # a second either side. A retry is the only fallback it has.
+      #
+      # The wait is shorter than external-api's 1s because the gate must not hold up the stage it
+      # serves: three attempts at 300ms and 600ms bound the worst case at about a second of
+      # backoff, against a gate that answers in 1.6s and a dedup stage that runs for 12 to 36.
+      # Exhausting the attempts is not a failure, it just leaves the run ungated.
+      #
+      # A rejected request is not retried. An oversized batch (400 max_tokens_exceeded) and a bad
+      # credential would fail identically every time, so JevClient raises JevTransientException
+      # only for 429, 5xx and 529.
+      jev-decisions:
+        base-config: external-api
+        wait-duration: 300ms
+        retry-exceptions:
+          - com.aisummarypodcast.llm.JevTransientException
           - org.springframework.web.client.ResourceAccessException
 
 logging:

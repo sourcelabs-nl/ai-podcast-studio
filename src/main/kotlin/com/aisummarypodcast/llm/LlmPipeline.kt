@@ -279,7 +279,11 @@ class LlmPipeline(
 
         val followUpAnnotations = buildFollowUpAnnotations(composeArticles)
         val topicLabels = composeArticles.mapNotNull { it.topic }.distinct()
+        // The clustering call is costed on its own, then the gate's reported charge is added on
+        // top. The gate runs a different model at different rates and its call reports its own
+        // cost, so it must not be resolved through the dedup model's rate table.
         val dedupCost = CostEstimator.resolveLlmCost(dedupResult.usage, dedupModelDef.cost)
+            .plusReportedUsd(dedupResult.gateReportedCostUsd)
 
         // Score-stage totals: sum tokens from the articles surviving into this episode. Where the
         // provider reported a cost per article those values are summed; the rest are estimated from

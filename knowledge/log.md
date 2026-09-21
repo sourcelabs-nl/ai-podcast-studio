@@ -3,6 +3,34 @@
 Newest first. Each entry begins with `## [YYYY-MM-DD] <operation>` so recent
 activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
+## [2026-09-21] Record
+
+Measured TypeSafe's Jev decision endpoint against the scoring stage: 40
+articles through both the combined call and the split, and 80 articles above
+and below the relevance threshold through Jev alone. The split costs 20% more
+because both calls read the article, and a zero-loss pre-filter saves 5%. Jev
+fits the closed-set classifications, not the scoring stage. Also recorded that
+`score` takes an ordered rubric, not a checklist: getting that wrong inverts
+the ranking.
+
+Then measured the dedup decision the same way, with 20 provably already-covered
+articles planted among 40 fresh ones. Batching all 60 questions against one
+shared state costs a fifth of the current dedup call and returns 27 times
+faster at the same detection; asking them one call per candidate costs twice
+the current call. Recorded that the total money at stake across both stages is
+cents per month, so the case rests on robustness and latency.
+
+Built the gate (OpenSpec change `gate-dedup-with-jev`). On live traffic it
+excludes 45 of 186 candidates in 1.6s and the whole dedup stage drops from
+36.1s ungated to 11.8s, the clustering call speeding up too on the smaller
+prompt. Recorded that chunks must be split evenly: a greedy fill sent a
+second request carrying all 190 covered topics to ask about two articles.
+
+The degradation path was then confirmed by an unforced outage rather than a
+simulated one: a live run hit `529 system_overloaded` on both chunks and the
+stage clustered all 186 candidates and carried on. That is the third
+availability incident on this endpoint in one morning.
+
 ## [2026-09-17] Record
 
 Measured whether the compose stage should return JSON turns instead of tagged

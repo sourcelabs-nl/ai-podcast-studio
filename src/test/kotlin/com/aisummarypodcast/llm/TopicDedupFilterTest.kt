@@ -33,7 +33,7 @@ class TopicDedupFilterTest {
     )
 
     private val filter = TopicDedupFilter(
-        mockk(), JsonMapper.builder().build(), testRetryRegistry(), appProperties
+        mockk(), JsonMapper.builder().build(), testRetryRegistry(), appProperties, mockk()
     )
 
     private fun article(id: Long, title: String, summary: String = "Summary of $title") = Article(

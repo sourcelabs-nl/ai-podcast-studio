@@ -4,6 +4,9 @@ import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.store.Article
 import kotlin.math.roundToInt
 
+/** Costs are held and persisted in fractional cents; providers report in USD. */
+private const val USD_TO_CENTS = 100.0
+
 /** A cost in fractional cents together with the way it was arrived at. */
 data class ResolvedLlmCost(
     val costCents: Double?,
@@ -21,6 +24,32 @@ data class ResolvedLlmCost(
     val reportedCostCents: Double?
         get() = if (source in REPORTED_SOURCES) costCents else null
 
+    /**
+     * This cost plus [extraUsd], a charge a second provider reported for the same stage.
+     *
+     * Exists for the dedup stage, whose already-covered gate runs a different model at a different
+     * rate and reports its own cost, so the gate cannot be resolved through the stage model's rate
+     * table and cannot be summed into the clustering call's token counts either.
+     *
+     * A null [extraUsd] changes nothing. A rate-estimated total becomes [LlmCostSource.MIXED],
+     * since part of it is now provider-reported.
+     *
+     * An [LlmCostSource.UNKNOWN] total also changes nothing, and deliberately so. It is tempting
+     * to read that as losing a charge that really happened, but the stage total was already
+     * unknowable: the call this is being added to did run and its cost could not be resolved.
+     * Returning [extraUsd] alone would put a number where there is none, and that number would be
+     * a large understatement presented as a complete total, which is exactly what
+     * [CostEstimator.aggregateStageCost] refuses to do with a partial sum. Nothing knowable is
+     * dropped here. Reaching this at all takes both a provider that reports no cost and a model
+     * with no rate-table entry.
+     */
+    fun plusReportedUsd(extraUsd: Double?): ResolvedLlmCost {
+        if (extraUsd == null) return this
+        val base = costCents ?: return this
+        val combinedSource = if (source == LlmCostSource.TABLE) LlmCostSource.MIXED else source
+        return ResolvedLlmCost(base + extraUsd * USD_TO_CENTS, combinedSource)
+    }
+
     private companion object {
         val REPORTED_SOURCES = setOf(LlmCostSource.API, LlmCostSource.API_CACHED, LlmCostSource.MIXED)
     }
@@ -34,8 +63,6 @@ data class LlmCallCost(
 )
 
 object CostEstimator {
-
-    private const val USD_TO_CENTS = 100.0
 
     /**
      * Resolves a single call's cost: the provider-reported value when present, otherwise the

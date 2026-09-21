@@ -339,4 +339,35 @@ class CostEstimatorTest {
         assertEquals(0.0004, CostEstimator.addNullableReportedCosts(null, 0.0004))
         assertEquals(0.0006, CostEstimator.addNullableReportedCosts(0.0002, 0.0004)!!, 1e-9)
     }
+
+    @Test
+    fun `plusReportedUsd adds a second provider's charge to a reported total`() {
+        val total = ResolvedLlmCost(1.0, LlmCostSource.API).plusReportedUsd(0.0007)
+
+        assertEquals(1.07, total.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.API, total.source)
+    }
+
+    @Test
+    fun `plusReportedUsd marks a rate-estimated total as mixed`() {
+        val total = ResolvedLlmCost(2.0, LlmCostSource.TABLE).plusReportedUsd(0.01)
+
+        assertEquals(3.0, total.costCents!!, 1e-9)
+        assertEquals(LlmCostSource.MIXED, total.source)
+    }
+
+    @Test
+    fun `plusReportedUsd leaves an unknown total unknown rather than reporting a partial sum`() {
+        val total = ResolvedLlmCost(null, LlmCostSource.UNKNOWN).plusReportedUsd(0.01)
+
+        assertNull(total.costCents)
+        assertEquals(LlmCostSource.UNKNOWN, total.source)
+    }
+
+    @Test
+    fun `plusReportedUsd of null changes nothing`() {
+        val base = ResolvedLlmCost(1.0, LlmCostSource.API)
+
+        assertEquals(base, base.plusReportedUsd(null))
+    }
 }

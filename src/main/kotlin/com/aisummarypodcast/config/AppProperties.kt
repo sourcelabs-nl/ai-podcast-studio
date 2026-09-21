@@ -152,7 +152,36 @@ data class ScoringProperties(
  * embedded in the prompt — keeping the request small enough for a cheap model.
  */
 data class DedupProperties(
-    val maxHistoricalArticles: Int = 120
+    val maxHistoricalArticles: Int = 120,
+    val gate: DedupGateProperties = DedupGateProperties()
+)
+
+/**
+ * The Jev already-covered gate that runs ahead of the dedup clustering call.
+ *
+ * Every default here was measured; see `knowledge/references/jev-decisions-endpoint.md`.
+ * [threshold] sits in the gap between the two answer distributions rather than on a slope
+ * (already-covered candidates averaged 0.95, fresh ones 0.39), and errs high on purpose: a false
+ * exclusion silently drops a story from the episode, where a false inclusion only leaves the
+ * clustering call the work it already does.
+ *
+ * [summaryMaxChars] is not a crude saving. At 300 characters the gate separated the two groups
+ * better than at 800 and for two thirds of the price, because the question is whether a candidate
+ * is *about* an already-covered topic and a topic is legible from the opening of a summary.
+ * Dropping the summary entirely missed two genuinely covered candidates.
+ *
+ * [maxRequestChars] bounds a request rather than a candidate count, because the endpoint rejects
+ * on size: 154,644 serialised characters succeeded and 172,919 returned
+ * `max_tokens_exceeded`.
+ */
+data class DedupGateProperties(
+    val enabled: Boolean = true,
+    val url: String = "https://openrouter.ai/api/alpha/decisions",
+    val model: String = "typesafe/jev-1.13",
+    val threshold: Double = 0.8,
+    val summaryMaxChars: Int = 300,
+    val maxRequestChars: Int = 150_000,
+    val timeout: Duration = Duration.ofSeconds(30)
 )
 
 enum class ModelType { LLM, TTS }

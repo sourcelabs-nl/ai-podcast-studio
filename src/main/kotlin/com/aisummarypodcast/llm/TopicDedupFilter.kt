@@ -70,7 +70,16 @@ data class FilteredArticle(
 
 data class DedupFilterResult(
     val filteredArticles: List<FilteredArticle>,
-    val usage: TokenUsage
+    val usage: TokenUsage,
+    /**
+     * What the already-covered gate charged, kept apart from [usage] rather than folded into it.
+     *
+     * The gate runs on a different model at different rates, so adding its tokens to [usage] would
+     * both misreport the clustering call's size and make [CostEstimator.resolveLlmCost] price them
+     * at the dedup model's rate on any call the provider did not report. Null means the gate did
+     * not run or reported nothing, which must stay distinct from a zero.
+     */
+    val gateReportedCostUsd: Double? = null
 )
 
 /** Articles resolved from the dedup clusters, plus how many repeat selections were discarded. */
@@ -84,7 +93,8 @@ class TopicDedupFilter(
     private val chatClientFactory: ChatClientFactory,
     private val jsonMapper: JsonMapper,
     private val retryRegistry: RetryRegistry,
-    private val appProperties: AppProperties
+    private val appProperties: AppProperties,
+    private val coveredTopicGate: CoveredTopicGate
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -102,10 +112,19 @@ class TopicDedupFilter(
 
         log.info("[Dedup] Filtering {} candidates against {} historical articles and {} covered topic(s)",
             candidates.size, history.articles.size, history.coveredTopics.size)
-        val chatClient = chatClientFactory.createForModel(userId, modelDef, episodeId = episodeId)
-        val prompt = buildPrompt(candidates, history)
 
-        val outputTokenBudget = dedupOutputTokenBudget(candidates.size)
+        // The already-covered decision is the one closed question in this stage, so it is answered
+        // before the clustering call rather than by it. A gate that answers nothing leaves every
+        // candidate here, which is exactly how the stage behaved before it existed.
+        val gate = withContext(Dispatchers.IO) {
+            coveredTopicGate.evaluate(candidates, history.coveredTopics, userId)
+        }
+        val gatedCandidates = keepGateFromEmptyingTheEpisode(candidates, gate)
+
+        val chatClient = chatClientFactory.createForModel(userId, modelDef, episodeId = episodeId)
+        val prompt = buildPrompt(gatedCandidates, history)
+
+        val outputTokenBudget = dedupOutputTokenBudget(gatedCandidates.size)
         val retry = retryRegistry.retry("topic-dedup")
         val (result, elapsed) = measureTimedValue {
             // Resilience4j owns the attempt count and backoff. The attempt number is still tracked
@@ -141,22 +160,23 @@ class TopicDedupFilter(
                 val raw = chatResponse?.result?.output?.text?.takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Empty response from LLM for topic dedup filter")
 
-                Pair(parseOrSalvage(raw, candidates), TokenUsage.fromChatResponse(chatResponse))
+                Pair(parseOrSalvage(raw, gatedCandidates), TokenUsage.fromChatResponse(chatResponse))
             }
         }
 
         val (dedupResult, usage) = result
-        val selection = selectArticles(dedupResult.clusters, candidates)
+        val selection = selectArticles(dedupResult.clusters, gatedCandidates)
 
         if (selection.duplicateSelections > 0) {
             log.warn("[Dedup] Response selected {} article(s) in more than one cluster — discarded the repeats",
                 selection.duplicateSelections)
         }
 
-        log.info("[Dedup] Filter complete in {} — {} candidates → {} selected across {} clusters",
-            elapsed, candidates.size, selection.articles.size, dedupResult.clusters.size)
+        log.info("[Dedup] Filter complete in {} — {} candidates ({}) → {} selected across {} clusters",
+            elapsed, candidates.size, describeGate(candidates, gatedCandidates, gate),
+            selection.articles.size, dedupResult.clusters.size)
 
-        return DedupFilterResult(selection.articles, usage)
+        return DedupFilterResult(selection.articles, usage, gate.reportedCostUsd)
     }
 
     /**
@@ -372,6 +392,52 @@ class TopicDedupFilter(
         }
 
         return DedupSelection(articles, duplicateSelections)
+    }
+
+    /**
+     * What the gate did, for the one line that summarises the whole stage.
+     *
+     * An overrule reports what the gate wanted rather than the nothing it achieved. The count
+     * alone would read "0 gated out" on the run where the gate misbehaved most, and pairing that
+     * with a separate warning only works for a reader who sees both lines.
+     */
+    internal fun describeGate(
+        candidates: List<Article>,
+        gatedCandidates: List<Article>,
+        gate: CoveredTopicGateResult
+    ): String = when {
+        !gate.answered -> "ungated"
+        gatedCandidates.size == candidates.size && gate.excludedIds.isNotEmpty() ->
+            "gate wanted all ${gate.excludedIds.size} excluded, overruled"
+        else -> "${candidates.size - gatedCandidates.size} gated out"
+    }
+
+    /**
+     * The candidates to cluster: [candidates] minus what the gate excluded, unless that would be
+     * all of them.
+     *
+     * An empty candidate list ends the run. [LlmPipeline] reads an empty filter result as "every
+     * topic was already covered" and skips the episode, which on a genuinely quiet day is the
+     * right answer. Letting the gate reach that state on its own would hand it an authority it
+     * has not earned: a malfunction excluding everything would look exactly like a quiet day and
+     * silently cost an episode, the same shape of failure as episode 204 composing from one
+     * article. Deciding that nothing is left to say belongs to the clustering call, which is
+     * checked for degeneracy by [requireUsableClusters].
+     *
+     * So a gate that excludes every candidate is treated as a gate that answered nothing. The
+     * clustering call then sees the full list and may still reach the same conclusion on its own
+     * evidence.
+     */
+    private fun keepGateFromEmptyingTheEpisode(
+        candidates: List<Article>,
+        gate: CoveredTopicGateResult
+    ): List<Article> {
+        val kept = candidates.filterNot { it.id in gate.excludedIds }
+        if (kept.isNotEmpty()) return kept
+
+        log.warn("[Dedup] The gate excluded all {} candidate(s), which it is not trusted to decide alone - " +
+            "clustering them all and letting the dedup call judge", candidates.size)
+        return candidates
     }
 
     /**
