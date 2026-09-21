@@ -17,6 +17,7 @@ import com.aisummarypodcast.testComposeRetryRegistry
 import com.aisummarypodcast.testRetryRegistry
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
+import com.aisummarypodcast.store.CandidateOutcome
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.Post
@@ -98,6 +99,27 @@ class LlmPipelineTest {
     private val scoredArticle = Article(
         id = 1, sourceId = "s1", title = "AI News", body = "Body",
         url = "https://example.com/ai", contentHash = "hash1", relevanceScore = 8, summary = "Summary."
+    )
+
+    private fun scored(
+        id: Long,
+        input: Int = 0,
+        output: Int = 0,
+        reportedUsd: Double? = null,
+        relevance: Int = 8
+    ) = Article(
+        id = id, sourceId = "s1", title = "Article $id", body = "Body",
+        url = "https://example.com/$id", contentHash = "hash$id", relevanceScore = relevance,
+        summary = "Summary $id", llmInputTokens = input, llmOutputTokens = output,
+        llmReportedCostUsd = reportedUsd
+    )
+
+    /** A pipeline whose compose cap is [maxArticles], so the cut can be observed. */
+    private fun pipelineComposingAtMost(maxArticles: Int) = LlmPipeline(
+        articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
+        sourceRepository, postRepository, sourceAggregator,
+        appProperties.copy(compose = ComposeProperties(maxArticles = maxArticles)), ttsProviderFactory,
+        articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
     )
 
     private fun setupBasicPipeline(articles: List<Article> = listOf(scoredArticle), podcast: Podcast = this.podcast) {
@@ -503,6 +525,81 @@ class LlmPipelineTest {
             assertEquals(listOf("AI Safety"), result.topicLabels)
             assertEquals(filterModelDef.model, result.filterModel)
         }
+    }
+
+    @Test
+    fun `an episode is charged for every candidate it scored, not only the survivors`() = runTest {
+        // Scoring runs against the full article body, and it runs because the article fell in this
+        // episode's window. Costing the stage over the survivors attributes the rest to nothing.
+        val kept = scored(1, input = 1000, output = 100, reportedUsd = 0.001)
+        val dropped = scored(2, input = 4000, output = 400, reportedUsd = 0.004)
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any(), any()) } returns DedupFilterResult(
+            filteredArticles = listOf(FilteredArticle(kept)),
+            usage = TokenUsage(100, 50),
+            dropped = listOf(DroppedCandidate(2L, CandidateOutcome.DROPPED_AS_DUPLICATE))
+        )
+
+        val result = pipeline.dedup(listOf(kept, dropped), podcast)!!
+
+        assertEquals(5000, result.scoreInputTokens)
+        assertEquals(500, result.scoreOutputTokens)
+        // 0.005 USD is half a cent.
+        assertEquals(0.5, result.scoreReportedCostCents)
+    }
+
+    @Test
+    fun `every candidate is recorded with what became of it`() = runTest {
+        val used = scored(1, relevance = 9)
+        val cutByCap = scored(2, relevance = 1)
+        val duplicate = scored(3)
+        val gated = scored(4)
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any(), any()) } returns DedupFilterResult(
+            filteredArticles = listOf(FilteredArticle(used), FilteredArticle(cutByCap)),
+            usage = TokenUsage(100, 50),
+            dropped = listOf(
+                DroppedCandidate(3L, CandidateOutcome.DROPPED_AS_DUPLICATE),
+                DroppedCandidate(4L, CandidateOutcome.EXCLUDED_BY_GATE)
+            )
+        )
+        val cappedPipeline = pipelineComposingAtMost(1)
+
+        val result = cappedPipeline.dedup(listOf(used, cutByCap, duplicate, gated), podcast)!!
+
+        assertEquals(
+            mapOf(
+                1L to CandidateOutcome.USED,
+                2L to CandidateOutcome.CUT_BY_COMPOSE_CAP,
+                3L to CandidateOutcome.DROPPED_AS_DUPLICATE,
+                4L to CandidateOutcome.EXCLUDED_BY_GATE
+            ),
+            result.candidates.associate { it.articleId to it.outcome }
+        )
+    }
+
+    @Test
+    fun `the gate is costed apart from the clustering call it relieves`() = runTest {
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(podcast, PipelineStage.DEDUP) } returns filterModelDef
+        every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
+        coEvery { topicDedupFilter.filter(any(), any(), any(), any(), any()) } returns DedupFilterResult(
+            filteredArticles = listOf(FilteredArticle(scoredArticle)),
+            usage = TokenUsage(29435, 3791, reportedCostUsd = 0.02),
+            gate = DedupGateUsage(inputTokens = 900, requests = 2, reportedCostUsd = 0.0007)
+        )
+
+        val result = pipeline.dedup(listOf(scoredArticle), podcast)!!
+
+        // The clustering call alone, no longer carrying the gate's charge.
+        assertEquals(2.0, result.dedupReportedCostCents)
+        assertEquals(0.07, result.dedupGateReportedCostCents!!, 1e-9)
+        assertEquals(900, result.dedupGateInputTokens)
+        assertEquals(2, result.dedupGateCalls)
     }
 
     @Test

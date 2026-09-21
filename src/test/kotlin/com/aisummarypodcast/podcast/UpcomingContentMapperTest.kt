@@ -72,4 +72,25 @@ class UpcomingContentMapperTest {
         // Unlinked posts are mapped into the same "articles" list as real articles.
         assertEquals(1, mapArticles(content).single().postCount)
     }
+
+    @Test
+    fun `the upcoming response carries what scoring the candidates cost`() {
+        val content = UpcomingContent(
+            articles = listOf(article(1, "Scored already")),
+            unlinkedPosts = emptyList(),
+            sources = listOf(source),
+            totalPostCount = 0,
+            effectiveArticleCount = 1,
+            scoringSpend = ScoringSpend(
+                model = "deepseek/deepseek-v4.1-flash",
+                calls = 60, inputTokens = 78919, outputTokens = 8896, costCents = 2.42
+            )
+        )
+
+        val scoring = content.toResponse()["scoring"] as LlmStageCostResponse
+
+        assertEquals("deepseek/deepseek-v4.1-flash", scoring.model)
+        assertEquals(60, scoring.calls)
+        assertEquals(2.42, scoring.costCents)
+    }
 }

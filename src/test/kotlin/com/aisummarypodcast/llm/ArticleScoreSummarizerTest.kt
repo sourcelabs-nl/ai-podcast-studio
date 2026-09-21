@@ -86,6 +86,46 @@ class ArticleScoreSummarizerTest {
     }
 
     @Test
+    fun `a scoring request names the article it scored`() = runTest {
+        // Without this the scoring stage is unreadable per episode: the request is issued when the
+        // article arrives, before any episode exists to name, so the article is the only handle
+        // the episode has on it.
+        val articles = listOf(
+            Article(id = 1, sourceId = "s1", title = "One", body = "Body", url = "https://example.com/1", contentHash = "h1"),
+            Article(id = 2, sourceId = "s1", title = "Two", body = "Body", url = "https://example.com/2", contentHash = "h2")
+        )
+        mockLlmResponse(ScoreSummarizeResult(relevanceScore = 8, summary = "Summary."))
+
+        scoreSummarizer.scoreSummarize(articles, podcast, filterModelDef, ScoringContext(episodeId = 42L))
+
+        verify {
+            chatClientFactory.createForModel(
+                podcast.userId, filterModelDef, any(), LlmCallAttribution(episodeId = 42L, articleId = 1L)
+            )
+            chatClientFactory.createForModel(
+                podcast.userId, filterModelDef, any(), LlmCallAttribution(episodeId = 42L, articleId = 2L)
+            )
+        }
+    }
+
+    @Test
+    fun `a scoring request outside any episode still names its article`() = runTest {
+        val article = Article(
+            id = 7, sourceId = "s1", title = "Eager", body = "Body",
+            url = "https://example.com/7", contentHash = "h7"
+        )
+        mockLlmResponse(ScoreSummarizeResult(relevanceScore = 8, summary = "Summary."))
+
+        scoreSummarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
+
+        verify {
+            chatClientFactory.createForModel(
+                podcast.userId, filterModelDef, any(), LlmCallAttribution(episodeId = null, articleId = 7L)
+            )
+        }
+    }
+
+    @Test
     fun `article receives relevance score and summary`() = runTest {
         val article = Article(
             id = 1, sourceId = "s1", title = "GPT-5 Released", body = "OpenAI released GPT-5 today.",

@@ -37,6 +37,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import com.aisummarypodcast.config.ModelCost
+import com.aisummarypodcast.config.ModelType
+import com.aisummarypodcast.llm.PipelineStage
+import com.aisummarypodcast.llm.ResolvedModel
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -115,6 +119,59 @@ class PodcastServiceTest {
         assertEquals("Post 1", result.unlinkedPosts[0].title)
         assertEquals(4L, result.totalPostCount) // 3 linked + 1 unlinked
     }
+
+    @Test
+    fun `getUpcomingContent reports what scoring the standing candidates cost`() {
+        // Totalled the way an episode's score stage is, so the figure shown before generation is
+        // comparable with the one shown after. Nothing is scored to answer the request.
+        val filterModel = ResolvedModel(
+            provider = "openrouter", model = "deepseek/deepseek-v4.1-flash",
+            cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60),
+            stage = PipelineStage.FILTER
+        )
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModel
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+        every { articleRepository.findUnprocessedSince(listOf("s1"), any()) } returns listOf(
+            scoredArticle(1, input = 1000, output = 100, reportedUsd = 0.001),
+            scoredArticle(2, input = 3000, output = 300, reportedUsd = 0.003)
+        )
+        every { postRepository.findUnlinkedSince(listOf("s1"), any()) } returns emptyList()
+        every { postArticleRepository.countByArticleIds(any()) } returns 0L
+        every { postRepository.getPostCountsByArticleIds(any()) } returns emptyMap()
+
+        val spend = podcastService.getUpcomingContent(podcast).scoringSpend
+
+        assertEquals("deepseek/deepseek-v4.1-flash", spend.model)
+        assertEquals(2, spend.calls)
+        assertEquals(4000, spend.inputTokens)
+        assertEquals(400, spend.outputTokens)
+        // 0.004 USD is 0.4 cents.
+        assertEquals(0.4, spend.costCents, 1e-9)
+        verify(exactly = 0) { articleRepository.save(any()) }
+    }
+
+    @Test
+    fun `getUpcomingContent reports no scoring spend when nothing is standing`() {
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns ResolvedModel(
+            provider = "openrouter", model = "deepseek/deepseek-v4.1-flash", cost = null,
+            stage = PipelineStage.FILTER
+        )
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+        every { articleRepository.findUnprocessedSince(listOf("s1"), any()) } returns emptyList()
+        every { postRepository.findUnlinkedSince(listOf("s1"), any()) } returns emptyList()
+
+        val spend = podcastService.getUpcomingContent(podcast).scoringSpend
+
+        assertEquals(0, spend.calls)
+        assertEquals(0.0, spend.costCents)
+    }
+
+    private fun scoredArticle(id: Long, input: Int, output: Int, reportedUsd: Double?) = Article(
+        id = id, sourceId = "s1", title = "Article $id", body = "body",
+        url = "https://example.com/$id", contentHash = "h$id",
+        publishedAt = "2026-03-02T00:00:00Z", relevanceScore = 7,
+        llmInputTokens = input, llmOutputTokens = output, llmReportedCostUsd = reportedUsd
+    )
 
     @Test
     fun `getUpcomingContent falls back to maxArticleAgeDays when lastGeneratedAt is null`() {

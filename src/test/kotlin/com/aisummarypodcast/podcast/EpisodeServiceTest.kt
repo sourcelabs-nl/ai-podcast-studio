@@ -28,6 +28,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.springframework.context.ApplicationEventPublisher
@@ -35,6 +36,10 @@ import org.springframework.context.ApplicationEventPublisher
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import com.aisummarypodcast.llm.EpisodeCandidate
+import com.aisummarypodcast.store.CandidateOutcome
+import com.aisummarypodcast.store.EpisodeCandidateArticle
+import org.springframework.data.repository.findByIdOrNull
 import org.junit.jupiter.api.Test
 import java.util.*
 
@@ -737,5 +742,124 @@ class EpisodeServiceTest {
         )
 
         assertEquals(true, episodeService.hasActiveEpisode("p1"))
+    }
+
+    // --- saveDedupResults: candidates and the dedup gate ---
+
+    private fun dedupResult(
+        filtered: List<FilteredArticle> = emptyList(),
+        candidates: List<EpisodeCandidate> = emptyList(),
+        gateInput: Int = 0,
+        gateCalls: Int = 0,
+        gateCostCents: Int = 0,
+        gateReported: Double? = null
+    ) = DedupStageResult(
+        filteredArticles = filtered,
+        filterModel = "filter-model",
+        dedupModel = "dedup-model",
+        usage = TokenUsage(1000, 200),
+        followUpAnnotations = emptyMap(),
+        topicLabels = emptyList(),
+        dedupCostCents = 2,
+        dedupCostSource = LlmCostSource.API,
+        dedupReportedCostCents = 2.0,
+        candidates = candidates,
+        scoreInputTokens = 5000,
+        scoreOutputTokens = 500,
+        scoreCostCents = 4,
+        scoreCostSource = LlmCostSource.API,
+        scoreReportedCostCents = 4.0,
+        dedupGateInputTokens = gateInput,
+        dedupGateCalls = gateCalls,
+        dedupGateCostCents = gateCostCents,
+        dedupGateCostSource = if (gateCalls > 0) LlmCostSource.API else LlmCostSource.UNKNOWN,
+        dedupGateReportedCostCents = gateReported
+    )
+
+    private fun episodeForDedup() = Episode(
+        id = 5, podcastId = "p1", generatedAt = "now", scriptText = "", status = EpisodeStatus.GENERATING
+    )
+
+    @Test
+    fun `every candidate is recorded beside the episode's article links`() {
+        val episode = episodeForDedup()
+        val article = Article(
+            id = 10, sourceId = "s1", title = "Kept", body = "Body",
+            url = "https://example.com/10", contentHash = "h10"
+        )
+        every { episodeRepository.findByIdOrNull(5L) } returns episode
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.saveDedupResults(
+            episode,
+            dedupResult(
+                filtered = listOf(FilteredArticle(article)),
+                candidates = listOf(
+                    EpisodeCandidate(10L, CandidateOutcome.USED),
+                    EpisodeCandidate(11L, CandidateOutcome.DROPPED_AS_DUPLICATE)
+                )
+            )
+        )
+
+        val saved = slot<List<EpisodeCandidateArticle>>()
+        verify { episodeCandidateArticleRepository.saveAll(capture(saved)) }
+        assertEquals(
+            mapOf(10L to CandidateOutcome.USED, 11L to CandidateOutcome.DROPPED_AS_DUPLICATE),
+            saved.captured.associate { it.articleId to it.outcome }
+        )
+        // Only the kept article becomes episode content; the dropped candidate reaches no reader
+        // of the article links.
+        verify(exactly = 1) { episodeArticleRepository.insertIgnore(5L, 10L, any(), any(), any()) }
+        verify(exactly = 0) { episodeArticleRepository.insertIgnore(5L, 11L, any(), any(), any()) }
+    }
+
+    @Test
+    fun `a re-run replaces the candidates the previous run recorded`() {
+        val episode = episodeForDedup()
+        every { episodeRepository.findByIdOrNull(5L) } returns episode
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.saveDedupResults(
+            episode, dedupResult(candidates = listOf(EpisodeCandidate(10L, CandidateOutcome.USED)))
+        )
+
+        verify { episodeCandidateArticleRepository.deleteByEpisodeId(5L) }
+    }
+
+    @Test
+    fun `the gate is persisted apart from the clustering call without changing the aggregate`() {
+        val episode = episodeForDedup()
+        every { episodeRepository.findByIdOrNull(5L) } returns episode
+        val saved = mutableListOf<Episode>()
+        every { episodeRepository.save(capture(saved)) } answers { firstArg() }
+
+        episodeService.saveDedupResults(
+            episode,
+            dedupResult(gateInput = 900, gateCalls = 2, gateCostCents = 1, gateReported = 0.07)
+        )
+
+        val stored = saved.last()
+        assertEquals(900, stored.dedupGateInputTokens)
+        assertEquals(2, stored.dedupGateCalls)
+        assertEquals(0.07, stored.dedupGateReportedCostCents)
+        // The clustering call keeps its own amount, and the aggregate is the sum of the stages.
+        assertEquals(2, stored.dedupCostCents)
+        assertEquals(5000 + 1000 + 900, stored.llmInputTokens)
+        assertEquals(4 + 2 + 1, stored.llmCostCents)
+    }
+
+    @Test
+    fun `a gate that did not run leaves a fully reported episode reported`() {
+        // Its cost source is UNKNOWN, and folding that into the aggregate would turn an episode
+        // whose every stage reported a cost into a MIXED one.
+        val episode = episodeForDedup()
+        every { episodeRepository.findByIdOrNull(5L) } returns episode
+        val saved = mutableListOf<Episode>()
+        every { episodeRepository.save(capture(saved)) } answers { firstArg() }
+
+        episodeService.saveDedupResults(episode, dedupResult())
+
+        assertEquals(LlmCostSource.API, saved.last().llmCostSource)
+        assertEquals(0, saved.last().dedupGateCalls)
     }
 }

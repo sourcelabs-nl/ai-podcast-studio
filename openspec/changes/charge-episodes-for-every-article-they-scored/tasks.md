@@ -13,17 +13,17 @@
   `DedupStageResult`: the gate's exclusions, the clustering call's duplicates and
   the compose cap's cut; verify with a unit test that each of the three reasons
   arrives with the articles it removed
-- [ ] 1.4 Write the candidate rows in the same `EpisodeService` transaction that
+- [x] 1.4 Write the candidate rows in the same `EpisodeService` transaction that
   writes the article links; verify with a test that an episode generated from 10
   candidates of which 6 compose records 10 candidates and 6 links, and that a
   failure writing the links leaves no candidate rows
-- [ ] 1.5 Verify a dropped candidate reaches no reader of the article links:
+- [x] 1.5 Verify a dropped candidate reaches no reader of the article links:
   assert the show notes, the sources file and `markArticlesAsProcessed` are
   unchanged for an episode with dropped candidates
 
 ## 2. Charge the episode for every candidate it scored
 
-- [ ] 2.1 Cost the score stage over every candidate rather than the survivors,
+- [x] 2.1 Cost the score stage over every candidate rather than the survivors,
   moving the token sums with it; verify with a test that an episode scoring 188
   candidates and composing 121 persists the tokens and cost of all 188
 - [x] 2.2 Report the dropped part as a breakdown of the score row, derived on the
@@ -41,7 +41,7 @@
   `dedup_gate_cost_cents`, `dedup_gate_calls` (NOT NULL DEFAULT 0) and
   `dedup_gate_reported_cost_cents` (nullable); verify with a migration test that
   an existing episode reads zero and null
-- [ ] 3.2 Carry the gate's usage, cost and request count out of the dedup stage
+- [x] 3.2 Carry the gate's usage, cost and request count out of the dedup stage
   separately and persist them through the existing `EpisodeService` path, and
   remove `plusReportedUsd(gateReportedCostUsd)` from the dedup cost; verify with
   a test that the dedup row holds the clustering call alone, the gate row holds
@@ -61,7 +61,7 @@
   `buildCachingModel` and `CachingChatModel` with an `LlmCallAttribution` value
   carrying the episode and the article; verify `mvn test` passes and no call site
   passes two bare nullable ids
-- [ ] 4.3 Name the article in `ArticleScoreSummarizer`'s requests; verify with a
+- [x] 4.3 Name the article in `ArticleScoreSummarizer`'s requests; verify with a
   test that scoring one article records a row naming it and no episode
 - [x] 4.4 Gather an episode's requests by episode or by an article among its
   candidates; verify with a test that the scoring requests of both used and
@@ -70,11 +70,11 @@
 
 ## 5. Report the spend before the episode exists
 
-- [ ] 5.1 Report the scoring requests, tokens and cost of the standing candidates
+- [x] 5.1 Report the scoring requests, tokens and cost of the standing candidates
   on the upcoming articles response, computed through
   `CostEstimator.aggregateStageCost`; verify with a test that the figure matches
   what the same articles would cost as an episode's score stage
-- [ ] 5.2 Verify nothing standing reports zero rather than failing, and that no
+- [x] 5.2 Verify nothing standing reports zero rather than failing, and that no
   LLM call is issued to answer the request
 
 ## 6. Show it
