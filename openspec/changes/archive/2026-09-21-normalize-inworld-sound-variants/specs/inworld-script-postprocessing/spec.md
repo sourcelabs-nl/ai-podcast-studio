@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Inworld sound tag recognition
 The post-processor SHALL recognise the sound names Inworld documents — `sigh`, `laugh`, `breathe`, `cough`, `clear throat`, `yawn` — case-insensitively, and SHALL rewrite an underscore in a name to a space so the legacy `[clear_throat]` spelling reaches Inworld as `[clear throat]`. A recognised sound SHALL be emitted in its documented spelling and SHALL be kept on every model, because a sound is not a steering instruction.

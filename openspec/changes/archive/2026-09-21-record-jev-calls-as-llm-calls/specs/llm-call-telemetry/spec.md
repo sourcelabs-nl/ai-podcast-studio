@@ -54,14 +54,17 @@ A failure that the system classifies as a timeout SHALL be distinguishable from 
 by a stable value rather than by the name of an implementation type, because the distinction decides
 whether the row is counted as latency.
 
-#### Scenario: A provider rejects a request
+Failed requests SHALL be excluded from latency percentiles by default, because a request that hit
+its timeout reports the timeout's duration rather than the provider's latency.
+
+#### Scenario: Request times out
+- **WHEN** a request does not complete within the timeout it was issued with
+- **THEN** a record is written marked as a failure and identified as a timeout
+
+#### Scenario: Provider returns an error
 - **WHEN** a request fails against the provider
 - **THEN** a record is written marked as a failure, carrying the kind of failure, with zero token
   counts
-
-#### Scenario: A request exceeds its timeout
-- **WHEN** a request does not complete within the timeout it was issued with
-- **THEN** a record is written marked as a failure and identified as a timeout
 
 ### Requirement: Latency percentiles are readable per stage
 The system SHALL expose the recorded latency as percentiles (p50, p90, p95 and p99) grouped by
@@ -93,6 +96,8 @@ Every reported stage SHALL appear even when it issued nothing in scope, with a z
 - **WHEN** a stage that is not part of the episode-generating pipeline has issued requests
 - **THEN** the response reports that stage alongside the pipeline stages, against the timeout its
   own requests are issued with
+
+## ADDED Requirements
 
 ### Requirement: Percentiles cover successful requests and timeouts
 Latency percentiles SHALL be computed over requests that succeeded and over requests that timed out,

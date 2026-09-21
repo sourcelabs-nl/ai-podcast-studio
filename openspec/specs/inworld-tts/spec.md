@@ -307,6 +307,8 @@ Because the provider splits a turn into multiple requests, the provider SHALL tr
 
 Re-emission SHALL be applied only when the model supports steering.
 
+Each speaker's first chunk SHALL be sent without a delivery instruction. `synthesisContext.previousRequests` carries the text of preceding chunks, but on a speaker's first turn that text was spoken in another voice, so an instruction there has no preceding audio of its own to anchor it and the engine over-commits to the cue instead of colouring an established read. After chunking and re-emission, the provider SHALL therefore remove a leading delivery instruction from the first chunk of the monologue script, and from the first chunk of each role's first dialogue turn, via `InworldScriptPostProcessor.stripLeadingInstruction`. A leading sound tag such as `[laugh]` SHALL be kept. Later chunks of that same opening turn, and every later turn by that speaker, SHALL still receive the instruction, because they are anchored by audio in the right voice.
+
 #### Scenario: Instruction re-emitted on the following chunk
 - **WHEN** a turn opens with `[warm and conversational]` and is split into three chunks on `inworld-tts-2`
 - **THEN** chunks two and three are each prefixed with `[warm and conversational]`
@@ -332,8 +334,24 @@ Re-emission SHALL be applied only when the model supports steering.
 - **THEN** no instruction is prepended to any chunk, and steering tags are stripped by the post-processor before chunking
 
 #### Scenario: Instructions do not leak across dialogue turns
-- **WHEN** the host's turn sets `[excited and fast]` and the co-host's turn sets no instruction
-- **THEN** the co-host's chunks are not prefixed with `[excited and fast]`
+- **WHEN** a role's second turn sets `[excited and fast]` and the following turn by another role sets no instruction
+- **THEN** the following turn's chunks are not prefixed with `[excited and fast]`
+
+#### Scenario: Script opening is sent unsteered
+- **WHEN** a monologue script opens with `[warm and conversational]` and is split into three chunks on `inworld-tts-2`
+- **THEN** chunk one is sent with no instruction, while chunks two and three are prefixed with `[warm and conversational]`
+
+#### Scenario: Sound tag on the script opening is kept
+- **WHEN** a script opens with `[laugh] Welcome back.`
+- **THEN** the first chunk is sent as `[laugh] Welcome back.`
+
+#### Scenario: Every speaker's entrance is sent unsteered
+- **WHEN** the host's first turn opens with `[with quiet awe]` and the co-host's first turn opens with `[measured and clear]`
+- **THEN** both turns are sent with no instruction
+
+#### Scenario: A speaker's later turn keeps its instruction
+- **WHEN** the host has already spoken and a later host turn opens with `[excited and fast]`
+- **THEN** that turn is sent with `[excited and fast]` intact
 
 ### Requirement: Inworld language field
 The `InworldTtsProvider` SHALL send the podcast's configured language as the top-level `language` field of the synthesize request, so a localized voice prompt is used instead of relying on auto-detection. The podcast's ISO 639-1 code is already a well-formed BCP-47 language tag and SHALL be sent unchanged, without inventing a region subtag. A blank language SHALL result in the field being omitted.
