@@ -3,7 +3,9 @@
 ## Purpose
 
 Per-podcast briefing generation pipeline, including podcast-scoped scheduling, LLM processing with per-podcast settings, TTS with per-podcast voice/speed, and manual generation trigger.
+
 ## Requirements
+
 ### Requirement: Briefing generation uses per-podcast schedule
 The `BriefingGenerationScheduler` SHALL launch a coroutine loop on `ApplicationReadyEvent` that runs every 60 seconds, using its own `CoroutineScope(Dispatchers.IO + SupervisorJob())` so it runs independently from other schedulers (e.g., source polling) and cannot be starved by them. The scope SHALL be cancelled on `@PreDestroy` for graceful shutdown. Each iteration SHALL query all podcasts, evaluate each podcast's `cron` expression against the current time in the podcast's configured timezone (using `ZoneId.of(podcast.timezone)`) and `last_generated_at`, and trigger the pipeline for podcasts that are due. The scheduler SHALL skip generation for any podcast that has an active episode (status `GENERATING`, `PENDING_REVIEW`, `APPROVED`, or `GENERATING_AUDIO`). The scheduler SHALL skip any cron trigger whose scheduled time is more than 30 minutes before the current time, logging a WARN-level message for each skipped trigger. The scheduler SHALL advance through all stale triggers to find the next actionable one without modifying `last_generated_at`.
 
@@ -236,3 +238,24 @@ The compose `ChatClient` SHALL use a request timeout of 20 minutes so a large co
 - **WHEN** a compose request over a large article set runs for more than 10 minutes but less than 20 minutes
 - **THEN** the request completes successfully rather than timing out
 
+### Requirement: Briefing generation resolves and passes the article window
+The `BriefingGenerationScheduler` SHALL resolve the article window for the cron slot it is serving
+and pass it into generation, so the window is decided by the caller that knows which slot is being
+served and is recorded on the episode. The window SHALL end at the slot instant rather than at the
+current time. Before generating, the scheduler SHALL check that the podcast's sources have polled
+the window and defer the run when they have not, within the bound defined by the
+`episode-article-window` capability. Deferring SHALL leave `last_generated_at` untouched so the
+slot stays due for the next tick. A manual generation, which serves no slot, SHALL resolve a window
+ending at the current instant.
+
+#### Scenario: The scheduled run passes the slot's window
+- **WHEN** the scheduler finds a podcast due for its 15:00 slot
+- **THEN** it resolves the window for that slot and generation records it on the episode
+
+#### Scenario: A deferred run leaves the slot due
+- **WHEN** generation is deferred because a source is behind the window
+- **THEN** no episode is created, `last_generated_at` is unchanged, and the next tick re-evaluates the same slot
+
+#### Scenario: A manual generation resolves its own window
+- **WHEN** an episode is generated from the dashboard outside any slot
+- **THEN** the window ends at the current instant and is recorded on the episode

@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Article window filter
 The system SHALL exclude candidate articles whose publication instant falls outside the run's
@@ -33,3 +33,12 @@ silently lost.
 #### Scenario: An article without a usable date is kept
 - **WHEN** an article has no `published_at`, or one that cannot be parsed
 - **THEN** it is kept as a candidate and the unparseable value is logged at WARN
+
+## REMOVED Requirements
+
+### Requirement: Article age gate
+**Reason**: Replaced by the article window filter. The gate derived its own cutoff from the latest
+published episode's `generated_at`, which left the boundary implicit and unrecorded; the window is
+resolved once per run, stored on the episode and supplied to the eligibility service.
+**Migration**: The caller passes the run's window instead of relying on `resolveAgeGateCutoff`,
+which is gone.

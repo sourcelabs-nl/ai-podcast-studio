@@ -18,5 +18,6 @@
 ## 4. Verification
 
 - [x] 4.1 Run `mvn test` and confirm the full suite passes
-- [ ] 4.2 Restart the app (`./stop.sh` then `./start.sh`), generate an episode on a weekday, and confirm the sign-off names the next working day rather than an invented interval
+- [x] 4.2 Restart the app (`./stop.sh` then `./start.sh`), generate an episode on a weekday, and confirm the sign-off names the next working day rather than an invented interval
+  - Episode 225, generated Monday 2026-09-21, signs off with "We're back tomorrow, Tuesday."
 - [x] 4.3 Run `/code-review --all` and fix violations, repeating until the review is clean

@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Full-pipeline retry reselects from the episode's own window
 When a retry resumes at the full pipeline, article selection SHALL use the window stored on the

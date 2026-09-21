@@ -64,6 +64,7 @@
       applied cleanly (schema at v67), the app started without errors, `EpisodeResponse` returns
       `windowStart`/`windowEnd` (null for the 205 existing episodes, as designed), and a re-run of
       a GENERATED episode is refused with 409 and code `episode_not_rerunnable`.
-- [ ] 6.4 On the next scheduled run, confirm the window is recorded on the new episode and that the
-      coverage gate logs its decision. Not yet observable: the next slot is the following weekday
-      at 15:00.
+- [x] 6.4 On the next scheduled run, confirm the window is recorded on the new episode and that the
+      coverage gate logs its decision. Episode 225 carries the window
+      [2026-09-18T13:00:00Z, 2026-09-21T14:00:00Z), and `app.log` records it filtering 2113 down to
+      191 articles.

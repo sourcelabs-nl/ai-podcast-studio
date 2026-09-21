@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change resumable-pipeline. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Retry failed episode from detected resume point
 The system SHALL provide a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/retry` endpoint that retries a FAILED episode from the appropriate stage. The endpoint SHALL return HTTP 202 with the detected resume point and run the remaining pipeline stages asynchronously. The endpoint SHALL reject non-FAILED episodes with HTTP 409.
 
@@ -93,3 +95,16 @@ The episode detail page SHALL display a "Retry" button for FAILED episodes. The 
 - **WHEN** the user clicks the "Retry" button on a FAILED episode
 - **THEN** the system calls `POST .../episodes/{id}/retry` and shows a toast with "Retrying episode from {resumePoint}..."
 
+### Requirement: Full-pipeline retry reselects from the episode's own window
+When a retry resumes at the full pipeline, article selection SHALL use the window stored on the
+episode being retried, so the retry reselects from the period the run started with rather than from
+a window derived from the current state. An episode that carries no window SHALL fall back to a
+window ending at the current instant.
+
+#### Scenario: A retry selects the original period
+- **WHEN** an episode that failed before article selection is retried the next morning
+- **THEN** selection runs over the window stored on that episode, not over the last 24 hours
+
+#### Scenario: A pre-migration episode still retries
+- **WHEN** an episode from before windows were recorded is retried
+- **THEN** the retry resolves a window ending now and proceeds

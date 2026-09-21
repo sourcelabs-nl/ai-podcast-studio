@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Briefing generation resolves and passes the article window
 The `BriefingGenerationScheduler` SHALL resolve the article window for the cron slot it is serving

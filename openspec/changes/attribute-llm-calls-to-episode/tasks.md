@@ -35,8 +35,12 @@
 ## 6. Verification
 
 - [x] 6.1 Run `mvn test` and confirm the full suite passes
-- [ ] 6.2 Restart the app (`./stop.sh` then `./start.sh`), generate an episode end to end, and confirm via the API that its scoring, dedup, compose and eval rows all carry that episode and that the tab shows them
-  - Deferred to the next scheduled generation rather than spending an on-demand run. V72 is applied and the endpoints were exercised against the live app: the windowed read is unchanged, and episode 224 correctly reports `predatesAttribution: true` with no rows.
+- [x] 6.2 Restart the app (`./stop.sh` then `./start.sh`), generate an episode end to end, and confirm via the API that its scoring, dedup, compose and eval rows all carry that episode and that the tab shows them
+  - Confirmed on episode 225, the first generated under this change: `/llm/calls/episodes/225`
+    reports `predatesAttribution: false` and carries rows for filter, dedup-gate, dedup, compose and
+    eval. Episode 224, generated before it, reports `predatesAttribution: true` with no rows, so the
+    boundary reads correctly from both sides.
 - [x] 6.3 Run `/code-review --all` and fix violations, repeating until the review is clean
-- [x] 6.4 Update `knowledge/` if the per-episode figures reveal anything about stage latency worth recording, per the Knowledge Bundle rules
-  - Nothing to record yet: no episode carries attributed requests until a generation runs under this change, so there is no per-episode figure to say anything about. Revisit with 6.2.
+- [ ] 6.4 Update `knowledge/` if the per-episode figures reveal anything about stage latency worth recording, per the Knowledge Bundle rules
+  - Episode 225 is the first with figures to read: compose took 526s against a 62s dedup and filter
+    calls of 1-11s. Whether that spread says anything worth an entry is still to be judged.

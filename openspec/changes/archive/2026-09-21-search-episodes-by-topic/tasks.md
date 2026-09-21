@@ -30,4 +30,8 @@
 ## 5. Verification
 
 - [x] 5.1 Restart the application and exercise the endpoint against the real archive for a known topic, confirming the matched episodes and their match details
-- [ ] 5.2 Check the episodes screen in the browser: search, clear, combine with a status filter, reload to confirm the URL round-trips
+- [x] 5.2 Check the episodes screen in the browser: search, clear, combine with a status filter, reload to confirm the URL round-trips
+  - Searching "Anthropic" narrows 208 episodes to 174 and writes `?q=Anthropic&page=0`; clearing it
+    drops the parameter and restores 208. Adding the DISCARDED status filter gives
+    `?q=Anthropic&status=DISCARDED&page=0` and 50 episodes, all discarded. Opening that URL directly
+    comes back with the search box filled and the same 50.
