@@ -3,7 +3,9 @@
 ## Purpose
 
 Inworld AI TTS provider integration including model selection, delivery mode, expressiveness, and voice discovery.
+
 ## Requirements
+
 ### Requirement: Inworld AI TTS provider
 The system SHALL provide an `InworldTtsProvider` implementing `TtsProvider` that generates audio via the Inworld AI TTS API. The provider SHALL send text to `POST https://api.inworld.ai/tts/v1/voice` with the configured `voiceId` and `modelId`. The response SHALL contain base64-encoded audio in `audioContent` and character usage in `usage.processedCharactersCount`. The provider SHALL decode the base64 audio into byte arrays. The default model SHALL be `inworld-tts-2`, overridable via `ttsSettings["model"]`. Supported models include `inworld-tts-1.5-max`, `inworld-tts-1.5-mini`, and `inworld-tts-2`. The audio format SHALL be MP3 at 48000 Hz sample rate and 128000 bps bit rate, requested via `audioConfig.sampleRateHertz` and `audioConfig.bitRate`. The provider SHALL use `TextChunker` with its `maxChunkSize` of 1900 to split long scripts. The result SHALL have `requiresConcatenation = true` when multiple chunks are generated. The provider SHALL generate all chunks concurrently using Kotlin coroutines (`async`/`awaitAll` on `Dispatchers.IO`). Chunk ordering in the result SHALL match the original script order regardless of completion order.
 
@@ -196,9 +198,13 @@ The `InworldTtsProvider` SHALL return style-aware script guidelines via `scriptG
 - Emphasis: `*word*` (single asterisks) for stressed words, or CAPS for a whole word or a single syllable (`AbsoLUTEly`)
 - Pacing: ellipsis (`...`) for trailing pauses, exclamation marks for excitement
 - Pauses: SSML break tags such as `<break time="1s" />` for a deliberate beat between segments, at most 20 per request and at most 10 seconds each, and not immediately before a paragraph break where the pause already exists
-- Steering: at most one short free-form English delivery instruction in square brackets (for example `[warm and conversational with an easy pace]`) at the start of a speaker turn or segment, with `[reset]` to return to neutral delivery
+- Steering: at most one short free-form English delivery instruction in square brackets (for example `[warm and conversational]`) at the start of a speaker turn or segment, with `[reset]` to return to neutral delivery
 - Acronyms: expand on first use, then use the short form — spoken as a word when pronounceable and spelled out letter by letter when not, because Inworld's normalization does not cover domain acronyms
 - IPA phonemes: `/phoneme/` for precise pronunciation of proper nouns
+
+A delivery direction MAY adjust warmth, energy or brightness. The guidelines SHALL state that it must never ask for a slower read, nor for a delivery that removes expression or makes the turn harder to hear, and SHALL name `[measured]`, `[slowly]`, `[deliberate]`, `[unhurried]`, `[deadpan]`, `[monotone]`, `[robotic]` and `[whispering]` as cues not to use, because the engine obeys them literally and the turn comes out slow or sounding broken.
+
+The guidelines SHALL instruct the LLM never to put a delivery direction on a speaker's very first turn, explaining that such a turn is synthesized with no preceding audio in that voice to anchor it, so the engine over-commits to the cue: `[with quiet awe]` makes a cold open sound like a hushed bedtime story, and `[measured and clear]` stretches a reply into a crawl. The first words of each speaker SHALL be left to carry the tone themselves.
 
 The guidelines SHALL additionally include:
 - Text normalization: write all numbers, dates, currencies, and symbols in fully spoken form
@@ -223,6 +229,14 @@ When `pronunciations` is non-empty, the guidelines SHALL append a "Pronunciation
 #### Scenario: Executive summary guidelines suppress filler words
 - **WHEN** `scriptGuidelines(PodcastStyle.EXECUTIVE_SUMMARY, emptyMap())` is called
 - **THEN** the returned text instructs to avoid filler words and minimize non-verbal tags
+
+#### Scenario: Every style forbids a delivery direction on the first turn
+- **WHEN** `scriptGuidelines(style, emptyMap())` is called for any `PodcastStyle`
+- **THEN** the returned text instructs never to put a delivery direction on a speaker's very first turn
+
+#### Scenario: Pace-reducing cues are named as forbidden
+- **WHEN** `scriptGuidelines(style, emptyMap())` is called for any `PodcastStyle`
+- **THEN** the returned text forbids a direction that asks for a slower read and names `[measured]` among the cues not to use
 
 ### Requirement: Inworld TTS max chunk size
 The `InworldTtsProvider` SHALL declare `maxChunkSize = 1900`, leaving headroom below the Inworld API's 2000 character per-request limit for a steering instruction prepended by the provider.
@@ -366,3 +380,19 @@ A one-off Flyway migration SHALL rewrite `"deliveryMode": "EXPRESSIVE"` to `"del
 - **WHEN** a podcast has a null `tts_settings`
 - **THEN** the migration leaves the row unchanged
 
+### Requirement: Chunks carrying an IPA phoneme are synthesized in STABLE delivery
+The `InworldTtsProvider` SHALL choose `deliveryMode` per chunk rather than once per script. A chunk whose text contains an IPA phoneme span SHALL be sent with `deliveryMode` `STABLE`. Every other chunk SHALL be sent with the podcast's configured delivery mode, unchanged.
+
+A phoneme span is a literal instruction the engine is meant to follow exactly, and a wide delivery mode samples around it. Eight identical requests for a sentence ending in `/jɑrnoː/` on `CREATIVE` returned three manglings of the name, while the same eight on `STABLE` were all correct. Narrowing only the chunks that carry a phoneme keeps the rest of the episode at the expressiveness the podcast was configured for.
+
+When the podcast configures no delivery mode, the provider SHALL NOT introduce one, because the request carries a temperature instead and a delivery mode replaces it.
+
+Phoneme detection SHALL reuse the IPA span pattern that `TtsScriptSanitizer` already applies, via `TtsScriptSanitizer.containsPhoneme`, so the two agree on what counts as a phoneme.
+
+#### Scenario: A phoneme chunk drops to STABLE
+- **WHEN** a podcast configured with `deliveryMode: CREATIVE` has one turn reading `And I'm /jɑrnoː/.` and another reading `Welcome back.`
+- **THEN** the phoneme turn is sent with `deliveryMode` `STABLE` and the other turn with `CREATIVE`
+
+#### Scenario: A podcast without a delivery mode is untouched
+- **WHEN** a podcast configures a temperature and no delivery mode, and a chunk contains a phoneme span
+- **THEN** the request carries that temperature and no delivery mode

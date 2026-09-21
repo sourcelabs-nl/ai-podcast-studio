@@ -87,15 +87,39 @@ The dedup stage SHALL state an explicit reasoning effort of `none` rather than o
 
 The dedup model reasons by default: OpenRouter reports `~deepseek/deepseek-v4-flash-latest` as `default_enabled: true` at `default_effort: "high"`, and an absent reasoning parameter is inferred from that default. Because reasoning tokens are charged against the same output-token cap as the JSON, omitting the block consumed the whole budget and returned empty content, failing episode 200 on five successive attempts. Measured on the live API for that model, an omitted block cost 47 reasoning tokens on a one-line task where an explicit `effort: "none"` cost none; a bounded `effort: "low"` cost 22 on the same task but still consumed a full 23,940-token dedup budget on a real prompt, so bounding the effort is not sufficient and only `none` is.
 
-`TopicDedupFilter` SHALL parse the response strictly first. When the strict parse fails because the response is truncated, the filter SHALL recover the complete cluster objects from the incomplete `clusters` array instead of discarding the response. A truncated dedup response is safe to act on because an article that no surviving cluster mentions is simply not selected for composition, which is the conservative outcome.
+`TopicDedupFilter` SHALL parse from the first brace or bracket in the response rather than from the start of the text, so that a prose lead-in or a markdown code fence is ignored. Episode 202's response was complete, valid JSON and still cost the episode, because it arrived as `**Output:**` followed by a ```json fence. The strict parse SHALL read a single JSON value and stop, so a closing fence or any trailing chatter is ignored without the end of the payload having to be located: a stray bracket in a sign-off must not be mistaken for it. The salvage SHALL read to the end of the response, because a truncated response's last closer sits inside the element it was cut off in and stopping there would discard the complete elements before it.
+
+`TopicDedupFilter` SHALL accept either shape the model answers with: the `{ "clusters": [...] }` object the prompt asks for, or a bare cluster array. Both the strict parse and the salvage SHALL handle both shapes.
+
+`TopicDedupFilter` SHALL parse the response strictly first. When the strict parse fails because the response is truncated, the filter SHALL recover the complete cluster objects from the incomplete cluster array instead of discarding the response. A truncated dedup response is safe to act on because an article that no surviving cluster mentions is simply not selected for composition, which is the conservative outcome.
 
 A salvaged response SHALL be accepted only when it still selects at least `app.compose.max-articles` articles. At or above that count the truncated tail provably could not have changed what gets composed, because the compose cap would have discarded the surplus anyway. A salvage SHALL be logged at WARN with the recovered cluster count and the selected article count.
 
-`TopicDedupFilter` SHALL retry the dedup LLM call (at least once) when neither a strict parse nor an acceptable salvage is available. If no attempt yields either, the error SHALL propagate: the system SHALL NOT silently fall back to composing un-deduped articles. During episode generation a propagated dedup failure SHALL fail the episode (status `FAILED`, retryable). During preview a propagated dedup failure SHALL be surfaced as an error to the caller.
+`TopicDedupFilter` SHALL retry the dedup LLM call (at least once) when neither a strict parse nor an acceptable salvage is available. Every attempt SHALL send a prompt distinct from every other attempt of the same call: the first attempt SHALL send the prompt unchanged, and each subsequent attempt SHALL append a correction that names the attempt number, states that the previous response could not be parsed, and asks for the raw `{ "clusters": [ ... ] }` object with no reasoning, commentary, or markdown code fences.
+
+Sending the byte-identical prompt on a retry cannot succeed. The `llm-cache` capability keys entries on prompt text and rejects only blank completions, so a model that wraps its JSON in prose has that unparseable answer cached: every retry replays it from cache in milliseconds and the exponential backoff accomplishes nothing. Episode 202 burned three attempts at four milliseconds each without reaching the model, and a manual retry half an hour later did the same, so the episode could not be recovered by retrying at all.
+
+If no attempt yields either a strict parse or an acceptable salvage, the error SHALL propagate: the system SHALL NOT silently fall back to composing un-deduped articles. During episode generation a propagated dedup failure SHALL fail the episode (status `FAILED`, retryable). During preview a propagated dedup failure SHALL be surfaced as an error to the caller. The error SHALL describe the response as unparseable rather than as truncated, because an off-schema response reaches the same branch.
 
 #### Scenario: Dedup requests no reasoning
 - **WHEN** the dedup request is built for an `openrouter` model
 - **THEN** the extra body's `reasoning` object carries `effort` `none` and `exclude`, rather than the block being omitted
+
+#### Scenario: Response wrapped in prose and a code fence is parsed
+- **WHEN** the dedup response is complete JSON preceded by a `**Output:**` lead-in and wrapped in a ```json fence
+- **THEN** the clusters are parsed and the episode is composed from them
+
+#### Scenario: Chatter after the JSON is ignored
+- **WHEN** the dedup response is followed by a sign-off containing a stray bracket
+- **THEN** the clusters are parsed and the sign-off is ignored
+
+#### Scenario: Bare cluster array is parsed
+- **WHEN** the dedup response is a bare array of cluster objects rather than the asked-for `{ "clusters": [...] }` object
+- **THEN** the array is read as the cluster list
+
+#### Scenario: Truncated bare array is salvaged
+- **WHEN** a bare cluster array is cut off part-way through a later element
+- **THEN** the complete elements before the cut are recovered
 
 #### Scenario: Truncated response with enough clusters is salvaged
 - **WHEN** the dedup response is cut off mid-array after 234 complete clusters that together select at least `app.compose.max-articles` articles
@@ -108,6 +132,18 @@ A salvaged response SHALL be accepted only when it still selects at least `app.c
 #### Scenario: Articles beyond the truncation point are not composed
 - **WHEN** a salvaged response's surviving clusters mention only some of the candidate articles
 - **THEN** the unmentioned candidates are not selected for composition
+
+#### Scenario: First attempt sends the prompt unchanged
+- **WHEN** the dedup call's first attempt is made
+- **THEN** the prompt carries no correction text
+
+#### Scenario: Retry appends a JSON-only correction
+- **WHEN** the dedup call's first attempt fails and a second is made
+- **THEN** the second prompt is the original prompt followed by a correction naming attempt 2 and asking for the raw clusters object only
+
+#### Scenario: Every attempt sends a distinct prompt
+- **WHEN** the dedup call fails on all attempts
+- **THEN** the prompts sent are all different from one another, so no attempt can be served a cached response from an earlier attempt
 
 #### Scenario: Dedup failure fails the episode
 - **WHEN** the dedup LLM call yields neither a strict parse nor an acceptable salvage on every retry during episode generation
@@ -266,3 +302,68 @@ A Jev call passes through neither `CachingChatModel` nor `CostEstimator`, so wit
 #### Scenario: An ungated run adds no cost
 - **WHEN** the gate returned no answers
 - **THEN** the dedup stage's reported cost is the clustering call's alone
+
+### Requirement: Each article appears at most once in the filtered result
+
+The dedup filter SHALL return each article at most once, regardless of how many clusters the LLM listed it in. When an article id appears in the `selectedArticleIds` of more than one cluster, the system SHALL keep the occurrence from the first such cluster in the model's own ordering (so the article's follow-up context and topic label come from the cluster the model considered most relevant) and discard the rest.
+
+The system SHALL log a warning when any article was selected by more than one cluster, since a response that multiplies its input signals a degenerating dedup call.
+
+The compose-input cap SHALL additionally de-duplicate by article id before ranking and truncating, so that the composer cannot receive the same article twice even if an upstream component returns duplicates.
+
+#### Scenario: Article selected by two clusters appears once
+- **WHEN** the dedup LLM returns article 42 in both a NEW cluster "agent benchmarks" and a CONTINUATION cluster "coding agents"
+- **THEN** the filtered result contains article 42 exactly once, annotated with the NEW cluster's topic, since that cluster came first in the response
+
+#### Scenario: Duplicate selection is warned about
+- **WHEN** a dedup response selects at least one article in more than one cluster
+- **THEN** a warning is logged reporting how many duplicate selections were discarded
+
+#### Scenario: Filtered result never exceeds the candidate count
+- **WHEN** 68 candidates are filtered and the LLM emits 44 clusters collectively naming 356 article ids
+- **THEN** the filtered result contains at most 68 articles
+
+#### Scenario: Compose cap counts distinct articles
+- **WHEN** the compose cap is 40 and the filtered result contains 9 distinct articles repeated to a length of 356
+- **THEN** the composer receives 9 articles, not 40 slots filled with repeats
+
+#### Scenario: Dedup log reports distinct counts
+- **WHEN** the dedup filter completes
+- **THEN** the logged "selected" count is the number of distinct articles returned
+
+#### Scenario: Normal response is unaffected
+- **WHEN** a dedup response selects each article in exactly one cluster
+- **THEN** the filtered result is identical to what it would have been before this requirement, in the same order
+
+### Requirement: Dedup recalls topics, not only headlines
+
+The dedup prompt SHALL carry the cluster topic labels of recent episodes alongside the historical
+article titles, and SHALL treat that list as the authoritative record of what the podcast has
+already said.
+
+Titles alone are not sufficient recall. A topic enters an episode through whichever article happened
+to be selected for it, and that article's headline may be about something else entirely: episode
+221 covered a DeepSeek release under the label `DeepSeek v4.1 Flash vs GLM 5.3 Flash comparison`,
+carried by a post headlined about the GLM comparison with "DeepSeek" nowhere in its title. Given
+titles only there was nothing for the next day's dedup to match on, and the release was composed a
+second time as fresh news.
+
+A cluster matching a covered topic SHALL be `CONTINUATION` even when its articles are new, from a
+different source, or differently headlined. A fresh analysis, technical report, benchmark or
+follow-up concerning an already-covered release SHALL be a `CONTINUATION` rather than a `NEW`
+release, and its `previousContext` SHALL say what was covered before.
+
+When there are no covered topics the block SHALL be omitted, as the historical-articles block
+already is.
+
+#### Scenario: A new article on an already-covered topic is a continuation
+
+- **WHEN** a candidate article analyses a model release that a recent episode already covered, under
+  a different headline and from a different source
+- **THEN** its cluster is `CONTINUATION` with a `previousContext` describing the earlier coverage,
+  not a `NEW` release
+
+#### Scenario: No covered topics yet
+
+- **WHEN** no recent episode carries a topic label
+- **THEN** the prompt omits the covered-topics section entirely

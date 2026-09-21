@@ -17,6 +17,8 @@ The `app.models.openrouter` registry SHALL include the Anthropic Claude 5 genera
 
 Pricing values for every registry entry SHALL be taken from the provider's published rates rather than estimated, and for an OpenRouter model SHALL be the cheapest endpoint that clears the routing quantization floor, since that is the price routing can actually select. The model-level rate quoted in a catalogue listing is not sufficient on its own, because it may belong to an endpoint the floor excludes.
 
+The `app.models.openrouter` registry SHALL include the Z.ai GLM entries `z-ai/glm-5.2` (input 0.42, output 1.32 USD per Mtok) and `z-ai/glm-5.3` (input 1.12, output 3.52 USD per Mtok).
+
 A registry key MAY be a provider routing alias rather than a pinned model release, in which case the key SHALL be the exact slug the provider's API accepts (including any prefix such as OpenRouter's leading `~`) and its configured pricing SHALL be treated as approximate, since the alias resolves to whichever release is current. The `app.models.openrouter` registry SHALL include the alias `~deepseek/deepseek-v4-flash-latest` (input 0.05, output 0.16 USD per Mtok) alongside the pinned `deepseek/deepseek-v4-flash` entry. Because an alias's target moves without notice, and a new target can carry different reasoning defaults, a pinned release SHALL be preferred for a stage default.
 
 #### Scenario: LLM models defined under provider
@@ -27,6 +29,11 @@ A registry key MAY be a provider routing alias rather than a pinned model releas
 - **WHEN** the application starts with `app.models.openrouter` containing `anthropic/claude-sonnet-5` (type: llm, input-cost-per-mtok: 2.00, output-cost-per-mtok: 10.00) and `anthropic/claude-opus-5` (type: llm, input-cost-per-mtok: 5.00, output-cost-per-mtok: 25.00), both `selectable: false`
 - **THEN** `AppProperties.models["openrouter"]` contains both entries with type LLM and those per-Mtok costs, alongside the existing Claude 4.x entries
 - **AND** `GET /config/defaults` does NOT list them under `availableModels.openrouter`, because every Anthropic endpoint is rejected by the routing quantization floor, while their pricing still resolves for any episode generated on them
+
+#### Scenario: GLM-5.3 registered under OpenRouter
+- **WHEN** the application starts with `app.models.openrouter` containing `z-ai/glm-5.3` (type: llm, input-cost-per-mtok: 1.12, output-cost-per-mtok: 3.52)
+- **THEN** `AppProperties.models["openrouter"]` contains the entry with type LLM and those per-Mtok costs, alongside the existing `z-ai/glm-5.2` entry
+- **AND** `GET /config/defaults` lists `z-ai/glm-5.3` under `availableModels.openrouter` so it can be selected as a per-podcast stage override
 
 #### Scenario: An unselectable model still resolves a cost
 - **WHEN** a podcast overrides a stage to `anthropic/claude-opus-5`, which is marked `selectable: false`
@@ -62,13 +69,21 @@ The system SHALL support mapping pipeline stages to model defaults in `applicati
 
 Every stage default SHALL be a model that clears the routing quantization floor, since a default that cannot route makes every generation for a podcast without an override fail with `404 No endpoints found`. A vendor-native model therefore SHALL NOT be a stage default.
 
+A stage default SHALL name a pinned model release rather than a routing alias, so that the reasoning defaults a stage was verified against cannot change without notice.
+
+All three stages SHALL default to `openrouter` / `deepseek/deepseek-v4.1-flash`. It is the strongest model available to each of them that clears the floor, and the prose it writes is what the compose stage is judged on, where the reasoning and coding indices that previously selected `z-ai/glm-5.3` are not. Its registry entry SHALL be priced at input 0.30, output 1.20 USD per Mtok: the vendor's own endpoint is cheaper but reports its quantization as `unknown`, so the floor rejects it, and the cheapest endpoint routing can actually select is what a default costs.
+
 #### Scenario: Default stage mappings configured
-- **WHEN** `application.yaml` contains `app.llm.defaults.filter` with `provider: openrouter, model: deepseek/deepseek-v4-flash-0731` and `app.llm.defaults.compose` with `provider: openrouter, model: z-ai/glm-5.3`
-- **THEN** the filter stage resolves to the `openrouter`/`deepseek/deepseek-v4-flash-0731` model cost and the compose stage resolves to the `openrouter`/`z-ai/glm-5.3` model cost
+- **WHEN** `application.yaml` contains `app.llm.defaults.filter`, `app.llm.defaults.dedup` and `app.llm.defaults.compose`, each with `provider: openrouter, model: deepseek/deepseek-v4.1-flash`
+- **THEN** all three stages resolve to the `openrouter`/`deepseek/deepseek-v4.1-flash` model cost
 
 #### Scenario: A stage default clears the routing floor
 - **WHEN** the stage defaults are read at startup
 - **THEN** none of them names a model whose every endpoint the quantization floor rejects
+
+#### Scenario: Code fallbacks agree with the configuration
+- **WHEN** `StageDefaults` is compared with `app.llm.defaults`
+- **THEN** every stage names the same provider and model in both
 
 #### Scenario: Default references non-existent model
 - **WHEN** `application.yaml` contains `app.llm.defaults.filter` with `provider: openrouter, model: nonexistent` and no such model exists under `app.models.openrouter`
