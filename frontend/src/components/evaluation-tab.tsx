@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import { Panel, Section } from "@/components/section";
 import type {
   BackchannelCandidate,
   EpisodeMetricsResponse,
@@ -81,26 +81,6 @@ async function loadJson<T>(url: string): Promise<LoadResult<T>> {
   } catch {
     return { data: null, failed: true };
   }
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-semibold">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-/**
- * The frame a section's content sits in.
- *
- * Shared rather than repeated per section so the four panels cannot drift apart. Empty and failure
- * states deliberately stay outside it: a box drawn around one line of italic text reads as a broken
- * panel rather than as a panel.
- */
-function Panel({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn("rounded-lg border border-border p-4", className)}>{children}</div>;
 }
 
 function Empty({ children }: { children: ReactNode }) {

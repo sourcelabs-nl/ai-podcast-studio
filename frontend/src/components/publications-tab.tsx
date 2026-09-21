@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Panel, Section } from "@/components/section";
 import { Paginator } from "@/components/paginator";
 
 interface PublicationsTabProps {
@@ -145,126 +146,128 @@ export function PublicationsTab({
   }
 
   return (
-    <>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12">#</TableHead>
-            <TableHead className="w-24">Date</TableHead>
-            <TableHead className="w-12">Day</TableHead>
-            <TableHead className="w-24">Published</TableHead>
-            <TableHead className="w-24">Status</TableHead>
-            <TableHead className="w-32">Target</TableHead>
-            <TableHead>URL</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => {
-            const pub = row.publication;
-            return (
-              <TableRow key={pub.id}>
-                <TableCell className="font-medium">{row.episode.id}</TableCell>
-                <TableCell className="text-sm">
-                  {new Date(row.episode.generatedAt).toLocaleDateString()}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {new Date(row.episode.generatedAt).toLocaleDateString(undefined, { weekday: "short" })}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {pub.publishedAt
-                    ? new Date(pub.publishedAt).toLocaleDateString()
-                    : "—"}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_VARIANT[pub.status] ?? "default"} className="text-[11px] px-1.5 py-px">{pub.status}</Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    {pub.target === "soundcloud" && <Cloud className="size-4 text-muted-foreground" />}
-                    {pub.target === "ftp" && <Server className="size-4 text-muted-foreground" />}
-                    <span>{pub.target === "soundcloud" ? "SoundCloud" : pub.target.toUpperCase()}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    {pub.externalUrl ? (
-                      <>
-                        <a
-                          href={pub.externalUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline"
-                        >
-                          Track
-                        </a>
-                        {pub.target === "soundcloud" && (() => {
-                          const match = pub.externalUrl?.match(/^https:\/\/soundcloud\.com\/([^/]+)\//);
-                          if (!match) return null;
-                          return (
-                            <>
-                              <span className="text-muted-foreground">|</span>
-                              <a
-                                href={`https://soundcloud.com/${match[1]}/sets`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary underline"
-                              >
-                                Playlist
-                              </a>
-                            </>
-                          );
-                        })()}
-                        {pub.target === "ftp" && (() => {
-                          const episodesIdx = pub.externalUrl?.lastIndexOf("/episodes/");
-                          if (episodesIdx == null || episodesIdx < 0) return null;
-                          const feedUrl = pub.externalUrl!.substring(0, episodesIdx + 1) + "feed.xml";
-                          return (
-                            <>
-                              <span className="text-muted-foreground">|</span>
-                              <a
-                                href={feedUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary underline"
-                              >
-                                Feed
-                              </a>
-                            </>
-                          );
-                        })()}
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      size="icon-lg"
-                      title="Republish"
-                      onClick={() => openConfirm(row, "republish")}
-                    >
-                      <RefreshCw className="size-4" />
-                    </Button>
-                    {pub.status === "PUBLISHED" && (
+    <Section title="Publications">
+      <Panel>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12">#</TableHead>
+              <TableHead className="w-24">Date</TableHead>
+              <TableHead className="w-12">Day</TableHead>
+              <TableHead className="w-24">Published</TableHead>
+              <TableHead className="w-24">Status</TableHead>
+              <TableHead className="w-32">Target</TableHead>
+              <TableHead>URL</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => {
+              const pub = row.publication;
+              return (
+                <TableRow key={pub.id}>
+                  <TableCell className="font-medium">{row.episode.id}</TableCell>
+                  <TableCell className="text-sm">
+                    {new Date(row.episode.generatedAt).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {new Date(row.episode.generatedAt).toLocaleDateString(undefined, { weekday: "short" })}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {pub.publishedAt
+                      ? new Date(pub.publishedAt).toLocaleDateString()
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={STATUS_VARIANT[pub.status] ?? "default"} className="text-[11px] px-1.5 py-px">{pub.status}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      {pub.target === "soundcloud" && <Cloud className="size-4 text-muted-foreground" />}
+                      {pub.target === "ftp" && <Server className="size-4 text-muted-foreground" />}
+                      <span>{pub.target === "soundcloud" ? "SoundCloud" : pub.target.toUpperCase()}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {pub.externalUrl ? (
+                        <>
+                          <a
+                            href={pub.externalUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary underline"
+                          >
+                            Track
+                          </a>
+                          {pub.target === "soundcloud" && (() => {
+                            const match = pub.externalUrl?.match(/^https:\/\/soundcloud\.com\/([^/]+)\//);
+                            if (!match) return null;
+                            return (
+                              <>
+                                <span className="text-muted-foreground">|</span>
+                                <a
+                                  href={`https://soundcloud.com/${match[1]}/sets`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline"
+                                >
+                                  Playlist
+                                </a>
+                              </>
+                            );
+                          })()}
+                          {pub.target === "ftp" && (() => {
+                            const episodesIdx = pub.externalUrl?.lastIndexOf("/episodes/");
+                            if (episodesIdx == null || episodesIdx < 0) return null;
+                            const feedUrl = pub.externalUrl!.substring(0, episodesIdx + 1) + "feed.xml";
+                            return (
+                              <>
+                                <span className="text-muted-foreground">|</span>
+                                <a
+                                  href={feedUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline"
+                                >
+                                  Feed
+                                </a>
+                              </>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
                       <Button
                         size="icon-lg"
-                        variant="destructive"
-                        title="Unpublish"
-                        onClick={() => openConfirm(row, "unpublish")}
+                        title="Republish"
+                        onClick={() => openConfirm(row, "republish")}
                       >
-                        <Trash2 className="size-4" />
+                        <RefreshCw className="size-4" />
                       </Button>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+                      {pub.status === "PUBLISHED" && (
+                        <Button
+                          size="icon-lg"
+                          variant="destructive"
+                          title="Unpublish"
+                          onClick={() => openConfirm(row, "unpublish")}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </Panel>
 
       {episodeId == null && (
         <Paginator
@@ -301,6 +304,6 @@ export function PublicationsTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </Section>
   );
 }

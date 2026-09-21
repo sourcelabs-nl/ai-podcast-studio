@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { Panel, Section } from "@/components/section";
 import { Badge } from "@/components/ui/badge";
 import { ArticleCard, getSourceDisplayName } from "@/components/article-card";
 import type { EpisodeArticle } from "@/lib/types";
@@ -69,35 +70,37 @@ export function ArticlesTab({ userId, podcastId, episodeId, onCountLoaded }: Art
   }
 
   return (
-    <div className="space-y-4">
-      {sortedGroups.map(([sourceId, group]) => {
-        const isExpanded = expandedGroups.has(sourceId);
-        return (
-          <div key={sourceId}>
-            <button
-              onClick={() => toggleGroup(sourceId)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-semibold hover:bg-muted"
-            >
-              {isExpanded ? (
-                <ChevronDown className="size-4 shrink-0" />
-              ) : (
-                <ChevronRight className="size-4 shrink-0" />
+    <Section title="Articles by source">
+      <Panel className="space-y-4">
+        {sortedGroups.map(([sourceId, group]) => {
+          const isExpanded = expandedGroups.has(sourceId);
+          return (
+            <div key={sourceId}>
+              <button
+                onClick={() => toggleGroup(sourceId)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-semibold hover:bg-muted"
+              >
+                {isExpanded ? (
+                  <ChevronDown className="size-4 shrink-0" />
+                ) : (
+                  <ChevronRight className="size-4 shrink-0" />
+                )}
+                <span>{group.displayName}</span>
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-px">
+                  {group.articles.length}
+                </Badge>
+              </button>
+              {isExpanded && (
+                <div className="ml-6 mt-2 space-y-2">
+                  {group.articles.map((article) => (
+                    <ArticleCard key={article.id} article={article} userId={userId} podcastId={podcastId} />
+                  ))}
+                </div>
               )}
-              <span>{group.displayName}</span>
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-px">
-                {group.articles.length}
-              </Badge>
-            </button>
-            {isExpanded && (
-              <div className="ml-6 mt-2 space-y-2">
-                {group.articles.map((article) => (
-                  <ArticleCard key={article.id} article={article} userId={userId} podcastId={podcastId} />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+            </div>
+          );
+        })}
+      </Panel>
+    </Section>
   );
 }

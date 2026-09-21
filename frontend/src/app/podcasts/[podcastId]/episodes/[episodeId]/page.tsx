@@ -24,6 +24,7 @@ import { ScriptContent, countScriptTurns } from "@/components/script-viewer";
 import { ArticlesTab } from "@/components/articles-tab";
 import { CostsTab } from "@/components/costs-tab";
 import { LatencyTab } from "@/components/latency-tab";
+import { Panel, Section } from "@/components/section";
 import { EvaluationTab } from "@/components/evaluation-tab";
 import { PublicationsTab } from "@/components/publications-tab";
 import { PublishWizard } from "@/components/publish-wizard";
@@ -445,13 +446,17 @@ export default function EpisodeDetailPage() {
 
         <TabsContent value="script">
           <div className="mt-4">
-            <ScriptContent
-              scriptText={episode.scriptText}
-              style={podcast.style}
-              speakerNames={podcast.speakerNames}
-              focusedTurn={focusedTurn}
-              showTurnNumbers
-            />
+            <Section title="Episode script">
+              <Panel>
+                <ScriptContent
+                  scriptText={episode.scriptText}
+                  style={podcast.style}
+                  speakerNames={podcast.speakerNames}
+                  focusedTurn={focusedTurn}
+                  showTurnNumbers
+                />
+              </Panel>
+            </Section>
           </div>
         </TabsContent>
 
