@@ -31,7 +31,7 @@ that the anchors match a hand audit.
 
 **Humour is one speaker's job in most of the archive.** Speaker balance has a
 median of 0.00 against a ceiling of 0.5, and 91 of 162 episodes have every beat
-from a single speaker. That is the failure the multi-speaker humour rule was
+from a single speaker. That is the failure [[humor-is-not-one-speakers-job]] was
 written for, and the archive predates it, so this is the number that rule has to
 move. Beats themselves are not scarce: median 4, mean 5.15, and 31 episodes have
 none at all.

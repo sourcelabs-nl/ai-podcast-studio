@@ -19,13 +19,12 @@ question, no new information, and the speaker simply continues. See
 [[turn-length-in-the-reference-shows]] for why that, and not turn length, is the
 difference between them and us.
 
-The device requires two turns by one speaker with a short one between them,
-which the alternation rule forbade in capitals, claiming it would break TTS. It
-does not: `DialogueScriptParser` reads each turn's role from its own opening tag
-and `InworldTtsProvider` resolves a voice per turn, so two turns of one role are
-two chunks in one voice. The false reason was removed rather than softened, and
-the rule now names the backchannel as its single exception, still forbidding a
-same-speaker pair that continues a point or evades the length cap.
+The device requires two turns by one speaker with a short one between them, and
+the alternation rule names the backchannel as its single exception. It still
+forbids a same-speaker pair that continues a point or evades the length cap.
+Two turns of one role do not break TTS: `DialogueScriptParser` reads each turn's
+role from its own opening tag and `InworldTtsProvider` resolves a voice per turn,
+so they are two chunks in one voice.
 
 Kept to two or three an episode. There is little room to vary a token that is
 short by definition, so at any higher rate it reads as a tic rather than as

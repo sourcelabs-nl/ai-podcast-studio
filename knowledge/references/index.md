@@ -22,3 +22,4 @@ to inference.
 - [What a Narro RSS feed carries, and what it does not](narro-feed-format.md)
 - [Server-side web search, and why this project keeps Tavily](server-side-web-search-on-the-jvm.md)
 - [What Jev can decide for this pipeline, and what it cannot](jev-decisions-endpoint.md)
+- [Jev as a script judge, measured against this project's own judge](jev-as-a-judge.md)

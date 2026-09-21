@@ -26,7 +26,7 @@ generated:
 ---
 
 Whether the compose stage should return JSON turns instead of tagged free text.
-The reason to ask is [[../prompt-rules/index]]'s repeated speaker-tag repairs and
+The reason to ask is [[echo-turns]]'s repeated speaker-tag repairs and
 episode 222, whose second half was attributed to the wrong speaker.
 
 **Free text produced malformed speaker tags in every single run.** Not once in

@@ -1,6 +1,27 @@
 # Log
 
-Newest first. Each entry begins with `## [2026-09-21] Record
+Newest first. Each entry begins with `## [2026-09-21] Lint
+
+Full pass over all 23 entries. No contradictions, no orphans, no expired
+`stale_after`, no em-dashes. Rewrote two entries that had started narrating
+their own revisions rather than stating current knowledge
+(`cliffhangers-must-defer`, `backchannels`). Pointed the one wikilink aimed at a
+section index at the entry it meant, and linked the humour baseline to the rule
+it names. Left open: `PromptVarietyPicker` is load-bearing in two entries with
+no entry of its own, and the `ScriptJudge`/`AttentionScoring` split is explained
+inline in three places instead of one.
+
+## [2026-09-21] Record
+
+Measured Jev as a script judge against the 19 archived episodes carrying a
+stored score, prompted by LangChain's agent-eval comparison. Agreement with the
+current judge follows what each question demands of a reader: teaser +0.62,
+humor +0.29, cliffhangers +0.22, and a single whole-script rubric saturates with
+12 of 19 at the top level. Recorded why the low-variance argument does not
+transfer, which is that `ScriptJudge` returns positions and `AttentionScoring`
+computes every number from them.
+
+## [2026-09-21] Record
 
 Attributed the Jev decisions endpoint's observed failures to one OpenRouter
 incident on 2026-09-21, roughly 08:20-09:30 CEST, visible as a dip to about 75%

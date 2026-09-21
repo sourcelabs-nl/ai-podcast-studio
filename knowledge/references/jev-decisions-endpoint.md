@@ -229,6 +229,13 @@ explicitly from the client.
 Alpha endpoint, one provider, no fallback: a Jev outage has no OpenRouter
 routing behind it.
 
+## Judging scripts is a separate question
+
+Whether Jev can replace this project's own script judge is measured in
+[[jev-as-a-judge]], against the same endpoint and the same boundary: it tracks
+the current judge on what is named in one place and stops tracking on what has
+to be counted across a whole script.
+
 ## Caveats on the numbers
 
 Both samples come from one podcast and one scoring model

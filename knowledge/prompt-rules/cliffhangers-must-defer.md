@@ -24,12 +24,12 @@ least three other topics, and open the payoff by referring back to the promise.
 Episode 209, the first generation under the rule, produced two hooks, both
 parked, both paid off 22 and 37 turns later with a back-reference.
 
-The rule's own first version caused a second defect. Telling the parking turn to
-"move on to a different topic" made the model announce the next topic in the
-same turn the next speaker was about to transition into, so episode 209 said
-"Let's flip the lens to coding agents" and then "Flipping the lens to coding
-agents" in consecutive turns. The parking turn now hands the floor back instead.
-That double transition is also what exposed [[adjacent-turns-must-not-repeat]].
+The parking turn hands the floor back rather than moving on to a different
+topic. Telling it to move on makes the model announce the next topic in the same
+turn the next speaker is about to transition into: episode 209 said "Let's flip
+the lens to coding agents" and then "Flipping the lens to coding agents" in
+consecutive turns. That double transition is what exposed
+[[adjacent-turns-must-not-repeat]].
 
 Proposal and reasoning: OpenSpec change `attention-devices-that-defer`.
 
