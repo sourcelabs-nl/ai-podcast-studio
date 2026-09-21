@@ -121,6 +121,30 @@ Per-podcast overrides use the `llmModels` field, mapping stage names (`filter`, 
 
 The `GET /config/defaults` endpoint returns the selectable models grouped by provider and type, used by the frontend to populate model selection dropdowns. Provider keys are retained even when every model under them is withheld. The endpoint does not validate an override sent directly to the podcast API, so an unselectable model set that way fails at generation time rather than on save.
 
+### The dedup gate
+
+The dedup stage runs a Jev decision ahead of its clustering call, dropping the candidates recent episodes already covered. It is configured globally under `app.llm.dedup.gate` rather than per podcast, because it takes one closed decision that does not vary by show:
+
+```yaml
+app:
+  llm:
+    dedup:
+      gate:
+        enabled: true
+        url: https://openrouter.ai/api/alpha/decisions
+        model: typesafe/jev-1.13
+        threshold: 0.8
+        summary-max-chars: 300
+        max-request-chars: 150000
+        timeout: 30s
+```
+
+Jev is not a chat model and is absent from OpenRouter's `/api/v1/models` listing, so it is not a stage model and cannot be set through `llmModels`. Its `url` is configured rather than derived from the stored OpenRouter base URL, which points at the chat API. The credential is the existing OpenRouter one: without it the gate asks nothing and the stage runs ungated.
+
+`threshold` is the probability at or above which a candidate counts as already covered. It errs high on purpose, because a false exclusion silently removes a story from the episode while a false inclusion only leaves the clustering call the work it already does. `summary-max-chars` and `max-request-chars` bound the request: the endpoint rejects on size rather than on question count, and every measurement behind these defaults is recorded in `knowledge/references/jev-decisions-endpoint.md`.
+
+Setting `enabled: false` restores the stage's behaviour from before the gate existed, which is also what happens by itself whenever the endpoint is unavailable.
+
 ## Cost gate
 
 Before making any LLM API calls, the pipeline estimates the total cost (scoring + dedup filter + composition) and compares it against a configurable threshold. If the estimated cost exceeds the threshold, the entire pipeline run is skipped and a warning is logged.
