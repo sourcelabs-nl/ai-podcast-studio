@@ -90,7 +90,7 @@ class CachingChatModelTelemetryTest {
     }
 
     @Test
-    fun `a failed call is recorded with its exception type and the failure still propagates`() {
+    fun `a call that ran out of time is recorded as a timeout and the failure still propagates`() {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } throws SocketTimeoutException("timeout")
         val recorded = slot<LlmCallRecord>()
@@ -99,7 +99,21 @@ class CachingChatModelTelemetryTest {
         assertThrows(SocketTimeoutException::class.java) { model.call(prompt) }
 
         assertEquals(LlmCallOutcome.ERROR, recorded.captured.outcome)
-        assertEquals("SocketTimeoutException", recorded.captured.errorType)
+        // A fixed value rather than the class name: the latency read counts a timeout and skips
+        // every other failure, and matches on this in SQL.
+        assertEquals(TIMEOUT_ERROR_TYPE, recorded.captured.errorType)
+    }
+
+    @Test
+    fun `a failure that is not a timeout keeps its exception type`() {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } throws IllegalStateException("provider refused")
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        assertThrows(IllegalStateException::class.java) { model.call(prompt) }
+
+        assertEquals("IllegalStateException", recorded.captured.errorType)
     }
 
     @Test

@@ -155,8 +155,9 @@ class CachingChatModel(
     }
 
     /**
-     * Records a request that failed. The elapsed time of a call that hit its timeout is the timeout,
-     * not the provider's latency, which is why these rows are marked and read back separately.
+     * Records a request that failed, marked with the kind of failure so the latency read can tell a
+     * request that ran out of time from one the provider refused quickly. The two are read back
+     * differently: see the percentile query in `LlmCallRepositoryCustom`.
      */
     private fun recordFailedCall(startedAt: Instant, elapsed: Duration, error: Exception) {
         llmCallLogService.record(
@@ -170,7 +171,7 @@ class CachingChatModel(
                 outputTokens = 0,
                 cacheHit = false,
                 outcome = LlmCallOutcome.ERROR,
-                errorType = error.javaClass.simpleName,
+                errorType = errorTypeOf(error),
                 episodeId = episodeId
             )
         )

@@ -229,6 +229,26 @@ explicitly from the client.
 Alpha endpoint, one provider, no fallback: a Jev outage has no OpenRouter
 routing behind it.
 
+## The gate's calls are visible as ordinary LLM requests
+
+A Jev call is recorded in `llm_calls` like any other request, under its own
+stage `dedup-gate` rather than under `dedup`: the clustering call runs about 23s
+and the gate about 0.6s, so one set of percentiles over both describes neither.
+Measured on the first live run after the change, over 188 candidates split into
+two chunks: two requests, p50 512ms and p95 895ms, against the dedup stage's p50
+of 20.9s.
+
+One row is written per HTTP attempt rather than per `ask`, so a retried 529 is
+visible as a failure instead of being absorbed into the attempt that succeeded,
+and the retry's wait falls outside every recorded duration.
+
+Latency percentiles count a request that succeeded or ran out of time, and skip
+cache hits and every other failure. A fast failure reports how quickly the
+provider refused rather than how long it takes to answer, and this endpoint's
+529 arrives in milliseconds: counting it would make an outage read as a latency
+improvement. A timeout is the opposite case and is counted, which means a
+saturated stage reads as a p99 at its configured ceiling.
+
 ## Judging scripts is a separate question
 
 Whether Jev can replace this project's own script judge is measured in

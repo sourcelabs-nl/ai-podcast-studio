@@ -16,6 +16,10 @@ import java.time.Instant
  * Every stage is reported even when it issued nothing, with a zero sample count: a stage that is
  * silently absent reads as "no problem here", while a percentile over three requests reads as
  * authoritative unless the count is shown next to it.
+ *
+ * Which stages those are is [ReportedStage]'s to say, not [PipelineStage]'s. Requests are issued by
+ * callers that are not pipeline stages, and one reported against the enum alone would be recorded
+ * and then never read back.
  */
 @Service
 class LlmCallLatencyService(
@@ -69,16 +73,16 @@ class LlmCallLatencyService(
 
     private fun stagesFor(scope: LlmCallScope): List<StageLatencyResponse> {
         val measured = llmCallRepository.latencyPercentiles(scope).associateBy { it.stage }
-        return PipelineStage.entries.map { stage ->
-            val latency = measured[stage.value]
+        return ReportedStage.all(appProperties).map { reported ->
+            val latency = measured[reported.stage]
             StageLatencyResponse(
-                stage = stage.value,
+                stage = reported.stage,
                 samples = latency?.samples ?: 0,
                 p50Ms = latency?.p50Ms,
                 p90Ms = latency?.p90Ms,
                 p95Ms = latency?.p95Ms,
                 p99Ms = latency?.p99Ms,
-                timeoutMs = stage.timeout(appProperties.llm.timeouts).toMillis()
+                timeoutMs = reported.timeout.toMillis()
             )
         }
     }

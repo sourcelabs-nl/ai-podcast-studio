@@ -10,6 +10,37 @@ enum class LlmCallOutcome(val value: String) {
 }
 
 /**
+ * The `errorType` a request that ran out of time is recorded with.
+ *
+ * A timeout counts as latency and every other failure does not, so the distinction is read back in
+ * SQL. Recording it as a fixed value rather than as the failing exception's class name keeps that
+ * query from silently matching nothing the day a client wraps its timeouts in a different type.
+ */
+const val TIMEOUT_ERROR_TYPE = "timeout"
+
+/**
+ * The `errorType` for [error]: [TIMEOUT_ERROR_TYPE] when it is a request that ran out of time, and
+ * the exception's simple class name otherwise.
+ *
+ * The cause chain is walked because the timeout that matters is raised deep in the HTTP client and
+ * reaches here wrapped: Spring's `ResourceAccessException` carries a `SocketTimeoutException`, and
+ * a coroutine-side timeout arrives as its own type entirely.
+ */
+fun errorTypeOf(error: Throwable): String {
+    var current: Throwable? = error
+    while (current != null) {
+        if (current is java.net.SocketTimeoutException ||
+            current is java.util.concurrent.TimeoutException ||
+            current is java.net.http.HttpTimeoutException
+        ) {
+            return TIMEOUT_ERROR_TYPE
+        }
+        current = current.cause.takeIf { it !== current }
+    }
+    return error.javaClass.simpleName
+}
+
+/**
  * One LLM request as observed at the point it was issued.
  *
  * [duration] covers the request alone. A stage that uses tools issues several requests, and the

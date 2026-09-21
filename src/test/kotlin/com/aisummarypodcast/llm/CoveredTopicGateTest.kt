@@ -49,7 +49,7 @@ class CoveredTopicGateTest {
     )
 
     private fun answering(vararg values: Pair<String, Double>, cost: Double? = 0.0007) {
-        every { jevClient.ask(any(), any(), any(), any()) } returns
+        every { jevClient.ask(any(), any(), any(), any(), any()) } returns
             JevAnswers(values.toMap(), inputTokens = 100, reportedCostUsd = cost)
     }
 
@@ -76,7 +76,7 @@ class CoveredTopicGateTest {
 
     @Test
     fun `an empty answer set leaves every candidate and reports no cost`() {
-        every { jevClient.ask(any(), any(), any(), any()) } returns JevAnswers.NONE
+        every { jevClient.ask(any(), any(), any(), any(), any()) } returns JevAnswers.NONE
 
         val result = gate().evaluate(listOf(article(1), article(2)), COVERED, "u1")
 
@@ -90,7 +90,7 @@ class CoveredTopicGateTest {
         val result = gate().evaluate(listOf(article(1)), emptyList(), "u1")
 
         assertFalse(result.answered)
-        verify(exactly = 0) { jevClient.ask(any(), any(), any(), any()) }
+        verify(exactly = 0) { jevClient.ask(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -98,13 +98,13 @@ class CoveredTopicGateTest {
         val result = gate(DedupGateProperties(enabled = false)).evaluate(listOf(article(1)), COVERED, "u1")
 
         assertFalse(result.answered)
-        verify(exactly = 0) { jevClient.ask(any(), any(), any(), any()) }
+        verify(exactly = 0) { jevClient.ask(any(), any(), any(), any(), any()) }
     }
 
     @Test
     fun `the state carries the covered topics and truncated candidate summaries`() {
         val state = slot<Any>()
-        every { jevClient.ask(any(), capture(state), any(), any()) } returns JevAnswers(mapOf("a1" to 0.1))
+        every { jevClient.ask(any(), capture(state), any(), any(), any()) } returns JevAnswers(mapOf("a1" to 0.1))
 
         gate(DedupGateProperties(summaryMaxChars = 10))
             .evaluate(listOf(article(1, summary = "A very long summary indeed")), COVERED, "u1")
@@ -122,7 +122,7 @@ class CoveredTopicGateTest {
     @Test
     fun `a candidate with no summary falls back to its body`() {
         val state = slot<Any>()
-        every { jevClient.ask(any(), capture(state), any(), any()) } returns JevAnswers(mapOf("a1" to 0.1))
+        every { jevClient.ask(any(), capture(state), any(), any(), any()) } returns JevAnswers(mapOf("a1" to 0.1))
 
         gate().evaluate(listOf(article(1, summary = null)), COVERED, "u1")
 
@@ -168,7 +168,7 @@ class CoveredTopicGateTest {
     @Test
     fun `answers and costs from several chunks are merged`() {
         val properties = DedupGateProperties(maxRequestChars = ("Article 1".length + 300 + 400) + COVERED.sumOf { it.length + 4 })
-        every { jevClient.ask(any(), any(), any(), any()) } returnsMany listOf(
+        every { jevClient.ask(any(), any(), any(), any(), any()) } returnsMany listOf(
             JevAnswers(mapOf("a1" to 0.95), reportedCostUsd = 0.0002),
             JevAnswers(mapOf("a2" to 0.10), reportedCostUsd = 0.0003)
         )
@@ -177,13 +177,13 @@ class CoveredTopicGateTest {
 
         assertEquals(setOf(1L), result.excludedIds)
         assertEquals(0.0005, result.reportedCostUsd!!, 1e-9)
-        verify(exactly = 2) { jevClient.ask(any(), any(), any(), any()) }
+        verify(exactly = 2) { jevClient.ask(any(), any(), any(), any(), any()) }
     }
 
     @Test
     fun `one failing chunk leaves its candidates unexcluded without losing the other`() {
         val properties = DedupGateProperties(maxRequestChars = ("Article 1".length + 300 + 400) + COVERED.sumOf { it.length + 4 })
-        every { jevClient.ask(any(), any(), any(), any()) } returnsMany listOf(
+        every { jevClient.ask(any(), any(), any(), any(), any()) } returnsMany listOf(
             JevAnswers.NONE,
             JevAnswers(mapOf("a2" to 0.99), reportedCostUsd = 0.0003)
         )
@@ -199,5 +199,29 @@ class CoveredTopicGateTest {
         val chunks = gate(DedupGateProperties(maxRequestChars = 5)).chunkCandidates(listOf(article(1)), COVERED)
 
         assertTrue(chunks.isEmpty())
+    }
+
+    @Test
+    fun `the call names the episode the gate ran for`() {
+        val caller = slot<JevCaller>()
+        every { jevClient.ask(any(), any(), any(), any(), capture(caller)) } returns
+            JevAnswers(mapOf("a1" to 0.1))
+
+        gate().evaluate(listOf(article(1)), COVERED, "u1", episodeId = 214L)
+
+        assertEquals(214L, caller.captured.episodeId)
+        assertEquals(DEDUP_GATE_STAGE, caller.captured.stage)
+    }
+
+    @Test
+    fun `a gate run outside an episode names none`() {
+        val caller = slot<JevCaller>()
+        every { jevClient.ask(any(), any(), any(), any(), capture(caller)) } returns
+            JevAnswers(mapOf("a1" to 0.1))
+
+        // The preview path deduplicates before any episode exists.
+        gate().evaluate(listOf(article(1)), COVERED, "u1")
+
+        assertNull(caller.captured.episodeId)
     }
 }

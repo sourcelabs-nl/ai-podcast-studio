@@ -1,5 +1,6 @@
 package com.aisummarypodcast.store
 
+import com.aisummarypodcast.llm.TIMEOUT_ERROR_TYPE
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
@@ -28,6 +29,7 @@ class LlmCallLatencyTest {
         stage: String = "compose",
         cacheHit: Boolean = false,
         outcome: String = "ok",
+        errorType: String? = null,
         startedAt: String = "2026-09-15T10:00:00Z",
         episodeId: Long? = null
     ) = llmCallRepository.save(
@@ -41,6 +43,7 @@ class LlmCallLatencyTest {
             outputTokens = 20,
             cacheHit = cacheHit,
             outcome = outcome,
+            errorType = errorType,
             episodeId = episodeId
         )
     )
@@ -59,16 +62,41 @@ class LlmCallLatencyTest {
     }
 
     @Test
-    fun `cache hits and failures do not count as latency`() {
+    fun `cache hits and fast failures do not count as latency`() {
         call(durationMs = 1000)
         call(durationMs = 0, cacheHit = true)
-        call(durationMs = 1_200_000, outcome = "error")
+        // What a 529 from the dedup gate's endpoint looks like: refused in milliseconds.
+        call(durationMs = 12, outcome = "error", errorType = "JevTransientException")
 
         val latency = llmCallRepository.latencyPercentiles(window).single()
 
         assertEquals(1, latency.samples)
         assertEquals(1000L, latency.p50Ms)
         assertEquals(1000L, latency.p99Ms)
+    }
+
+    @Test
+    fun `a request that ran out of time counts as latency`() {
+        call(durationMs = 1000)
+        call(durationMs = 30_000, outcome = "error", errorType = TIMEOUT_ERROR_TYPE)
+
+        val latency = llmCallRepository.latencyPercentiles(window).single()
+
+        assertEquals(2, latency.samples)
+        assertEquals(1000L, latency.p50Ms)
+        assertEquals(30_000L, latency.p99Ms)
+    }
+
+    @Test
+    fun `a saturated stage reads as a percentile at its ceiling`() {
+        call(durationMs = 900)
+        repeat(9) { call(durationMs = 30_000, outcome = "error", errorType = TIMEOUT_ERROR_TYPE) }
+
+        val latency = llmCallRepository.latencyPercentiles(window).single()
+
+        // Dropping the timeouts would report this stage as answering in under a second.
+        assertEquals(10, latency.samples)
+        assertEquals(30_000L, latency.p50Ms)
     }
 
     @Test

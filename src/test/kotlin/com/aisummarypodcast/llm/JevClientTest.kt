@@ -14,8 +14,11 @@ import io.github.resilience4j.retry.RetryConfig
 import io.github.resilience4j.retry.RetryRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -40,9 +43,15 @@ import java.time.Duration
 
 private const val URL = "http://localhost/api/alpha/decisions"
 
+private val CALLER = JevCaller(stage = DEDUP_GATE_STAGE, episodeId = 42L)
+
+/** Long enough that a duration including it would be unmistakable. */
+private val RETRY_WAIT = Duration.ofMillis(300)
+
 class JevClientTest {
 
     private val providerConfigService = mockk<UserProviderConfigService>()
+    private val llmCallLogService = mockk<LlmCallLogService>(relaxed = true)
     private val restClientBuilder = RestClient.builder()
     private val appProperties = AppProperties(
         llm = LlmProperties(),
@@ -73,7 +82,7 @@ class JevClientTest {
     fun setup() {
         // Constructed first: the client sets its own request factory in init, which would replace
         // the mock server's factory if the server were bound before it.
-        client = JevClient(providerConfigService, restClientBuilder, jevRetryRegistry(), appProperties)
+        client = JevClient(providerConfigService, restClientBuilder, llmCallLogService, jevRetryRegistry(), appProperties)
         mockServer = MockRestServiceServer.bindTo(restClientBuilder).build()
         every {
             providerConfigService.resolveConfig("u1", ApiKeyCategory.LLM, "openrouter")
@@ -112,7 +121,8 @@ class JevClientTest {
                 "a1" to JevNoulQuestion("First question"),
                 "a2" to JevNoulQuestion("Second question")
             ),
-            endpoint = endpoint
+            endpoint = endpoint,
+            caller = CALLER
         )
 
         assertEquals(mapOf("a1" to 0.93, "a2" to 0.11), answers.noul)
@@ -130,7 +140,7 @@ class JevClientTest {
             )
         )
 
-        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1", "a2"), endpoint)
+        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1", "a2"), endpoint, CALLER)
 
         assertEquals(mapOf("a1" to 0.9), answers.noul)
     }
@@ -139,7 +149,7 @@ class JevClientTest {
     fun `a rejected request yields no answers and no cost`() {
         mockServer.expect(requestTo(URL)).andRespond(withBadRequest())
 
-        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint)
+        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
 
         assertTrue(answers.noul.isEmpty())
         assertNull(answers.reportedCostUsd)
@@ -150,7 +160,7 @@ class JevClientTest {
         mockServer.expect(requestTo(URL))
             .andRespond(withSuccess("not json at all", MediaType.APPLICATION_JSON))
 
-        assertTrue(client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint).noul.isEmpty())
+        assertTrue(client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER).noul.isEmpty())
     }
 
     @Test
@@ -159,7 +169,7 @@ class JevClientTest {
             providerConfigService.resolveConfig("u1", ApiKeyCategory.LLM, "openrouter")
         } returns null
 
-        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint)
+        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
 
         assertTrue(answers.noul.isEmpty())
         // No expectation was registered, so verify also proves no request left the client.
@@ -168,7 +178,7 @@ class JevClientTest {
 
     @Test
     fun `no questions makes no request`() {
-        val answers = client.ask("u1", emptyMap<String, String>(), emptyMap(), endpoint)
+        val answers = client.ask("u1", emptyMap<String, String>(), emptyMap(), endpoint, CALLER)
 
         assertTrue(answers.noul.isEmpty())
         mockServer.verify()
@@ -182,7 +192,7 @@ class JevClientTest {
         mockServer.expect(requestTo(URL))
             .andRespond(withSuccess("""{"answers":{"a1":{"noul":0.9}}}""", MediaType.APPLICATION_JSON))
 
-        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint)
+        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
 
         assertEquals(mapOf("a1" to 0.9), answers.noul)
         mockServer.verify()
@@ -194,7 +204,7 @@ class JevClientTest {
         mockServer.expect(requestTo(URL))
             .andRespond(withSuccess("""{"answers":{"a1":{"noul":0.2}}}""", MediaType.APPLICATION_JSON))
 
-        assertEquals(mapOf("a1" to 0.2), client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint).noul)
+        assertEquals(mapOf("a1" to 0.2), client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER).noul)
         mockServer.verify()
     }
 
@@ -204,7 +214,7 @@ class JevClientTest {
             mockServer.expect(requestTo(URL)).andRespond(withServerError())
         }
 
-        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint)
+        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
 
         assertTrue(answers.noul.isEmpty())
         assertNull(answers.reportedCostUsd)
@@ -218,10 +228,134 @@ class JevClientTest {
         mockServer.expect(requestTo(URL))
             .andRespond(withBadRequest().body("""{"detail":{"error_type":"max_tokens_exceeded"}}"""))
 
-        assertTrue(client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint).noul.isEmpty())
+        assertTrue(client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER).noul.isEmpty())
         // Exactly one expectation was set, so verify proves no second attempt was made.
         mockServer.verify()
     }
 
     private fun questions(vararg keys: String) = keys.associateWith { JevNoulQuestion("Is $it covered?") }
+
+    @Test
+    fun `a successful call is recorded as one request`() {
+        val record = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(record)) } returns Unit
+        mockServer.expect(requestTo(URL)).andRespond(
+            withSuccess(
+                """
+                {
+                  "answers": {"a1": {"type": "noul", "noul": 0.9}},
+                  "usage": {"input_tokens": 374, "cost": 0.000015708}
+                }
+                """.trimIndent(),
+                MediaType.APPLICATION_JSON
+            )
+        )
+
+        client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
+
+        with(record.captured) {
+            assertEquals(DEDUP_GATE_STAGE, stage)
+            assertEquals(42L, episodeId)
+            // The credential's provider, not the `provider` the response names.
+            assertEquals("openrouter", provider)
+            assertEquals("typesafe/jev-1.13", model)
+            assertEquals(374, inputTokens)
+            // Billed at zero and often omitted: a count invented here would read as the provider's.
+            assertEquals(0, outputTokens)
+            assertEquals(0.000015708, reportedCostUsd)
+            assertEquals(LlmCallOutcome.OK, outcome)
+            assertFalse(cacheHit)
+            assertNull(errorType)
+        }
+    }
+
+    @Test
+    fun `a retried transient failure is recorded once per attempt`() {
+        val records = mutableListOf<LlmCallRecord>()
+        every { llmCallLogService.record(capture(records)) } returns Unit
+        // Rebuilt with a wait long enough to show up in a duration that wrongly included it.
+        client = JevClient(
+            providerConfigService,
+            restClientBuilder,
+            llmCallLogService,
+            RetryRegistry.of(
+                RetryConfig.custom<Any>()
+                    .maxAttempts(3)
+                    .waitDuration(RETRY_WAIT)
+                    .retryExceptions(JevTransientException::class.java)
+                    .build()
+            ),
+            appProperties
+        )
+        // Rebound after the client, which sets its own request factory in init.
+        mockServer = MockRestServiceServer.bindTo(restClientBuilder).build()
+        mockServer.expect(requestTo(URL)).andRespond(withStatus(HttpStatusCode.valueOf(529)))
+        mockServer.expect(requestTo(URL)).andRespond(
+            withSuccess("""{"answers": {"a1": {"type": "noul", "noul": 0.9}}}""", MediaType.APPLICATION_JSON)
+        )
+
+        client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
+
+        assertEquals(2, records.size)
+        assertEquals(LlmCallOutcome.ERROR, records[0].outcome)
+        assertEquals("JevTransientException", records[0].errorType)
+        assertEquals(LlmCallOutcome.OK, records[1].outcome)
+        // The retry's wait falls between the attempts and so inside neither duration.
+        assertTrue(records.all { it.duration.inWholeMilliseconds < RETRY_WAIT.toMillis() })
+    }
+
+    @Test
+    fun `a rejected request is recorded as a failure carrying its kind`() {
+        val record = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(record)) } returns Unit
+        mockServer.expect(requestTo(URL)).andRespond(withBadRequest())
+
+        client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
+
+        assertEquals(LlmCallOutcome.ERROR, record.captured.outcome)
+        assertEquals("IllegalStateException", record.captured.errorType)
+        assertEquals(0, record.captured.inputTokens)
+        assertNull(record.captured.reportedCostUsd)
+    }
+
+    @Test
+    fun `a request with no credential records nothing`() {
+        every {
+            providerConfigService.resolveConfig("u1", ApiKeyCategory.LLM, "openrouter")
+        } returns null
+
+        client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
+
+        // Nothing was asked of the provider, so there is no request to record.
+        verify(exactly = 0) { llmCallLogService.record(any()) }
+    }
+
+    @Test
+    fun `a failure to record does not change what the call returns`() {
+        every { llmCallLogService.record(any()) } throws IllegalStateException("log is down")
+        mockServer.expect(requestTo(URL)).andRespond(
+            withSuccess("""{"answers": {"a1": {"type": "noul", "noul": 0.9}}}""", MediaType.APPLICATION_JSON)
+        )
+
+        val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
+
+        assertEquals(mapOf("a1" to 0.9), answers.noul)
+    }
+
+    @Test
+    fun `a question asked outside an episode is recorded without one`() {
+        val record = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(record)) } returns Unit
+        mockServer.expect(requestTo(URL)).andRespond(
+            withSuccess("""{"answers": {"a1": {"type": "noul", "noul": 0.9}}}""", MediaType.APPLICATION_JSON)
+        )
+
+        client.ask(
+            "u1", emptyMap<String, String>(), questions("a1"), endpoint,
+            JevCaller(stage = DEDUP_GATE_STAGE)
+        )
+
+        assertNull(record.captured.episodeId)
+        assertEquals(DEDUP_GATE_STAGE, record.captured.stage)
+    }
 }

@@ -67,7 +67,17 @@ class CoveredTopicGate(
     private val properties: DedupGateProperties = appProperties.llm.dedup.gate
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun evaluate(candidates: List<Article>, coveredTopics: List<String>, userId: String): CoveredTopicGateResult {
+    /**
+     * [episodeId] names the episode this runs for, so the gate's own requests appear in that
+     * episode's request list. It is null on the preview path, which deduplicates before any episode
+     * exists.
+     */
+    fun evaluate(
+        candidates: List<Article>,
+        coveredTopics: List<String>,
+        userId: String,
+        episodeId: Long? = null
+    ): CoveredTopicGateResult {
         if (!properties.enabled) return CoveredTopicGateResult.NOT_RUN
         if (candidates.isEmpty()) return CoveredTopicGateResult.NOT_RUN
         // Nothing has been covered, so nothing can repeat it. Asking would spend a call to be told
@@ -89,7 +99,8 @@ class CoveredTopicGate(
                 questions = chunk.associate {
                     questionKey(it.id!!) to JevNoulQuestion(ALREADY_COVERED_INSTRUCTIONS.format(it.id))
                 },
-                endpoint = endpoint
+                endpoint = endpoint,
+                caller = JevCaller(stage = DEDUP_GATE_STAGE, episodeId = episodeId)
             )
             if (answers.noul.isEmpty()) continue
 

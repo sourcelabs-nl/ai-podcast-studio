@@ -1,6 +1,14 @@
 # Log
 
-Newest first. Each entry begins with `## [2026-09-21] Lint
+Newest first. Each entry begins with `## [2026-09-21] Record
+
+Made the dedup gate's Jev calls visible as `llm_call` rows under their own stage.
+First live run: 47 of 188 candidates excluded, two requests at p50 512ms and p95
+895ms against the dedup stage's p50 of 20.9s. Also recorded the rule the latency
+read now follows, that a timeout counts as latency and a fast failure does not,
+and why this endpoint's millisecond 529 is the case that forced the distinction.
+
+## [2026-09-21] Lint
 
 Full pass over all 23 entries. No contradictions, no orphans, no expired
 `stale_after`, no em-dashes. Rewrote two entries that had started narrating

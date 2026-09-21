@@ -1,7 +1,15 @@
 package com.aisummarypodcast.store
 
+import com.aisummarypodcast.llm.TIMEOUT_ERROR_TYPE
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
+
+/**
+ * Which rows count as measured request latency: a real request that either answered or ran out of
+ * time. See the note on [LlmCallRepositoryCustomImpl] for why a fast failure does not qualify.
+ */
+private const val QUALIFIES_FOR_LATENCY =
+    "cache_hit = 0 AND (outcome = 'ok' OR error_type = '$TIMEOUT_ERROR_TYPE')"
 
 /** Latency percentiles for one stage, over the rows that qualify as measured request latency. */
 data class LlmCallLatency(
@@ -56,11 +64,17 @@ interface LlmCallRepositoryCustom {
  * rows into the JVM, and they are exact rather than sketched: at this table's volume an exact answer
  * is affordable, and a timeout decision should not rest on an approximation nobody can check.
  *
- * Only successful, non-cached rows qualify for the percentiles. A cache hit performed no request,
- * and a failed call reports the time until it failed, which for a timeout is the timeout itself:
- * counting either would describe the application rather than the provider. The per-episode request
- * list includes both, because it describes what the episode did rather than what the provider's
- * latency was.
+ * A non-cached row qualifies for the percentiles when it succeeded or when it ran out of time. A
+ * cache hit performed no request. A call that failed quickly reports how fast the provider refused
+ * rather than how long it takes to answer, and counting it would pull the percentiles down exactly
+ * when the provider is unhealthy: the endpoint behind the dedup gate returns `529 system_overloaded`
+ * in milliseconds. A timeout is the opposite case, a real request that was genuinely too slow, and
+ * dropping it would hide the slowest requests from the percentiles that exist to show them. The
+ * consequence is that a saturated stage reads as a p99 at or near its configured timeout, which is
+ * the honest reading: that is the longest a request is allowed to take.
+ *
+ * The per-episode request list includes every row, because it describes what the episode did rather
+ * than what the provider's latency was.
  */
 @Repository
 class LlmCallRepositoryCustomImpl(
@@ -72,7 +86,7 @@ class LlmCallRepositoryCustomImpl(
             """
             SELECT stage, COUNT(*) AS samples
             FROM llm_calls
-            WHERE cache_hit = 0 AND outcome = 'ok' ${scope.sqlCondition()}
+            WHERE $QUALIFIES_FOR_LATENCY ${scope.sqlCondition()}
             GROUP BY stage
             ORDER BY stage
             """.trimIndent()
@@ -134,7 +148,7 @@ class LlmCallRepositoryCustomImpl(
             """
             SELECT duration_ms
             FROM llm_calls
-            WHERE cache_hit = 0 AND outcome = 'ok' AND stage = :stage ${scope.sqlCondition()}
+            WHERE $QUALIFIES_FOR_LATENCY AND stage = :stage ${scope.sqlCondition()}
             ORDER BY duration_ms
             LIMIT 1 OFFSET :offset
             """.trimIndent()

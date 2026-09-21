@@ -117,7 +117,7 @@ class TopicDedupFilter(
         // before the clustering call rather than by it. A gate that answers nothing leaves every
         // candidate here, which is exactly how the stage behaved before it existed.
         val gate = withContext(Dispatchers.IO) {
-            coveredTopicGate.evaluate(candidates, history.coveredTopics, userId)
+            coveredTopicGate.evaluate(candidates, history.coveredTopics, userId, episodeId)
         }
         val gatedCandidates = keepGateFromEmptyingTheEpisode(candidates, gate)
 

@@ -12,6 +12,8 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
 import java.time.Duration
+import java.time.Instant
+import kotlin.time.Duration.Companion.nanoseconds
 
 /** The OpenRouter provider whose credential reaches Jev. Jev is served through OpenRouter only. */
 private const val JEV_CREDENTIAL_PROVIDER = "openrouter"
@@ -21,6 +23,15 @@ private const val SYSTEM_OVERLOADED = 529
 
 /** Which Jev deployment to ask. */
 data class JevEndpoint(val url: String, val model: String)
+
+/**
+ * Who is asking, for the telemetry the call is recorded under.
+ *
+ * Carried explicitly rather than read from ambient state, for the reason [LlmCallRecord] gives: the
+ * call is issued on another dispatcher than the one its stage started on. [episodeId] is null on the
+ * paths that have no episode, which for the dedup gate is the preview run.
+ */
+data class JevCaller(val stage: String, val episodeId: Long? = null)
 
 /**
  * One `noul` question: a proposition about the shared state, answered as a probability in `[0,1]`.
@@ -91,6 +102,7 @@ data class JevAnswers(
 class JevClient(
     private val providerConfigService: UserProviderConfigService,
     private val restClientBuilder: RestClient.Builder,
+    private val llmCallLogService: LlmCallLogService,
     retryRegistry: RetryRegistry,
     appProperties: AppProperties
 ) {
@@ -127,7 +139,8 @@ class JevClient(
         userId: String,
         state: Any,
         questions: Map<String, JevNoulQuestion>,
-        endpoint: JevEndpoint
+        endpoint: JevEndpoint,
+        caller: JevCaller
     ): JevAnswers {
         if (questions.isEmpty()) return JevAnswers.NONE
 
@@ -143,17 +156,7 @@ class JevClient(
             // The retry sits inside the catch, so exhausting it is just another way to get no
             // answers. Only a JevTransientException is retried; see JevTransientException.
             val response = retry.executeCallable {
-                restClientBuilder.build()
-                    .post()
-                    .uri(endpoint.url)
-                    .header("Authorization", "Bearer $apiKey")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(JevRequest(model = endpoint.model, state = state, questions = questions))
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError) { _, response ->
-                        throwForStatus(response.statusCode, String(response.body.readAllBytes()))
-                    }
-                    .body(JevApiResponse::class.java)
+                exchange(apiKey, state, questions, endpoint, caller)
             } ?: return JevAnswers.NONE
 
             JevAnswers(
@@ -170,6 +173,98 @@ class JevClient(
             log.warn("[Jev] Decision call for {} question(s) failed: {}", questions.size, e.message)
             JevAnswers.NONE
         }
+    }
+
+    /**
+     * Issues one attempt and records it.
+     *
+     * Timed and recorded per attempt rather than per [ask], so a retried failure is visible as a
+     * failure instead of being absorbed into the attempt that eventually succeeded, and so the
+     * interval the retry waits falls outside every recorded duration.
+     *
+     * The provider recorded is the one whose credential authorised the call, not the `provider`
+     * the response names: that field says who served the request, and using it would split one
+     * account's spend across two names.
+     */
+    private fun exchange(
+        apiKey: String,
+        state: Any,
+        questions: Map<String, JevNoulQuestion>,
+        endpoint: JevEndpoint,
+        caller: JevCaller
+    ): JevApiResponse? {
+        val startedAt = Instant.now()
+        val startedNanos = System.nanoTime()
+        fun elapsed() = (System.nanoTime() - startedNanos).nanoseconds
+
+        val response = try {
+            restClientBuilder.build()
+                .post()
+                .uri(endpoint.url)
+                .header("Authorization", "Bearer $apiKey")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(JevRequest(model = endpoint.model, state = state, questions = questions))
+                .retrieve()
+                .onStatus(HttpStatusCode::isError) { _, response ->
+                    throwForStatus(response.statusCode, String(response.body.readAllBytes()))
+                }
+                .body(JevApiResponse::class.java)
+        } catch (e: Exception) {
+            record(startedAt, elapsed(), endpoint, caller, failure = e)
+            throw e
+        }
+
+        record(startedAt, elapsed(), endpoint, caller, response = response)
+        return response
+    }
+
+    /**
+     * Writes one row for an attempt. Output tokens are recorded as zero because the endpoint bills
+     * them at zero and often omits them, and a count invented here would enter the telemetry as
+     * something the provider stated.
+     */
+    private fun record(
+        startedAt: Instant,
+        elapsed: kotlin.time.Duration,
+        endpoint: JevEndpoint,
+        caller: JevCaller,
+        response: JevApiResponse? = null,
+        failure: Exception? = null
+    ) {
+        // Guarded here as well as inside the log service. This client promises that nothing it does
+        // throws and that a caller always gets an answer, and telemetry that could take the answer
+        // away would break that promise from the one place it is least expected.
+        try {
+            recordOrThrow(startedAt, elapsed, endpoint, caller, response, failure)
+        } catch (e: Exception) {
+            log.warn("[Jev] Could not record the decision call: {}", e.message)
+        }
+    }
+
+    private fun recordOrThrow(
+        startedAt: Instant,
+        elapsed: kotlin.time.Duration,
+        endpoint: JevEndpoint,
+        caller: JevCaller,
+        response: JevApiResponse?,
+        failure: Exception?
+    ) {
+        llmCallLogService.record(
+            LlmCallRecord(
+                startedAt = startedAt,
+                stage = caller.stage,
+                provider = JEV_CREDENTIAL_PROVIDER,
+                model = endpoint.model,
+                duration = elapsed,
+                inputTokens = response?.usage?.inputTokens ?: 0,
+                outputTokens = 0,
+                reportedCostUsd = response?.usage?.cost,
+                cacheHit = false,
+                outcome = if (failure == null) LlmCallOutcome.OK else LlmCallOutcome.ERROR,
+                errorType = failure?.let { errorTypeOf(it) },
+                episodeId = caller.episodeId
+            )
+        )
     }
 
     /**
