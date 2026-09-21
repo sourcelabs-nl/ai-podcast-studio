@@ -1,6 +1,17 @@
 # Log
 
-Newest first. Each entry begins with `## [YYYY-MM-DD] <operation>` so recent
+Newest first. Each entry begins with `## [2026-09-21] Record
+
+Attributed the Jev decisions endpoint's observed failures to one OpenRouter
+incident on 2026-09-21, roughly 08:20-09:30 CEST, visible as a dip to about 75%
+on OpenRouter's own availability graph for the model. A probe at 12:30 the same
+day returned 200 in 686 ms with correct answers, so the endpoint's steady-state
+failure rate is unmeasured and the earlier "weakest property by far" reading
+described the incident. What the incident does establish is unchanged: a
+single-provider model has no routing fallback, so callers need a defined
+behaviour for having no answer.
+
+## [YYYY-MM-DD] <operation>` so recent
 activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-21] Record

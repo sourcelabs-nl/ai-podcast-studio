@@ -52,14 +52,23 @@ while cutting each candidate's summary from 800 characters to 300 fitted 240
 candidates into 35,648 tokens. By serialised request body, 154,644 characters
 succeeded and 172,919 did not.
 
-Availability is what the alpha label means, and it is the endpoint's weakest
-property by far. Within a single morning: three consecutive `503 no healthy
-upstream`, then the same request served in 956 ms, then both chunks of a live
-pipeline run rejected with `529 system_overloaded` ("We are currently
-experiencing high traffic"). Neither status is retried by anything in front of
-it, because there is no OpenRouter routing fallback for a single-provider
-model. Anything calling this endpoint needs a defined behaviour for having no
-answer, and will exercise it.
+Availability is what the alpha label means. Every failure observed so far falls
+inside one OpenRouter incident on the morning of 2026-09-21, between roughly
+08:20 and 09:30 CEST, during which OpenRouter's own availability graph for the
+model dips to about 75%: three consecutive `503 no healthy upstream`, then the
+same request served in 956 ms during a recovery spike, then both chunks of a
+live pipeline run rejected with `529 system_overloaded` ("We are currently
+experiencing high traffic"). Outside that window the endpoint has answered every
+request, in 686 ms at 12:30 the same day. The steady-state failure rate is
+therefore unmeasured, and the two-of-three failure rate seen that morning
+describes the incident rather than the endpoint.
+
+What the incident does establish is the shape of a failure rather than its
+frequency. Neither status is retried by anything in front of the caller, because
+a single-provider model has no OpenRouter routing fallback: when that provider
+degrades, there is nothing to route to, whatever the platform's general
+load-balancing note says. Anything calling this endpoint needs a defined
+behaviour for having no answer, and will exercise it.
 
 ## `score` takes an ordered rubric, not a checklist
 

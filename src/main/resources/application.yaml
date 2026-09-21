@@ -220,9 +220,10 @@ app:
       # $0.00605, nearly twice the call it relieves, because each request re-sends the covered
       # topics. See knowledge/references/jev-decisions-endpoint.md for every figure.
       #
-      # The endpoint is alpha, single-provider, with no OpenRouter routing fallback behind it: three
-      # consecutive requests returned "503 no healthy upstream" during these measurements. A gate
-      # that answers nothing leaves every candidate in place, so an outage costs only its latency.
+      # The endpoint is alpha, single-provider, with no OpenRouter routing fallback behind it, so a
+      # provider outage has nothing to route to: one OpenRouter incident produced both "503 no
+      # healthy upstream" and "529 system_overloaded" here. A gate that answers nothing leaves every
+      # candidate in place, so an outage costs only its latency.
       gate:
         enabled: true
         # Jev is absent from /api/v1/models and is not served by /api/v1/chat/completions. The URL is

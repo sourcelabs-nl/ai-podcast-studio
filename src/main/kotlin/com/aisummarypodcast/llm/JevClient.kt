@@ -79,9 +79,10 @@ data class JevAnswers(
  * **Nothing here throws.** Every failure returns [JevAnswers.NONE] with a logged warning, and
  * callers are required to have a defined behaviour without an answer. That is not defensive habit:
  * the endpoint is alpha, served by a single provider with no OpenRouter routing fallback behind
- * it. In one morning it answered three consecutive requests with `503 no healthy upstream` and
- * both chunks of a live pipeline run with `529 system_overloaded`, while serving healthy requests
- * in under a second either side of both.
+ * it, so when that provider degrades there is nothing to route to. During one OpenRouter incident
+ * it answered three consecutive requests with `503 no healthy upstream` and both chunks of a live
+ * pipeline run with `529 system_overloaded`, while serving healthy requests in under a second
+ * either side of the window.
  *
  * A transient status is therefore retried before giving up, which is the only fallback this
  * endpoint has. Exhausting the attempts is not an error, just another way to get no answers.
