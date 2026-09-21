@@ -217,8 +217,9 @@ export function LatencyTab({ episodeId }: { episodeId: number }) {
     <div className="space-y-6">
       <Section title="LLM request latency">
         <p className="text-xs text-muted-foreground">
-          Per-request timings for this episode, against each stage&apos;s configured timeout. Cache
-          hits and failed requests are excluded from the percentiles.
+          Per-request timings for this episode, against each stage&apos;s configured timeout. The
+          percentiles cover requests that answered and requests that timed out; cache hits and
+          faster failures are left out, so a stage at its ceiling reads as one.
         </p>
 
         {latency && (
