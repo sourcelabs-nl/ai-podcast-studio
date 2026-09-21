@@ -43,6 +43,11 @@ export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
     costs.recap.inputTokens === 0;
   const showLegacyNotice = fullyGenerated && dedupComposeRecapMissing;
 
+  // Shown inside the Scoring row rather than as a row of its own: this money is already part of
+  // the scoring total, and a separate row reads as something to add to it. Hidden at zero, which
+  // is what an episode generated before its candidates were recorded reports.
+  const droppedCalls = costs.score.droppedCalls ?? 0;
+
   return (
     <Section title="Cost per stage">
       <Panel className="space-y-3">
@@ -59,7 +64,14 @@ export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
           </TableHeader>
           <TableBody>
             <TableRow>
-              <TableCell className="font-medium">Scoring</TableCell>
+              <TableCell className="font-medium">
+                Scoring
+                {droppedCalls > 0 && (
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {droppedCalls.toLocaleString()} dropped, {formatCents(costs.score.droppedCostCents ?? 0)}
+                  </span>
+                )}
+              </TableCell>
               <TableCell className="text-xs text-muted-foreground">
                 {costs.score.model ?? "—"}
               </TableCell>
@@ -77,6 +89,18 @@ export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
               <TableCell className="text-right">{formatInt(costs.dedup.inputTokens)}</TableCell>
               <TableCell className="text-right">{formatInt(costs.dedup.outputTokens)}</TableCell>
               <TableCell className="text-right tabular-nums">{formatCents(costs.dedup.costCents)}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="font-medium">Dedup Gate</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                {costs.dedupGate?.model ?? "—"}
+              </TableCell>
+              <TableCell className="text-right">{formatInt(costs.dedupGate?.calls ?? 0)}</TableCell>
+              <TableCell className="text-right">{formatInt(costs.dedupGate?.inputTokens ?? 0)}</TableCell>
+              <TableCell className="text-right">{formatInt(costs.dedupGate?.outputTokens ?? 0)}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatCents(costs.dedupGate?.costCents ?? 0)}
+              </TableCell>
             </TableRow>
             <TableRow>
               <TableCell className="font-medium">Compose</TableCell>

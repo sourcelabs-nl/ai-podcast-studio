@@ -81,7 +81,7 @@ internal fun <T : Any, R : Any> org.springframework.data.domain.Page<T>.toRespon
     PagedResponse(items = content.map(mapper), page = number, pageSize = size, total = totalElements, totalPages = totalPages)
 
 internal fun Episode.toResponse(
-    scoreCalls: Int = 0,
+    scoreStage: ScoreStageSummary = ScoreStageSummary(calls = 0),
     costFor: StageCostFn = noopStageCostFn
 ) = EpisodeResponse(
     id = id!!,
@@ -108,7 +108,7 @@ internal fun Episode.toResponse(
     pipelineStage = pipelineStage,
     researchCalls = researchCalls,
     researchCostCents = researchCostCents,
-    costs = buildCosts(scoreCalls, costFor)
+    costs = buildCosts(scoreStage, costFor)
 )
 
 /**
@@ -142,7 +142,7 @@ internal fun EpisodeSearchHit.toResponse(): EpisodeResponse {
 }
 
 private fun Episode.buildCosts(
-    scoreCalls: Int,
+    scoreStage: ScoreStageSummary,
     costFor: StageCostFn
 ): EpisodeCostsResponse {
     fun llmCalls(input: Int, output: Int, cost: Double): Int =
@@ -164,20 +164,28 @@ private fun Episode.buildCosts(
     val dedupModelLabel = dedupModel ?: filterModel
     val dedupCost = dedupReportedCostCents
         ?: effective(dedupCostCents, dedupModelLabel, dedupInputTokens, dedupOutputTokens)
+    // The gate carries no model column of its own: it is configured, not resolved per podcast, and
+    // an episode that ran without it has nothing to name.
+    val gateCost = dedupGateReportedCostCents
+        ?: effective(dedupGateCostCents, null, dedupGateInputTokens, dedupGateOutputTokens)
     val composeCost = composeReportedCostCents
         ?: effective(composeCostCents, composeModel, composeInputTokens, composeOutputTokens)
     val recapCost = recapReportedCostCents
         ?: effective(recapCostCents, filterModel, recapInputTokens, recapOutputTokens)
     val ttsCost = (ttsCostCents ?: 0).toDouble()
     val researchCost = (researchCostCents ?: 0).toDouble()
-    val totalCostCents = scoreCost + dedupCost + composeCost + recapCost + ttsCost + researchCost
+    // The score row's dropped breakdown is deliberately absent: that money is already inside
+    // scoreCost, and adding it would charge the episode twice for the same requests.
+    val totalCostCents = scoreCost + dedupCost + gateCost + composeCost + recapCost + ttsCost + researchCost
     return EpisodeCostsResponse(
         score = LlmStageCostResponse(
             model = filterModel,
-            calls = scoreCalls,
+            calls = scoreStage.calls,
             inputTokens = scoreInputTokens,
             outputTokens = scoreOutputTokens,
-            costCents = scoreCost
+            costCents = scoreCost,
+            droppedCalls = scoreStage.droppedCalls,
+            droppedCostCents = scoreStage.droppedCostCents
         ),
         dedup = LlmStageCostResponse(
             model = dedupModelLabel,
@@ -185,6 +193,15 @@ private fun Episode.buildCosts(
             inputTokens = dedupInputTokens,
             outputTokens = dedupOutputTokens,
             costCents = dedupCost
+        ),
+        dedupGate = LlmStageCostResponse(
+            model = null,
+            // Stored rather than derived from tokens: the gate chunks its candidates and retries
+            // transient failures, so its request count does not follow from its size.
+            calls = dedupGateCalls,
+            inputTokens = dedupGateInputTokens,
+            outputTokens = dedupGateOutputTokens,
+            costCents = gateCost
         ),
         compose = LlmStageCostResponse(
             model = composeModel,
@@ -264,6 +281,13 @@ internal fun UpcomingContent.toResponse(): Map<String, Any> {
     return mapOf(
         "articles" to allArticles,
         "articleCount" to effectiveArticleCount,
-        "postCount" to totalPostCount
+        "postCount" to totalPostCount,
+        "scoring" to LlmStageCostResponse(
+            model = scoringSpend.model,
+            calls = scoringSpend.calls,
+            inputTokens = scoringSpend.inputTokens,
+            outputTokens = scoringSpend.outputTokens,
+            costCents = scoringSpend.costCents
+        )
     )
 }

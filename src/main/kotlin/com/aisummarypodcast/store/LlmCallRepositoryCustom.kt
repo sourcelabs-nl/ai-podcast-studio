@@ -11,6 +11,19 @@ import org.springframework.stereotype.Repository
 private const val QUALIFIES_FOR_LATENCY =
     "cache_hit = 0 AND (outcome = 'ok' OR error_type = '$TIMEOUT_ERROR_TYPE')"
 
+/**
+ * Which requests belong to one episode: those issued for the episode itself, and those issued for
+ * an article it scored as a candidate.
+ *
+ * The second half is the scoring stage. Its requests are issued when an article arrives, days
+ * before the episode that uses it exists, so they name an article and no episode. Without them an
+ * episode reports a scoring stage that issued nothing. An article stands as a candidate for exactly
+ * one episode (windows do not overlap), so no request is claimed twice.
+ */
+private const val BELONGS_TO_EPISODE =
+    "(episode_id = :episodeId OR article_id IN " +
+        "(SELECT article_id FROM episode_candidate_articles WHERE episode_id = :episodeId))"
+
 /** Latency percentiles for one stage, over the rows that qualify as measured request latency. */
 data class LlmCallLatency(
     val stage: String,
@@ -112,7 +125,7 @@ class LlmCallRepositoryCustomImpl(
             """
             SELECT started_at, stage, model, duration_ms, outcome, cache_hit
             FROM llm_calls
-            WHERE episode_id = :episodeId
+            WHERE $BELONGS_TO_EPISODE
             ORDER BY started_at DESC, id DESC
             """.trimIndent()
         )
@@ -162,7 +175,7 @@ class LlmCallRepositoryCustomImpl(
     }
 
     private fun LlmCallScope.sqlCondition(): String =
-        if (episodeId != null) "AND episode_id = :episodeId" else "AND started_at >= :cutoff"
+        if (episodeId != null) "AND $BELONGS_TO_EPISODE" else "AND started_at >= :cutoff"
 
     private fun JdbcClient.StatementSpec.bind(scope: LlmCallScope): JdbcClient.StatementSpec =
         if (scope.episodeId != null) param("episodeId", scope.episodeId) else param("cutoff", scope.cutoff)

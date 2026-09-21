@@ -68,11 +68,16 @@ private data class JevApiUsage(
  * [reportedCostUsd] stays null when the call did not happen or failed, so an unanswered batch is
  * never mistaken for a free one. Nothing about a Jev call passes through [CachingChatModel] or
  * [CostEstimator], so a cost not returned here is a cost the pipeline's reporting cannot see.
+ *
+ * [requests] counts the HTTP attempts this batch took, so a retried failure is charged as the two
+ * requests it was. It is reported even when the batch ended with no answers, because those attempts
+ * still reached the provider.
  */
 data class JevAnswers(
     val noul: Map<String, Double> = emptyMap(),
     val inputTokens: Int = 0,
-    val reportedCostUsd: Double? = null
+    val reportedCostUsd: Double? = null,
+    val requests: Int = 0
 ) {
     companion object {
         val NONE = JevAnswers()
@@ -152,12 +157,16 @@ class JevClient(
             return JevAnswers.NONE
         }
 
+        // Counted here rather than inside [exchange] because an exhausted retry returns no answers
+        // and its attempts would otherwise go unreported.
+        var requests = 0
         return try {
             // The retry sits inside the catch, so exhausting it is just another way to get no
             // answers. Only a JevTransientException is retried; see JevTransientException.
             val response = retry.executeCallable {
+                requests++
                 exchange(apiKey, state, questions, endpoint, caller)
-            } ?: return JevAnswers.NONE
+            } ?: return JevAnswers.NONE.copy(requests = requests)
 
             JevAnswers(
                 // An answer missing its value is dropped rather than defaulted: the caller treats
@@ -167,11 +176,12 @@ class JevClient(
                     answer.noul?.let { key to it }
                 }.toMap(),
                 inputTokens = response.usage?.inputTokens ?: 0,
-                reportedCostUsd = response.usage?.cost
+                reportedCostUsd = response.usage?.cost,
+                requests = requests
             )
         } catch (e: Exception) {
             log.warn("[Jev] Decision call for {} question(s) failed: {}", questions.size, e.message)
-            JevAnswers.NONE
+            JevAnswers.NONE.copy(requests = requests)
         }
     }
 
@@ -262,7 +272,7 @@ class JevClient(
                 cacheHit = false,
                 outcome = if (failure == null) LlmCallOutcome.OK else LlmCallOutcome.ERROR,
                 errorType = failure?.let { errorTypeOf(it) },
-                episodeId = caller.episodeId
+                attribution = LlmCallAttribution(episodeId = caller.episodeId)
             )
         )
     }

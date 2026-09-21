@@ -32,11 +32,18 @@ private const val CANDIDATE_OVERHEAD_CHARS = 400
  * [answered] is false when the gate did not run or returned nothing, which is the case every
  * caller must treat as "no candidate is covered". It is distinct from an empty [excludedIds],
  * which is the gate working and finding nothing already covered.
+ *
+ * [inputTokens], [reportedCostUsd] and [requests] are the gate's own spend, reported apart from the
+ * clustering call's so the two can be told apart wherever an episode's cost is read. [requests]
+ * counts HTTP attempts across every chunk, including a batch that ended up answering nothing: those
+ * attempts reached the provider and were charged for.
  */
 data class CoveredTopicGateResult(
     val excludedIds: Set<Long>,
     val reportedCostUsd: Double?,
-    val answered: Boolean
+    val answered: Boolean,
+    val inputTokens: Int = 0,
+    val requests: Int = 0
 ) {
     companion object {
         val NOT_RUN = CoveredTopicGateResult(emptySet(), null, answered = false)
@@ -88,6 +95,8 @@ class CoveredTopicGate(
         val excluded = mutableSetOf<Long>()
         var cost: Double? = null
         var anyAnswer = false
+        var inputTokens = 0
+        var requests = 0
 
         for (chunk in chunkCandidates(candidates, coveredTopics)) {
             val answers = jevClient.ask(
@@ -102,10 +111,15 @@ class CoveredTopicGate(
                 endpoint = endpoint,
                 caller = JevCaller(stage = DEDUP_GATE_STAGE, episodeId = episodeId)
             )
+            // Counted before the answers are looked at: a chunk that failed still cost its
+            // attempts, and dropping them here would report the gate as cheaper the worse it ran.
+            requests += answers.requests
+            inputTokens += answers.inputTokens
+            answers.reportedCostUsd?.let { cost = (cost ?: 0.0) + it }
+
             if (answers.noul.isEmpty()) continue
 
             anyAnswer = true
-            answers.reportedCostUsd?.let { cost = (cost ?: 0.0) + it }
             for (article in chunk) {
                 val id = article.id ?: continue
                 val value = answers.noul[questionKey(id)] ?: continue
@@ -115,12 +129,18 @@ class CoveredTopicGate(
 
         if (!anyAnswer) {
             log.warn("[Dedup] Already-covered gate returned nothing for {} candidate(s), clustering them all", candidates.size)
-            return CoveredTopicGateResult.NOT_RUN
+            // The spend is still reported. The gate answered nothing, but its attempts were made
+            // and charged, and an episode that paid for them should say so.
+            return CoveredTopicGateResult.NOT_RUN.copy(
+                reportedCostUsd = cost,
+                inputTokens = inputTokens,
+                requests = requests
+            )
         }
 
         log.info("[Dedup] Already-covered gate excluded {} of {} candidate(s) against {} covered topic(s)",
             excluded.size, candidates.size, coveredTopics.size)
-        return CoveredTopicGateResult(excluded, cost, answered = true)
+        return CoveredTopicGateResult(excluded, cost, answered = true, inputTokens = inputTokens, requests = requests)
     }
 
     /** The question key for [articleId], which is also how an answer is found again. */

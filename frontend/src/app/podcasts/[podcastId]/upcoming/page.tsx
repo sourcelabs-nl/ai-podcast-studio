@@ -7,7 +7,8 @@ import { AudioLines, ChevronDown, ChevronRight, ExternalLink, Loader2, Volume2, 
 import { CronExpressionParser } from "cron-parser";
 import { useUser } from "@/lib/user-context";
 import { ArticleCard, getSourceDisplayName } from "@/components/article-card";
-import type { EpisodeArticle, Podcast, PreviewAudioEstimate, PreviewResponse, UpcomingArticlesResponse } from "@/lib/types";
+import type { EpisodeArticle, LlmStageCost, Podcast, PreviewAudioEstimate, PreviewResponse, UpcomingArticlesResponse } from "@/lib/types";
+import { UpcomingCostsTab } from "@/components/upcoming-costs-tab";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,7 +26,7 @@ import { ScriptContent } from "@/components/script-viewer";
 import { useTabParam } from "@/hooks/use-tab-param";
 
 const WORDS_PER_MINUTE = 150;
-const TABS = ["articles", "script"] as const;
+const TABS = ["articles", "script", "costs"] as const;
 
 function formatCents(costCents: number | null): string {
   if (costCents === null) return "an unknown amount";
@@ -40,6 +41,7 @@ export default function UpcomingPage() {
   const [articles, setArticles] = useState<EpisodeArticle[]>([]);
   const [articleCount, setArticleCount] = useState(0);
   const [postCount, setPostCount] = useState(0);
+  const [scoring, setScoring] = useState<LlmStageCost | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -70,6 +72,7 @@ export default function UpcomingPage() {
         setArticles(upcomingData.articles);
         setArticleCount(upcomingData.articleCount);
         setPostCount(upcomingData.postCount);
+        setScoring(upcomingData.scoring);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -407,6 +410,9 @@ export default function UpcomingPage() {
           <TabsTrigger value="script">
             Script {preview && `(${wordCount.toLocaleString()} words)`}
           </TabsTrigger>
+          <TabsTrigger value="costs">
+            Costs
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="articles">
@@ -496,6 +502,12 @@ export default function UpcomingPage() {
                 </Button>
               </div>
             )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="costs">
+          <div className="mt-4">
+            <UpcomingCostsTab scoring={scoring} />
           </div>
         </TabsContent>
       </Tabs>

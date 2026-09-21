@@ -47,7 +47,7 @@ class BriefingComposer(
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(
             podcast.userId, composeModelDef, podcast, toolBudget,
-            useCache = !context.bypassLlmCache, episodeId = context.episodeId
+            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId)
         )
         val prompt = buildPrompt(articles, podcast, context)
 

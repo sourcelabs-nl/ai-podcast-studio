@@ -33,7 +33,7 @@ class EpisodeRecapGenerator(
         episodeId: Long? = null
     ): RecapResult {
         log.info("[LLM] Generating recap of previous episode for podcast '{}' ({})", podcast.name, podcast.id)
-        val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef, episodeId = episodeId)
+        val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef, attribution = LlmCallAttribution(episodeId = episodeId))
         val prompt = buildPrompt(scriptText, topicLabels)
 
         val (result, elapsed) = measureTimedValue {

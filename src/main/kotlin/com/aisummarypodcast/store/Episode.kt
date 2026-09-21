@@ -7,10 +7,10 @@ import org.springframework.data.relational.core.mapping.Table
 
 /**
  * Episode entity. The aggregate LLM totals — [llmInputTokens], [llmOutputTokens],
- * [llmCostCents] — are derived sums of the four per-stage triples below
- * (score / dedup / compose / recap). They are written exclusively by
+ * [llmCostCents] — are derived sums of the five per-stage triples below
+ * (score / dedup / dedup gate / compose / recap). They are written exclusively by
  * `EpisodeService.finalizeEpisode`; no other code path may update them
- * independently. Treat the four stage triples as the source of truth.
+ * independently. Treat the five stage triples as the source of truth.
  */
 @Table("episodes")
 data class Episode(
@@ -52,6 +52,17 @@ data class Episode(
     val dedupInputTokens: Int = 0,
     val dedupOutputTokens: Int = 0,
     val dedupCostCents: Int = 0,
+    /**
+     * The dedup stage's already-covered gate, costed apart from the clustering call it relieves.
+     * The gate runs a different model at different rates, so folding its charge into the dedup
+     * amount left the two indistinguishable. [dedupGateCalls] is stored rather than derived: the
+     * gate chunks its candidates and retries transient failures, so its request count does not
+     * follow from its tokens the way the other single-call stages' does.
+     */
+    val dedupGateInputTokens: Int = 0,
+    val dedupGateOutputTokens: Int = 0,
+    val dedupGateCostCents: Int = 0,
+    val dedupGateCalls: Int = 0,
     val composeInputTokens: Int = 0,
     val composeOutputTokens: Int = 0,
     val composeCostCents: Int = 0,
@@ -72,21 +83,22 @@ data class Episode(
      */
     val scoreReportedCostCents: Double? = null,
     val dedupReportedCostCents: Double? = null,
+    val dedupGateReportedCostCents: Double? = null,
     val composeReportedCostCents: Double? = null,
     val recapReportedCostCents: Double? = null,
     @Version val version: Long? = null
 ) {
     /**
-     * Aggregate LLM totals are derived sums of the four per-stage triples
-     * (score / dedup / compose / recap). These are the single read path; callers must
+     * Aggregate LLM totals are derived sums of the five per-stage triples
+     * (score / dedup / dedup gate / compose / recap). These are the single read path; callers must
      * NOT compute aggregates any other way. See the class KDoc for the invariant.
      */
     fun sumStageInputTokens(): Int =
-        scoreInputTokens + dedupInputTokens + composeInputTokens + recapInputTokens
+        scoreInputTokens + dedupInputTokens + dedupGateInputTokens + composeInputTokens + recapInputTokens
 
     fun sumStageOutputTokens(): Int =
-        scoreOutputTokens + dedupOutputTokens + composeOutputTokens + recapOutputTokens
+        scoreOutputTokens + dedupOutputTokens + dedupGateOutputTokens + composeOutputTokens + recapOutputTokens
 
     fun sumStageCostCents(): Int =
-        scoreCostCents + dedupCostCents + composeCostCents + recapCostCents
+        scoreCostCents + dedupCostCents + dedupGateCostCents + composeCostCents + recapCostCents
 }

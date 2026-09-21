@@ -25,12 +25,38 @@ data class UpcomingContent(
     val totalPostCount: Long,
     val effectiveArticleCount: Long,
     /** Posts each article was aggregated from, keyed by article id. Absent means one. */
-    val postCounts: Map<Long, Int> = emptyMap()
+    val postCounts: Map<Long, Int> = emptyMap(),
+    /** What has already been spent scoring the articles standing for the next episode. */
+    val scoringSpend: ScoringSpend = ScoringSpend()
 )
 
-/** Score-stage facts for an episode's cost breakdown: how many article calls it made. */
+/**
+ * What scoring a set of articles cost, in the shape an episode's score stage reports.
+ *
+ * Computed on request from the articles themselves rather than stored: the articles carry their own
+ * tokens and reported cost, and the same [CostEstimator.aggregateStageCost] totals them here and
+ * for an episode, so the figure shown before generation is comparable with the one shown after.
+ */
+data class ScoringSpend(
+    val model: String? = null,
+    val calls: Int = 0,
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+    val costCents: Double = 0.0
+)
+
+/**
+ * Score-stage facts for an episode's cost breakdown.
+ *
+ * [calls] counts every article scored as a candidate for the episode, not only those that reached
+ * the script. [droppedCalls] and [droppedCostCents] are the part of that same figure accounted for
+ * by the candidates that did not: a breakdown of the score row, never a row of its own, so adding
+ * them to the episode's total would count the same money twice.
+ */
 data class ScoreStageSummary(
-    val calls: Int
+    val calls: Int,
+    val droppedCalls: Int = 0,
+    val droppedCostCents: Double = 0.0
 )
 
 data class LinkedArticlesResult(

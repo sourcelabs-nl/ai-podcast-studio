@@ -43,7 +43,10 @@ class CachingChatModelTelemetryTest {
         stage = PipelineStage.COMPOSE
     )
     private val model =
-        CachingChatModel(delegate, llmCacheRepository, resolvedModel, llmCallLogService, episodeId = 42)
+        CachingChatModel(
+            delegate, llmCacheRepository, resolvedModel, llmCallLogService,
+            attribution = LlmCallAttribution(episodeId = 42)
+        )
 
     private val prompt = Prompt("Write the script", OpenAiChatOptions.builder().model("test-model").build())
 
@@ -147,7 +150,7 @@ class CachingChatModelTelemetryTest {
         val success = slot<LlmCallRecord>()
         every { llmCallLogService.record(capture(success)) } returns Unit
         model.call(prompt)
-        assertEquals(42L, success.captured.episodeId)
+        assertEquals(42L, success.captured.attribution.episodeId)
 
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns LlmCache(
             promptHash = "hash",
@@ -160,14 +163,14 @@ class CachingChatModelTelemetryTest {
         val hit = slot<LlmCallRecord>()
         every { llmCallLogService.record(capture(hit)) } returns Unit
         model.call(prompt)
-        assertEquals(42L, hit.captured.episodeId)
+        assertEquals(42L, hit.captured.attribution.episodeId)
 
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } throws SocketTimeoutException("timeout")
         val failure = slot<LlmCallRecord>()
         every { llmCallLogService.record(capture(failure)) } returns Unit
         assertThrows(SocketTimeoutException::class.java) { model.call(prompt) }
-        assertEquals(42L, failure.captured.episodeId)
+        assertEquals(42L, failure.captured.attribution.episodeId)
     }
 
     @Test
@@ -181,7 +184,7 @@ class CachingChatModelTelemetryTest {
 
         unattributed.call(prompt)
 
-        assertNull(recorded.captured.episodeId)
+        assertNull(recorded.captured.attribution.episodeId)
     }
 
     /**
@@ -199,6 +202,6 @@ class CachingChatModelTelemetryTest {
 
         withContext(Dispatchers.IO) { model.call(prompt) }
 
-        assertEquals(42L, recorded.captured.episodeId)
+        assertEquals(42L, recorded.captured.attribution.episodeId)
     }
 }

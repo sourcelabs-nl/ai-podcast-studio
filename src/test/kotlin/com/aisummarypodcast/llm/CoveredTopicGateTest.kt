@@ -48,9 +48,9 @@ class CoveredTopicGateTest {
         summary = summary
     )
 
-    private fun answering(vararg values: Pair<String, Double>, cost: Double? = 0.0007) {
+    private fun answering(vararg values: Pair<String, Double>, cost: Double? = 0.0007, requests: Int = 1) {
         every { jevClient.ask(any(), any(), any(), any(), any()) } returns
-            JevAnswers(values.toMap(), inputTokens = 100, reportedCostUsd = cost)
+            JevAnswers(values.toMap(), inputTokens = 100, reportedCostUsd = cost, requests = requests)
     }
 
     @Test
@@ -83,6 +83,40 @@ class CoveredTopicGateTest {
         assertTrue(result.excludedIds.isEmpty())
         assertFalse(result.answered)
         assertNull(result.reportedCostUsd)
+    }
+
+    @Test
+    fun `the gate reports its own tokens and requests`() {
+        answering("a1" to 0.95, requests = 1)
+
+        val result = gate().evaluate(listOf(article(1)), COVERED, "u1")
+
+        assertEquals(100, result.inputTokens)
+        assertEquals(1, result.requests)
+    }
+
+    @Test
+    fun `a retried attempt is counted as the request it was`() {
+        answering("a1" to 0.95, requests = 2)
+
+        val result = gate().evaluate(listOf(article(1)), COVERED, "u1")
+
+        assertEquals(2, result.requests)
+    }
+
+    @Test
+    fun `a gate that answers nothing still reports what its attempts cost`() {
+        // Those attempts reached the provider and were charged. Dropping them here would report the
+        // gate as cheaper the worse it ran.
+        every { jevClient.ask(any(), any(), any(), any(), any()) } returns
+            JevAnswers(emptyMap(), inputTokens = 900, reportedCostUsd = 0.0007, requests = 3)
+
+        val result = gate().evaluate(listOf(article(1)), COVERED, "u1")
+
+        assertFalse(result.answered)
+        assertEquals(3, result.requests)
+        assertEquals(900, result.inputTokens)
+        assertEquals(0.0007, result.reportedCostUsd)
     }
 
     @Test

@@ -150,7 +150,15 @@ data class LlmStageCostResponse(
     val inputTokens: Int,
     val outputTokens: Int,
     // Fractional cents so sub-cent stage costs from cheap models stay visible.
-    val costCents: Double
+    val costCents: Double,
+    /**
+     * Carried by the score row alone: how much of this same row the candidates that never reached
+     * the script account for. A breakdown of the row, not a row of its own, so adding it to
+     * [EpisodeCostsResponse.totalCostCents] would count the same money twice. Zero for an episode
+     * generated before its candidates were recorded.
+     */
+    val droppedCalls: Int = 0,
+    val droppedCostCents: Double = 0.0
 )
 
 data class TtsCostResponse(
@@ -168,6 +176,14 @@ data class ResearchCostResponse(
 data class EpisodeCostsResponse(
     val score: LlmStageCostResponse,
     val dedup: LlmStageCostResponse,
+    /**
+     * The dedup stage's already-covered gate. A stage of its own rather than part of [dedup]: it
+     * runs a different model at different rates against a different question, and the latency
+     * report has told the two apart under `dedup` and `dedup-gate` since the gate was recorded.
+     * Zero for an episode generated before the gate was costed separately; its charge is inside
+     * that episode's [dedup] amount, with no record of the split.
+     */
+    val dedupGate: LlmStageCostResponse,
     val compose: LlmStageCostResponse,
     val recap: LlmStageCostResponse,
     val tts: TtsCostResponse,

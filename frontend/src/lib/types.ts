@@ -88,6 +88,13 @@ export interface LlmStageCost {
   inputTokens: number;
   outputTokens: number;
   costCents: number;
+  /**
+   * Carried by the scoring row alone: how much of that same row the candidates that never
+   * reached the script account for. A breakdown of the row, not a row of its own, so it is
+   * never added to `totalCostCents`.
+   */
+  droppedCalls?: number;
+  droppedCostCents?: number;
 }
 
 export interface TtsCost {
@@ -105,6 +112,8 @@ export interface ResearchCost {
 export interface EpisodeCosts {
   score: LlmStageCost;
   dedup: LlmStageCost;
+  /** The dedup stage's already-covered gate, costed apart from the call it relieves. */
+  dedupGate: LlmStageCost;
   compose: LlmStageCost;
   recap: LlmStageCost;
   tts: TtsCost;
@@ -164,6 +173,8 @@ export interface UpcomingArticlesResponse {
   articles: EpisodeArticle[];
   articleCount: number;
   postCount: number;
+  /** What has already been spent scoring the articles standing for the next episode. */
+  scoring?: LlmStageCost;
 }
 
 export interface PodcastDefaults {

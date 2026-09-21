@@ -82,7 +82,7 @@ class ArticleScoreSummarizerTest {
         every { chatClientRequestSpec.call() } returns callResponseSpec
 
         every { chatClient.prompt() } returns chatClientRequestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
     }
 
     @Test
@@ -132,7 +132,7 @@ class ArticleScoreSummarizerTest {
         every { chatClientRequestSpec.options(any()) } returns chatClientRequestSpec
         every { chatClientRequestSpec.call() } throws RuntimeException("LLM unavailable")
         every { chatClient.prompt() } returns chatClientRequestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
 
         val result = scoreSummarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
 
@@ -307,7 +307,7 @@ class ArticleScoreSummarizerTest {
         }
 
         every { chatClient.prompt() } returns requestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
 
         val result = scoreSummarizer.scoreSummarize(listOf(article1, article2, article3), podcast, filterModelDef)
 
@@ -327,7 +327,7 @@ class ArticleScoreSummarizerTest {
         every { requestSpec.call() } throws RuntimeException("LLM unavailable")
 
         every { chatClient.prompt() } returns requestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
 
         val result = scoreSummarizer.scoreSummarize(listOf(article1, article2, article3), podcast, filterModelDef)
 
@@ -366,7 +366,7 @@ class ArticleScoreSummarizerTest {
         }
 
         every { chatClient.prompt() } returns requestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
             articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(),
@@ -407,7 +407,7 @@ class ArticleScoreSummarizerTest {
         }
 
         every { chatClient.prompt() } returns requestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
             articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(maxAttempts = 3),
@@ -482,7 +482,7 @@ class ArticleScoreSummarizerTest {
         )
         val withSubs = podcast.copy(subtopics = Subtopics(mapOf("LLM releases" to 10, "Dev tools" to 5)))
         mockLlmResponse(ScoreSummarizeResult(relevanceScore = 8, summary = "OpenAI launched GPT-5.", subtopic = "LLM Releases"))
-        every { chatClientFactory.createForModel(withSubs.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(withSubs.userId, filterModelDef, any(), any()) } returns chatClient
 
         val result = scoreSummarizer.scoreSummarize(listOf(article), withSubs, filterModelDef)
 
@@ -521,7 +521,7 @@ class ArticleScoreSummarizerTest {
         every { requestSpec.call() } throws RuntimeException("LLM unavailable")
 
         every { chatClient.prompt() } returns requestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
             articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(maxAttempts = 3),
@@ -568,7 +568,7 @@ class ArticleScoreSummarizerTest {
         every { requestSpec.call() } throws RuntimeException("Unrecognized token 'We'")
 
         every { chatClient.prompt() } returns requestSpec
-        every { chatClientFactory.createForModel(podcast.userId, filterModelDef) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, filterModelDef, any(), any()) } returns chatClient
 
         val summarizer = ArticleScoreSummarizer(
             articleRepository, chatClientFactory, jsonMapper, testRetryRegistry(maxAttempts = 3),

@@ -3,8 +3,12 @@ package com.aisummarypodcast.podcast
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.eval.EpisodeScoringService
 import com.aisummarypodcast.llm.ComposeContext
+import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.llm.FilteredArticle
+import com.aisummarypodcast.llm.LlmCallCost
 import com.aisummarypodcast.llm.LlmPipeline
+import com.aisummarypodcast.llm.ModelResolver
+import com.aisummarypodcast.llm.PipelineStage
 import com.aisummarypodcast.llm.PreviewResult
 import com.aisummarypodcast.source.SourceAggregator
 import com.aisummarypodcast.store.*
@@ -41,7 +45,8 @@ class PodcastService(
     private val eventPublisher: ApplicationEventPublisher,
     private val sourceAggregator: SourceAggregator,
     private val episodeWindowResolver: EpisodeWindowResolver,
-    private val episodeScoringService: EpisodeScoringService
+    private val episodeScoringService: EpisodeScoringService,
+    private val modelResolver: ModelResolver
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -551,7 +556,28 @@ class PodcastService(
 
         return UpcomingContent(
             articles, unlinkedPosts, sources, totalPostCount, effectiveArticleCount,
-            postCounts = if (articleIds.isNotEmpty()) postRepository.getPostCountsByArticleIds(articleIds) else emptyMap()
+            postCounts = if (articleIds.isNotEmpty()) postRepository.getPostCountsByArticleIds(articleIds) else emptyMap(),
+            scoringSpend = scoringSpend(podcast, articles)
+        )
+    }
+
+    /**
+     * What has already been spent scoring [articles], totalled the way an episode's score stage is:
+     * reported per-article costs summed, and the articles that reported nothing estimated together
+     * from their tokens. No article is scored to answer this; the figures are already on them.
+     */
+    private fun scoringSpend(podcast: Podcast, articles: List<Article>): ScoringSpend {
+        val filterModel = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        val cost = CostEstimator.aggregateStageCost(
+            articles.map { LlmCallCost(it.llmInputTokens ?: 0, it.llmOutputTokens ?: 0, it.llmReportedCostUsd) },
+            filterModel.cost
+        )
+        return ScoringSpend(
+            model = filterModel.model,
+            calls = articles.size,
+            inputTokens = articles.sumOf { it.llmInputTokens ?: 0 },
+            outputTokens = articles.sumOf { it.llmOutputTokens ?: 0 },
+            costCents = cost.costCents ?: 0.0
         )
     }
 

@@ -72,7 +72,7 @@ class LlmCallLogServiceTest {
         val saved = slot<LlmCall>()
         every { repository.save(capture(saved)) } answers { saved.captured }
 
-        service.record(record.copy(episodeId = 224))
+        service.record(record.copy(attribution = LlmCallAttribution(episodeId = 224)))
         assertEquals(224L, saved.captured.episodeId)
 
         service.record(record)

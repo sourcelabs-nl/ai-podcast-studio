@@ -68,11 +68,12 @@ class PodcastServiceTest {
     )
 
     private val episodeScoringService = mockk<EpisodeScoringService>(relaxed = true)
+    private val modelResolver = mockk<com.aisummarypodcast.llm.ModelResolver>(relaxed = true)
 
     private val podcastService = PodcastService(
         podcastRepository, sourceRepository, articleRepository, postRepository,
         postArticleRepository, episodeArticleRepository, episodeRepository, appProperties, llmPipeline, episodeService,
-        eventPublisher, sourceAggregator, episodeWindowResolver, episodeScoringService
+        eventPublisher, sourceAggregator, episodeWindowResolver, episodeScoringService, modelResolver
     )
 
     private val podcast = Podcast(

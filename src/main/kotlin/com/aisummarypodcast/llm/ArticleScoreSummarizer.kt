@@ -62,7 +62,7 @@ class ArticleScoreSummarizer(
         context: ScoringContext = ScoringContext(),
         onProgress: (completed: Int, total: Int) -> Unit = { _, _ -> }
     ): List<Article> {
-        val chatClient = chatClientFactory.createForModel(podcast.userId, filterModelDef, episodeId = context.episodeId)
+
         val model = filterModelDef.model
         val semaphore = Semaphore(scoringProperties.concurrency)
         val retry = retryRegistry.retry("article-scoring")
@@ -79,6 +79,19 @@ class ArticleScoreSummarizer(
                             val sourceLabel = context.sourceLabels[article.sourceId]
                             log.info("[LLM] Scoring and summarizing article {}: '{}' (source: {})", article.id, article.title, sourceLabel ?: article.sourceId)
                             try {
+                                // A client per article, so each recorded request names the article
+                                // it scored. That is what lets an episode's scoring requests be
+                                // found at all: they are issued when the article arrives, before
+                                // any episode exists to name. Building one is object construction
+                                // against an HTTP round trip.
+                                val chatClient = chatClientFactory.createForModel(
+                                    podcast.userId,
+                                    filterModelDef,
+                                    attribution = LlmCallAttribution(
+                                        episodeId = context.episodeId,
+                                        articleId = article.id
+                                    )
+                                )
                                 val prompt = buildPrompt(article, podcast)
 
                                 // Resilience4j owns the attempt count and backoff. The attempt number

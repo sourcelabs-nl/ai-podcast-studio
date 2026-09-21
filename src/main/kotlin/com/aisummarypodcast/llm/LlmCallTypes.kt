@@ -41,14 +41,33 @@ fun errorTypeOf(error: Throwable): String {
 }
 
 /**
+ * What a recorded request was issued for.
+ *
+ * Both are null for the paths that have neither: preview runs and ad-hoc source scoring. They are
+ * carried together rather than as two trailing nullable ids, which through three signatures is the
+ * shape that eventually gets called with the arguments the wrong way round.
+ *
+ * [articleId] is what makes the scoring stage readable per episode. A scoring request is issued
+ * when the article arrives, days before the episode that uses it exists, so it names no episode and
+ * is instead gathered through that episode's candidates.
+ */
+data class LlmCallAttribution(
+    val episodeId: Long? = null,
+    val articleId: Long? = null
+) {
+    companion object {
+        val NONE = LlmCallAttribution()
+    }
+}
+
+/**
  * One LLM request as observed at the point it was issued.
  *
  * [duration] covers the request alone. A stage that uses tools issues several requests, and the
  * local tool execution between them falls outside every one of these records, which is what makes
  * them comparable to the per-request stage timeouts.
  *
- * [episodeId] names the episode the request was issued for, and is null for the paths that have no
- * episode: preview runs and ad-hoc source scoring. It is carried explicitly from the call site
+ * [attribution] names what the request was issued for. It is carried explicitly from the call site
  * rather than read from ambient state, because the composers issue their request on another
  * dispatcher than the one the stage started on.
  */
@@ -64,5 +83,5 @@ data class LlmCallRecord(
     val cacheHit: Boolean = false,
     val outcome: LlmCallOutcome = LlmCallOutcome.OK,
     val errorType: String? = null,
-    val episodeId: Long? = null
+    val attribution: LlmCallAttribution = LlmCallAttribution.NONE
 )

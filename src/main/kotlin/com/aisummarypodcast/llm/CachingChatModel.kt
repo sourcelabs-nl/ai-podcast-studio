@@ -32,9 +32,10 @@ import kotlin.time.TimeSource
  * model call and k-1 replays of its answer, and the spread they were run to measure would be zero
  * by construction. Not writing either keeps an evaluation from displacing what production reads.
  *
- * [episodeId] is the episode every request from this instance belongs to, or null for a caller that
- * has no episode. A fresh instance is built per call site, so it is per-generation without being
- * shared, and it reaches the recorded row without depending on which thread issues the request.
+ * [attribution] is what every request from this instance is issued for. A fresh instance is built
+ * per call site, so it is per-generation without being shared, and it reaches the recorded row
+ * without depending on which thread issues the request. The scoring stage builds one per article,
+ * so each of its requests names the article it scored.
  */
 class CachingChatModel(
     private val delegate: ChatModel,
@@ -42,7 +43,7 @@ class CachingChatModel(
     private val resolvedModel: ResolvedModel,
     private val llmCallLogService: LlmCallLogService,
     private val cacheEnabled: Boolean = true,
-    private val episodeId: Long? = null
+    private val attribution: LlmCallAttribution = LlmCallAttribution.NONE
 ) : ChatModel {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -149,7 +150,7 @@ class CachingChatModel(
                 outputTokens = usage.outputTokens,
                 reportedCostUsd = usage.reportedCostUsd,
                 cacheHit = cacheHit,
-                episodeId = episodeId
+                attribution = attribution
             )
         )
     }
@@ -172,7 +173,7 @@ class CachingChatModel(
                 cacheHit = false,
                 outcome = LlmCallOutcome.ERROR,
                 errorType = errorTypeOf(error),
-                episodeId = episodeId
+                attribution = attribution
             )
         )
     }

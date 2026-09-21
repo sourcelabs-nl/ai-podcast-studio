@@ -3,7 +3,11 @@ package com.aisummarypodcast.podcast
 import com.aisummarypodcast.eval.EvaluationRunRecorder
 import com.aisummarypodcast.llm.ArticleEligibilityService
 import com.aisummarypodcast.llm.ComposeStageResult
+import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.llm.DedupStageResult
+import com.aisummarypodcast.llm.LlmCallCost
+import com.aisummarypodcast.llm.EpisodeCandidate
 import com.aisummarypodcast.llm.EpisodeRecapGenerator
 import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.llm.ModelResolver
@@ -14,6 +18,9 @@ import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeArticle
 import com.aisummarypodcast.store.EpisodeArticleRepository
+import com.aisummarypodcast.store.CandidateOutcome
+import com.aisummarypodcast.store.EpisodeCandidateArticle
+import com.aisummarypodcast.store.EpisodeCandidateArticleRepository
 import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
@@ -37,6 +44,7 @@ class EpisodeService(
     private val podcastRepository: PodcastRepository,
     private val ttsPipeline: TtsPipeline,
     private val episodeArticleRepository: EpisodeArticleRepository,
+    private val episodeCandidateArticleRepository: EpisodeCandidateArticleRepository,
     private val articleRepository: ArticleRepository,
     private val episodeRecapGenerator: EpisodeRecapGenerator,
     private val modelResolver: ModelResolver,
@@ -45,7 +53,8 @@ class EpisodeService(
     private val articleEligibilityService: ArticleEligibilityService,
     private val eventPublisher: ApplicationEventPublisher,
     private val audioGenerationService: AudioGenerationService,
-    private val evaluationRunRecorder: EvaluationRunRecorder
+    private val evaluationRunRecorder: EvaluationRunRecorder,
+    private val appProperties: AppProperties
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -286,6 +295,7 @@ class EpisodeService(
                 followUpContext = fa.followUpContext
             )
         }
+        saveCandidates(episode.id!!, dedupResult.candidates)
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
         val withStages = fresh.copy(
             filterModel = dedupResult.filterModel,
@@ -298,8 +308,19 @@ class EpisodeService(
             dedupOutputTokens = dedupResult.usage.outputTokens,
             dedupCostCents = dedupResult.dedupCostCents ?: 0,
             dedupReportedCostCents = dedupResult.dedupReportedCostCents,
+            dedupGateInputTokens = dedupResult.dedupGateInputTokens,
+            dedupGateOutputTokens = 0,
+            dedupGateCostCents = dedupResult.dedupGateCostCents,
+            dedupGateCalls = dedupResult.dedupGateCalls,
+            dedupGateReportedCostCents = dedupResult.dedupGateReportedCostCents,
             llmCostSource = LlmCostSource.aggregate(
-                listOf(dedupResult.scoreCostSource, dedupResult.dedupCostSource)
+                listOfNotNull(
+                    dedupResult.scoreCostSource,
+                    dedupResult.dedupCostSource,
+                    // Only when the gate ran. A gate that issued nothing resolves to UNKNOWN, and
+                    // including that would turn a fully reported episode into MIXED.
+                    dedupResult.dedupGateCostSource.takeIf { dedupResult.dedupGateCalls > 0 }
+                )
             ),
             composeInputTokens = 0,
             composeOutputTokens = 0,
@@ -315,7 +336,26 @@ class EpisodeService(
             llmOutputTokens = withStages.sumStageOutputTokens(),
             llmCostCents = withStages.sumStageCostCents()
         ))
-        log.info("[Pipeline] Saved dedup results for episode {} ({} articles)", episode.id, dedupResult.filteredArticles.size)
+        log.info("[Pipeline] Saved dedup results for episode {} ({} articles, {} candidates)",
+            episode.id, dedupResult.filteredArticles.size, dedupResult.candidates.size)
+    }
+
+    /**
+     * Records every article that stood as a candidate for this episode with what became of it.
+     *
+     * Written here rather than beside the article links so a dropped candidate never reaches the
+     * readers of those links, and in the same transaction so an episode can never hold links
+     * without the candidacy that produced them.
+     *
+     * A re-run of the dedup stage for the same episode replaces what it recorded before, because
+     * the second run's decisions are the ones the episode was left with.
+     */
+    private fun saveCandidates(episodeId: Long, candidates: List<EpisodeCandidate>) {
+        if (candidates.isEmpty()) return
+        episodeCandidateArticleRepository.deleteByEpisodeId(episodeId)
+        episodeCandidateArticleRepository.saveAll(
+            candidates.map { EpisodeCandidateArticle(episodeId = episodeId, articleId = it.articleId, outcome = it.outcome) }
+        )
     }
 
     @Transactional
@@ -645,9 +685,35 @@ class EpisodeService(
 
     fun countArticles(episodeId: Long): Int = episodeArticleRepository.findByEpisodeId(episodeId).size
 
-    /** Score-stage facts for the cost breakdown: how many article calls the episode's score stage made. */
-    fun scoreStageSummary(episodeId: Long): ScoreStageSummary =
-        ScoreStageSummary(calls = countArticles(episodeId))
+    /**
+     * Score-stage facts for the cost breakdown: every article the episode scored as a candidate,
+     * and the part of that spend accounted for by the ones that did not reach the script.
+     *
+     * The dropped part is derived here rather than persisted. It is a view of a total that is
+     * already stored, and a column whose only job is to agree with a stored sum eventually does not.
+     *
+     * An episode generated before candidates were recorded has none, and falls back to its linked
+     * articles with nothing dropped: what it dropped was never recorded and cannot be recovered.
+     */
+    fun scoreStageSummary(episodeId: Long): ScoreStageSummary {
+        val candidates = episodeCandidateArticleRepository.findByEpisodeId(episodeId)
+        if (candidates.isEmpty()) return ScoreStageSummary(calls = countArticles(episodeId))
+
+        val dropped = candidates.filter { it.outcome != CandidateOutcome.USED }
+        val droppedArticles = articleRepository.findAllById(dropped.map { it.articleId }).toList()
+        val episode = episodeRepository.findByIdOrNull(episodeId)
+        val cost = CostEstimator.aggregateStageCost(
+            droppedArticles.map {
+                LlmCallCost(it.llmInputTokens ?: 0, it.llmOutputTokens ?: 0, it.llmReportedCostUsd)
+            },
+            findModelCost(episode?.filterModel, appProperties.models)
+        )
+        return ScoreStageSummary(
+            calls = candidates.size,
+            droppedCalls = dropped.size,
+            droppedCostCents = cost.costCents ?: 0.0
+        )
+    }
 
     fun findByPodcastId(podcastId: String, status: EpisodeStatus? = null): List<Episode> {
         return if (status != null) {

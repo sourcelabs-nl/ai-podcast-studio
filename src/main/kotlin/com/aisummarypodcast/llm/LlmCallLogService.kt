@@ -38,7 +38,8 @@ class LlmCallLogService(private val llmCallRepository: LlmCallRepository) {
                     cacheHit = record.cacheHit,
                     outcome = record.outcome.value,
                     errorType = record.errorType,
-                    episodeId = record.episodeId
+                    episodeId = record.attribution.episodeId,
+                    articleId = record.attribution.articleId
                 )
             )
         } catch (e: RuntimeException) {

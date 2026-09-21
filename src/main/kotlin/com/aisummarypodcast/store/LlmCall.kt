@@ -18,6 +18,11 @@ import org.springframework.data.relational.core.mapping.Table
  * [episodeId] is the episode the request was issued for. It is null for requests issued outside a
  * generation, such as a preview or ad-hoc source scoring, and for every row written before the
  * column existed.
+ *
+ * [articleId] is the article the request was issued for, which only the scoring stage has: every
+ * other stage covers a whole set. A scoring request is issued when the article arrives, before the
+ * episode that uses it exists, so it names an article and no episode, and an episode gathers those
+ * requests through its candidates.
  */
 @Table("llm_calls")
 data class LlmCall(
@@ -34,5 +39,6 @@ data class LlmCall(
     val outcome: String,
     val errorType: String? = null,
     val episodeId: Long? = null,
+    val articleId: Long? = null,
     @Version val version: Long? = null
 )

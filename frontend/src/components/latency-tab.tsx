@@ -25,6 +25,7 @@ import {
 const STAGE_LABELS: Record<string, string> = {
   filter: "Scoring",
   dedup: "Dedup",
+  "dedup-gate": "Dedup Gate",
   compose: "Compose",
   eval: "Eval",
 };

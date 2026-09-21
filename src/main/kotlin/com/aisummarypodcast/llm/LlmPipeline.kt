@@ -8,6 +8,7 @@ import com.aisummarypodcast.podcast.EpisodeWindow
 import com.aisummarypodcast.podcast.EpisodeWindowResolver
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
+import com.aisummarypodcast.store.CandidateOutcome
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.PostRepository
@@ -71,12 +72,26 @@ data class DedupStageResult(
     val dedupCostCents: Int?,
     val dedupCostSource: LlmCostSource,
     val dedupReportedCostCents: Double? = null,
+    /**
+     * Every article scored as a candidate for this episode, with what became of it. The episode
+     * paid for scoring all of them, so it records all of them.
+     */
+    val candidates: List<EpisodeCandidate> = emptyList(),
     val scoreInputTokens: Int = 0,
     val scoreOutputTokens: Int = 0,
     val scoreCostCents: Int = 0,
     val scoreCostSource: LlmCostSource = LlmCostSource.UNKNOWN,
-    val scoreReportedCostCents: Double? = null
+    val scoreReportedCostCents: Double? = null,
+    /** The already-covered gate, costed apart from the clustering call it relieves. */
+    val dedupGateInputTokens: Int = 0,
+    val dedupGateCalls: Int = 0,
+    val dedupGateCostCents: Int = 0,
+    val dedupGateCostSource: LlmCostSource = LlmCostSource.UNKNOWN,
+    val dedupGateReportedCostCents: Double? = null
 )
+
+/** An article that stood as a candidate for an episode, and what became of it. */
+data class EpisodeCandidate(val articleId: Long, val outcome: CandidateOutcome)
 
 data class ComposeStageResult(
     val script: String,
@@ -279,18 +294,26 @@ class LlmPipeline(
 
         val followUpAnnotations = buildFollowUpAnnotations(composeArticles)
         val topicLabels = composeArticles.mapNotNull { it.topic }.distinct()
-        // The clustering call is costed on its own, then the gate's reported charge is added on
-        // top. The gate runs a different model at different rates and its call reports its own
-        // cost, so it must not be resolved through the dedup model's rate table.
         val dedupCost = CostEstimator.resolveLlmCost(dedupResult.usage, dedupModelDef.cost)
-            .plusReportedUsd(dedupResult.gateReportedCostUsd)
+        // The gate is costed on its own rather than added to the clustering call's total. It runs a
+        // different model at different rates against a different question, and a charge folded into
+        // the dedup amount cannot be told apart from the call it relieves.
+        val gateCost = CostEstimator.resolveLlmCost(
+            TokenUsage(dedupResult.gate.inputTokens, 0, dedupResult.gate.reportedCostUsd),
+            null
+        )
 
-        // Score-stage totals: sum tokens from the articles surviving into this episode. Where the
-        // provider reported a cost per article those values are summed; the rest are estimated from
-        // the SUM of their tokens (per-article integer cents lose sub-cent precision).
-        val scoreInputTokens = composeArticles.sumOf { it.article.llmInputTokens ?: 0 }
-        val scoreOutputTokens = composeArticles.sumOf { it.article.llmOutputTokens ?: 0 }
-        val scoreCost = scoreStageCost(composeArticles.map { it.article }, filterModelDef)
+        // Score-stage totals: sum tokens across every article scored as a candidate for this
+        // episode, not only those surviving into it. An article is scored against its full body,
+        // and it is scored because it fell in this episode's window; charging the episode for the
+        // survivors alone attributes the rest to nothing. Where the provider reported a cost per
+        // article those values are summed; the rest are estimated from the SUM of their tokens
+        // (per-article integer cents lose sub-cent precision).
+        val candidates = candidateOutcomes(eligible, dedupResult.dropped, composeArticles)
+        val scored = eligible.filter { it.id != null }
+        val scoreInputTokens = scored.sumOf { it.llmInputTokens ?: 0 }
+        val scoreOutputTokens = scored.sumOf { it.llmOutputTokens ?: 0 }
+        val scoreCost = scoreStageCost(scored, filterModelDef)
 
         return DedupStageResult(
             filteredArticles = composeArticles,
@@ -302,12 +325,41 @@ class LlmPipeline(
             dedupCostCents = dedupCost.costCents?.roundToInt(),
             dedupCostSource = dedupCost.source,
             dedupReportedCostCents = dedupCost.reportedCostCents,
+            candidates = candidates,
             scoreInputTokens = scoreInputTokens,
             scoreOutputTokens = scoreOutputTokens,
             scoreCostCents = scoreCost.costCents?.roundToInt() ?: 0,
             scoreCostSource = scoreCost.source,
-            scoreReportedCostCents = scoreCost.reportedCostCents
+            scoreReportedCostCents = scoreCost.reportedCostCents,
+            dedupGateInputTokens = dedupResult.gate.inputTokens,
+            dedupGateCalls = dedupResult.gate.requests,
+            dedupGateCostCents = gateCost.costCents?.roundToInt() ?: 0,
+            dedupGateCostSource = gateCost.source,
+            dedupGateReportedCostCents = gateCost.reportedCostCents
         )
+    }
+
+    /**
+     * Every candidate of this run with what became of it: what the dedup stage dropped, what the
+     * compose cap cut, and what reached the script.
+     *
+     * Built from [eligible] rather than from the dropped and used sets alone, so an article that
+     * fell out of the run some other way is still recorded as a candidate the episode paid to
+     * score.
+     */
+    private fun candidateOutcomes(
+        eligible: List<Article>,
+        dropped: List<DroppedCandidate>,
+        composeArticles: List<FilteredArticle>
+    ): List<EpisodeCandidate> {
+        val droppedByDedup = dropped.associate { it.articleId to it.outcome }
+        val usedIds = composeArticles.mapNotNull { it.article.id }.toSet()
+        return eligible.mapNotNull { article ->
+            val id = article.id ?: return@mapNotNull null
+            val outcome = droppedByDedup[id]
+                ?: if (id in usedIds) CandidateOutcome.USED else CandidateOutcome.CUT_BY_COMPOSE_CAP
+            EpisodeCandidate(id, outcome)
+        }
     }
 
     /**

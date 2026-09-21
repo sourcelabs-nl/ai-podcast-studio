@@ -35,12 +35,16 @@ class ShowNotesTest {
 
     private val audioGenerationService = mockk<AudioGenerationService>(relaxed = true)
 
+    private val episodeCandidateArticleRepository =
+        mockk<com.aisummarypodcast.store.EpisodeCandidateArticleRepository>(relaxed = true)
+
     private val service = EpisodeService(
         episodeRepository, podcastRepository, ttsPipeline,
-        episodeArticleRepository, articleRepository,
+        episodeArticleRepository, episodeCandidateArticleRepository, articleRepository,
         episodeRecapGenerator, modelResolver, postArticleRepository,
         episodeSourcesGenerator, articleEligibilityService, eventPublisher,
-        audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true)
+        audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true),
+        mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true)
     )
 
     private val generateAndStoreShowNotes: Method = EpisodeService::class.java

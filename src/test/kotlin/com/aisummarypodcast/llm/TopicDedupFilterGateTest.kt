@@ -10,6 +10,7 @@ import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.store.Article
+import com.aisummarypodcast.store.CandidateOutcome
 import com.aisummarypodcast.testRetryRegistry
 import io.mockk.CapturingSlot
 import io.mockk.every
@@ -95,7 +96,7 @@ class TopicDedupFilterGateTest {
         assertTrue(prompt.captured.contains("Fresh story"))
         assertFalse(prompt.captured.contains("Old story"))
         assertEquals(listOf(1L), result.filteredArticles.map { it.article.id })
-        assertEquals(0.0007, result.gateReportedCostUsd)
+        assertEquals(0.0007, result.gate.reportedCostUsd)
     }
 
     @Test
@@ -110,7 +111,7 @@ class TopicDedupFilterGateTest {
         assertTrue(prompt.captured.contains("Fresh story"))
         assertTrue(prompt.captured.contains("Old story"))
         assertEquals(2, result.filteredArticles.size)
-        assertNull(result.gateReportedCostUsd)
+        assertNull(result.gate.reportedCostUsd)
     }
 
     @Test
@@ -130,7 +131,52 @@ class TopicDedupFilterGateTest {
         assertTrue(prompt.captured.contains("Old two"))
         // The clustering call reached the same conclusion here, but on its own evidence.
         assertTrue(result.filteredArticles.isEmpty())
-        assertEquals(0.0007, result.gateReportedCostUsd)
+        assertEquals(0.0007, result.gate.reportedCostUsd)
+    }
+
+    @Test
+    fun `each dropped candidate carries the decision that dropped it`() = runTest {
+        every { gate.evaluate(any(), any(), "u1") } returns
+            CoveredTopicGateResult(setOf(3L), 0.0007, answered = true, inputTokens = 900, requests = 1)
+        capturePrompt("""{"clusters":[{"topic":"Fresh","status":"NEW","selectedArticleIds":[1]}]}""")
+
+        val result = filter.filter(
+            listOf(article(1, "Kept"), article(2, "Clustered away"), article(3, "Already covered")),
+            history, "u1", modelDef
+        )
+
+        val byArticle = result.dropped.associate { it.articleId to it.outcome }
+        assertEquals(2, byArticle.size)
+        assertEquals(CandidateOutcome.EXCLUDED_BY_GATE, byArticle[3L])
+        assertEquals(CandidateOutcome.DROPPED_AS_DUPLICATE, byArticle[2L])
+    }
+
+    @Test
+    fun `an overruled gate drops nothing of its own`() = runTest {
+        // It excluded both, so it removed neither: the overrule means those candidates were
+        // clustered, and what happened to them there is the clustering call's decision.
+        every { gate.evaluate(any(), any(), "u1") } returns
+            CoveredTopicGateResult(setOf(1L, 2L), 0.0007, answered = true)
+        capturePrompt(
+            """{"clusters":[{"topic":"Both","status":"NEW","selectedArticleIds":[1]}]}"""
+        )
+
+        val result = filter.filter(listOf(article(1, "One"), article(2, "Two")), history, "u1", modelDef)
+
+        assertEquals(listOf(CandidateOutcome.DROPPED_AS_DUPLICATE), result.dropped.map { it.outcome })
+    }
+
+    @Test
+    fun `the gate's own spend is reported apart from the clustering call`() = runTest {
+        every { gate.evaluate(any(), any(), "u1") } returns
+            CoveredTopicGateResult(setOf(2L), 0.0007, answered = true, inputTokens = 900, requests = 2)
+        capturePrompt("""{"clusters":[{"topic":"Fresh","status":"NEW","selectedArticleIds":[1]}]}""")
+
+        val result = filter.filter(listOf(article(1, "Fresh"), article(2, "Old")), history, "u1", modelDef)
+
+        assertEquals(DedupGateUsage(inputTokens = 900, requests = 2, reportedCostUsd = 0.0007), result.gate)
+        // The clustering call's own usage is untouched by the gate's.
+        assertEquals(100, result.usage.inputTokens)
     }
 
     @Test

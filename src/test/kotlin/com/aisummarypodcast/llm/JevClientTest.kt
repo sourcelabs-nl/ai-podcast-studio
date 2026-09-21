@@ -195,6 +195,8 @@ class JevClientTest {
         val answers = client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
 
         assertEquals(mapOf("a1" to 0.9), answers.noul)
+        // Both attempts are charged, so both are counted: the caller costs the gate per request.
+        assertEquals(2, answers.requests)
         mockServer.verify()
     }
 
@@ -255,7 +257,7 @@ class JevClientTest {
 
         with(record.captured) {
             assertEquals(DEDUP_GATE_STAGE, stage)
-            assertEquals(42L, episodeId)
+            assertEquals(42L, attribution.episodeId)
             // The credential's provider, not the `provider` the response names.
             assertEquals("openrouter", provider)
             assertEquals("typesafe/jev-1.13", model)
@@ -355,7 +357,7 @@ class JevClientTest {
             JevCaller(stage = DEDUP_GATE_STAGE)
         )
 
-        assertNull(record.captured.episodeId)
+        assertNull(record.captured.attribution.episodeId)
         assertEquals(DEDUP_GATE_STAGE, record.captured.stage)
     }
 }

@@ -5,6 +5,7 @@ import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeStatus
+import com.aisummarypodcast.podcast.ScoreStageSummary
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -14,6 +15,7 @@ class EpisodeCostsMapperTest {
     private fun episode(
         scoreIn: Int = 0, scoreOut: Int = 0, scoreCost: Int = 0,
         dedupIn: Int = 0, dedupOut: Int = 0, dedupCost: Int = 0,
+        gateIn: Int = 0, gateCost: Int = 0, gateCalls: Int = 0, gateReported: Double? = null,
         composeIn: Int = 0, composeOut: Int = 0, composeCost: Int = 0,
         recapIn: Int = 0, recapOut: Int = 0, recapCost: Int = 0,
         scoreReported: Double? = null, dedupReported: Double? = null,
@@ -32,6 +34,8 @@ class EpisodeCostsMapperTest {
         researchCalls = researchCalls, researchCostCents = researchCost,
         scoreInputTokens = scoreIn, scoreOutputTokens = scoreOut, scoreCostCents = scoreCost,
         dedupInputTokens = dedupIn, dedupOutputTokens = dedupOut, dedupCostCents = dedupCost,
+        dedupGateInputTokens = gateIn, dedupGateCostCents = gateCost, dedupGateCalls = gateCalls,
+        dedupGateReportedCostCents = gateReported,
         composeInputTokens = composeIn, composeOutputTokens = composeOut, composeCostCents = composeCost,
         recapInputTokens = recapIn, recapOutputTokens = recapOut, recapCostCents = recapCost,
         scoreReportedCostCents = scoreReported, dedupReportedCostCents = dedupReported,
@@ -44,15 +48,65 @@ class EpisodeCostsMapperTest {
         val resp = episode(
             scoreCost = 1, dedupCost = 2, composeCost = 10, recapCost = 1,
             ttsCost = 25, researchCost = 3
-        ).toResponse(scoreCalls = 5)
+        ).toResponse(scoreStage = ScoreStageSummary(calls = 5))
         assertEquals(42.0, resp.costs.totalCostCents)
+    }
+
+    @Test
+    fun `the gate is a row of its own beside the stage it relieves`() {
+        val resp = episode(
+            dedupIn = 5000, dedupCost = 2, dedupReported = 2.0,
+            gateIn = 900, gateCalls = 2, gateReported = 0.07
+        ).toResponse(scoreStage = ScoreStageSummary(calls = 5))
+
+        assertEquals(2.0, resp.costs.dedup.costCents)
+        assertEquals(1, resp.costs.dedup.calls)
+        assertEquals(0.07, resp.costs.dedupGate.costCents)
+        // Stored rather than derived: the gate chunks and retries, so its count does not follow
+        // from its tokens.
+        assertEquals(2, resp.costs.dedupGate.calls)
+        assertEquals(900, resp.costs.dedupGate.inputTokens)
+        assertEquals(2.07, resp.costs.totalCostCents)
+    }
+
+    @Test
+    fun `an episode that ran without a gate reports it at zero`() {
+        val resp = episode(dedupIn = 5000, dedupCost = 2, dedupReported = 2.0)
+            .toResponse(scoreStage = ScoreStageSummary(calls = 5))
+
+        assertEquals(0, resp.costs.dedupGate.calls)
+        assertEquals(0.0, resp.costs.dedupGate.costCents)
+        assertEquals(2.0, resp.costs.totalCostCents)
+    }
+
+    @Test
+    fun `the dropped candidates break the score row down without adding to the total`() {
+        val resp = episode(scoreCost = 4, scoreReported = 4.0).toResponse(
+            scoreStage = ScoreStageSummary(calls = 188, droppedCalls = 67, droppedCostCents = 1.5)
+        )
+
+        assertEquals(188, resp.costs.score.calls)
+        assertEquals(67, resp.costs.score.droppedCalls)
+        assertEquals(1.5, resp.costs.score.droppedCostCents)
+        // The dropped cost is already inside the score row; adding it would charge it twice.
+        assertEquals(4.0, resp.costs.totalCostCents)
+    }
+
+    @Test
+    fun `an episode with no recorded candidates reports nothing dropped`() {
+        val resp = episode(scoreCost = 4, scoreReported = 4.0)
+            .toResponse(scoreStage = ScoreStageSummary(calls = 12))
+
+        assertEquals(12, resp.costs.score.calls)
+        assertEquals(0, resp.costs.score.droppedCalls)
+        assertEquals(0.0, resp.costs.score.droppedCostCents)
     }
 
     @Test
     fun `score row carries article count and filter model`() {
         val resp = episode(
             scoreIn = 1000, scoreOut = 200, scoreCost = 3
-        ).toResponse(scoreCalls = 5)
+        ).toResponse(scoreStage = ScoreStageSummary(calls = 5))
         assertEquals("anthropic/claude-haiku-4.5", resp.costs.score.model)
         assertEquals(5, resp.costs.score.calls)
         assertEquals(1000, resp.costs.score.inputTokens)
@@ -109,7 +163,7 @@ class EpisodeCostsMapperTest {
         )
         val resp = episode(
             scoreIn = 4785, scoreOut = 1899, scoreCost = 0, scoreReported = 0.0076
-        ).toResponse(scoreCalls = 40, costFor = stageCostFnFromModels(models))
+        ).toResponse(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models))
         assertEquals(0.0076, resp.costs.score.costCents)
     }
 
@@ -126,7 +180,7 @@ class EpisodeCostsMapperTest {
             dedupIn = 2000, dedupOut = 400, dedupCost = 1, dedupReported = 4.62,
             composeIn = 5000, composeOut = 3000, composeCost = 10, composeReported = 9.81,
             recapIn = 1200, recapOut = 300, recapCost = 1, recapReported = 0.5
-        ).toResponse(scoreCalls = 40, costFor = stageCostFnFromModels(models))
+        ).toResponse(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models))
 
         assertEquals(0.0076, resp.costs.score.costCents)
         assertEquals(4.62, resp.costs.dedup.costCents)
@@ -166,7 +220,7 @@ class EpisodeCostsMapperTest {
         )
         val resp = episode(
             scoreIn = 4785, scoreOut = 1899, scoreCost = 0, filterModel = "deepseek/deepseek-v4-flash"
-        ).toResponse(scoreCalls = 40, costFor = stageCostFnFromModels(models))
+        ).toResponse(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models))
         assertEquals(0.0843, resp.costs.score.costCents, 0.0001)
     }
 

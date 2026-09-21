@@ -1,5 +1,6 @@
 package com.aisummarypodcast.eval
 
+import com.aisummarypodcast.llm.LlmCallAttribution
 import com.aisummarypodcast.llm.ChatClientFactory
 import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.llm.OpenRouterRouting
@@ -47,7 +48,7 @@ class ScriptJudge(
         val numbered = numberTurns(script)
         require(numbered.isNotEmpty()) { "Cannot judge a script with no speaker turns" }
 
-        val chatClient = chatClientFactory.createForModel(userId, evalModel, episodeId = episodeId)
+        val chatClient = chatClientFactory.createForModel(userId, evalModel, attribution = LlmCallAttribution(episodeId = episodeId))
         val prompt = buildPrompt(numbered)
         var attempt = 0
 

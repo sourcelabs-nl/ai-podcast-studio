@@ -2,6 +2,7 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Article
+import com.aisummarypodcast.store.CandidateOutcome
 import io.github.resilience4j.kotlin.retry.executeSuspendFunction
 import io.github.resilience4j.retry.RetryRegistry
 import kotlinx.coroutines.Dispatchers
@@ -68,18 +69,37 @@ data class FilteredArticle(
     val topic: String? = null
 )
 
+/**
+ * What the already-covered gate spent, kept apart from the clustering call's [TokenUsage] rather
+ * than folded into it.
+ *
+ * The gate runs on a different model at different rates, so adding its tokens to the clustering
+ * call's would both misreport that call's size and price the gate's tokens at the dedup model's
+ * rate wherever the provider reported nothing. [reportedCostUsd] stays null when the gate reported
+ * nothing, which must stay distinct from a zero.
+ */
+data class DedupGateUsage(
+    val inputTokens: Int = 0,
+    val requests: Int = 0,
+    val reportedCostUsd: Double? = null
+) {
+    companion object {
+        val NONE = DedupGateUsage()
+    }
+}
+
+/** A candidate this stage removed, and which of its two decisions removed it. */
+data class DroppedCandidate(val articleId: Long, val outcome: CandidateOutcome)
+
 data class DedupFilterResult(
     val filteredArticles: List<FilteredArticle>,
     val usage: TokenUsage,
+    val gate: DedupGateUsage = DedupGateUsage.NONE,
     /**
-     * What the already-covered gate charged, kept apart from [usage] rather than folded into it.
-     *
-     * The gate runs on a different model at different rates, so adding its tokens to [usage] would
-     * both misreport the clustering call's size and make [CostEstimator.resolveLlmCost] price them
-     * at the dedup model's rate on any call the provider did not report. Null means the gate did
-     * not run or reported nothing, which must stay distinct from a zero.
+     * The candidates this stage removed, with the decision that removed them. The episode was
+     * charged for scoring every one of them, so it records what became of each.
      */
-    val gateReportedCostUsd: Double? = null
+    val dropped: List<DroppedCandidate> = emptyList()
 )
 
 /** Articles resolved from the dedup clusters, plus how many repeat selections were discarded. */
@@ -121,7 +141,7 @@ class TopicDedupFilter(
         }
         val gatedCandidates = keepGateFromEmptyingTheEpisode(candidates, gate)
 
-        val chatClient = chatClientFactory.createForModel(userId, modelDef, episodeId = episodeId)
+        val chatClient = chatClientFactory.createForModel(userId, modelDef, attribution = LlmCallAttribution(episodeId = episodeId))
         val prompt = buildPrompt(gatedCandidates, history)
 
         val outputTokenBudget = dedupOutputTokenBudget(gatedCandidates.size)
@@ -176,7 +196,37 @@ class TopicDedupFilter(
             elapsed, candidates.size, describeGate(candidates, gatedCandidates, gate),
             selection.articles.size, dedupResult.clusters.size)
 
-        return DedupFilterResult(selection.articles, usage, gate.reportedCostUsd)
+        return DedupFilterResult(
+            filteredArticles = selection.articles,
+            usage = usage,
+            gate = DedupGateUsage(gate.inputTokens, gate.requests, gate.reportedCostUsd),
+            dropped = droppedCandidates(candidates, gatedCandidates, selection.articles)
+        )
+    }
+
+    /**
+     * Which candidates this stage removed, and by which of its two decisions.
+     *
+     * The gate's exclusions are read from what was actually removed rather than from what the gate
+     * asked for, because a gate that excluded everything is overruled and removes nothing (see
+     * [keepGateFromEmptyingTheEpisode]). Everything the clustering call saw and did not select is a
+     * duplicate, which includes a candidate no cluster mentioned at all.
+     */
+    private fun droppedCandidates(
+        candidates: List<Article>,
+        gatedCandidates: List<Article>,
+        selected: List<FilteredArticle>
+    ): List<DroppedCandidate> {
+        val clusteredIds = gatedCandidates.mapNotNull { it.id }.toSet()
+        val selectedIds = selected.mapNotNull { it.article.id }.toSet()
+        return candidates.mapNotNull { article ->
+            val id = article.id ?: return@mapNotNull null
+            when {
+                id !in clusteredIds -> DroppedCandidate(id, CandidateOutcome.EXCLUDED_BY_GATE)
+                id !in selectedIds -> DroppedCandidate(id, CandidateOutcome.DROPPED_AS_DUPLICATE)
+                else -> null
+            }
+        }
     }
 
     /**
