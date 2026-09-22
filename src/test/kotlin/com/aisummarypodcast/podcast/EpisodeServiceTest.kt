@@ -14,7 +14,9 @@ import com.aisummarypodcast.llm.TokenUsage
 import com.aisummarypodcast.llm.ResolvedModel
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
+import com.aisummarypodcast.store.CostStage
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.ScoreAttribution
 import com.aisummarypodcast.store.EpisodeArticle
 import com.aisummarypodcast.store.EpisodeArticleRepository
 import com.aisummarypodcast.store.EpisodeRepository
@@ -38,7 +40,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import com.aisummarypodcast.llm.EpisodeCandidate
 import com.aisummarypodcast.store.CandidateOutcome
-import com.aisummarypodcast.store.EpisodeCandidateArticle
 import org.springframework.data.repository.findByIdOrNull
 import org.junit.jupiter.api.Test
 import java.util.*
@@ -74,11 +75,14 @@ class EpisodeServiceTest {
     private val episodeCandidateArticleRepository =
         mockk<com.aisummarypodcast.store.EpisodeCandidateArticleRepository>(relaxed = true)
 
+    private val llmCallRepository = mockk<com.aisummarypodcast.store.LlmCallRepository>(relaxed = true)
+
     private val episodeService = EpisodeService(
         episodeRepository, podcastRepository, ttsPipeline,
         episodeArticleRepository, episodeCandidateArticleRepository, articleRepository, episodeRecapGenerator, modelResolver,
         postArticleRepository, episodeSourcesGenerator, articleEligibilityService, eventPublisher,
         audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true),
+        llmCallRepository,
         mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true)
     )
 
@@ -801,12 +805,12 @@ class EpisodeServiceTest {
             )
         )
 
-        val saved = slot<List<EpisodeCandidateArticle>>()
-        verify { episodeCandidateArticleRepository.saveAll(capture(saved)) }
-        assertEquals(
-            mapOf(10L to CandidateOutcome.USED, 11L to CandidateOutcome.DROPPED_AS_DUPLICATE),
-            saved.captured.associate { it.articleId to it.outcome }
-        )
+        verify(exactly = 1) {
+            episodeCandidateArticleRepository.insertIgnore(5L, 10L, CandidateOutcome.USED.name)
+        }
+        verify(exactly = 1) {
+            episodeCandidateArticleRepository.insertIgnore(5L, 11L, CandidateOutcome.DROPPED_AS_DUPLICATE.name)
+        }
         // Only the kept article becomes episode content; the dropped candidate reaches no reader
         // of the article links.
         verify(exactly = 1) { episodeArticleRepository.insertIgnore(5L, 10L, any(), any(), any()) }
@@ -861,5 +865,58 @@ class EpisodeServiceTest {
 
         assertEquals(LlmCostSource.API, saved.last().llmCostSource)
         assertEquals(0, saved.last().dedupGateCalls)
+    }
+
+    private fun stageTotals(stage: String, unresolvedCalls: Int = 0) =
+        com.aisummarypodcast.store.LlmStageTotals(
+            stage = stage, calls = 1, inputTokens = 100, outputTokens = 20,
+            costUsd = 0.01, unresolvedCalls = unresolvedCalls,
+            sources = listOf(com.aisummarypodcast.llm.LlmCostSource.API)
+        )
+
+    private fun stagesProjectedFor(
+        episodeId: Long,
+        totals: List<com.aisummarypodcast.store.LlmStageTotals>,
+        attribution: com.aisummarypodcast.store.ScoreAttribution
+    ): Set<String> {
+        every { llmCallRepository.stageTotalsForEpisode(episodeId) } returns totals
+        every { llmCallRepository.scoreAttribution(episodeId) } returns attribution
+        return episodeService.costProjection(episodeId).stages.keys
+    }
+
+    @Test
+    fun `an incomplete scoring log holds back only the score stage`() {
+        // The whole point of gating per stage: episode 226 could attribute 151 of its 178
+        // candidates, and a gate on the episode would have pushed its dedup stage back onto the
+        // column that lost the failed run.
+        val projected = stagesProjectedFor(
+            episodeId = 226L,
+            totals = listOf(stageTotals(CostStage.SCORE), stageTotals(CostStage.DEDUP)),
+            attribution = ScoreAttribution(candidates = 178, attributed = 151)
+        )
+
+        assertEquals(setOf(CostStage.DEDUP), projected)
+    }
+
+    @Test
+    fun `a complete scoring log lets the score stage project`() {
+        val projected = stagesProjectedFor(
+            episodeId = 226L,
+            totals = listOf(stageTotals(CostStage.SCORE), stageTotals(CostStage.DEDUP)),
+            attribution = ScoreAttribution(candidates = 178, attributed = 178)
+        )
+
+        assertEquals(setOf(CostStage.SCORE, CostStage.DEDUP), projected)
+    }
+
+    @Test
+    fun `a stage holding a request of unknown cost stays on its column`() {
+        val projected = stagesProjectedFor(
+            episodeId = 226L,
+            totals = listOf(stageTotals(CostStage.DEDUP, unresolvedCalls = 1), stageTotals(CostStage.COMPOSE)),
+            attribution = ScoreAttribution(candidates = 0, attributed = 0)
+        )
+
+        assertEquals(setOf(CostStage.COMPOSE), projected)
     }
 }

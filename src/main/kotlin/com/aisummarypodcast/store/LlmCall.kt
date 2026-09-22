@@ -19,6 +19,12 @@ import org.springframework.data.relational.core.mapping.Table
  * generation, such as a preview or ad-hoc source scoring, and for every row written before the
  * column existed.
  *
+ * [resolvedCostUsd] is what the request is counted as having cost, and [costSource] says where
+ * that figure came from. It is written with the row rather than derived when the stage that issued
+ * the request ends, because a request that was answered was paid for whether or not anything after
+ * it succeeded. [reportedCostUsd] stays what the provider stated; the two are in the same unit so
+ * one call's values can be compared without converting either.
+ *
  * [articleId] is the article the request was issued for, which only the scoring stage has: every
  * other stage covers a whole set. A scoring request is issued when the article arrives, before the
  * episode that uses it exists, so it names an article and no episode, and an episode gathers those
@@ -35,6 +41,8 @@ data class LlmCall(
     val inputTokens: Int,
     val outputTokens: Int,
     val reportedCostUsd: Double? = null,
+    val resolvedCostUsd: Double? = null,
+    val costSource: String? = null,
     val cacheHit: Boolean,
     val outcome: String,
     val errorType: String? = null,

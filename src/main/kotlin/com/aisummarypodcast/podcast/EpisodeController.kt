@@ -73,13 +73,15 @@ class EpisodeController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        val scoreStage = episodeService.scoreStageSummary(episodeId)
         return ResponseEntity.ok(episode.toResponse(
-            scoreStage = scoreStage,
-            costFor = stageCostFn,
-            // The gate runs on a configured model rather than one resolved per podcast, so the
-            // costs view has nowhere else to read its name from.
-            dedupGateModel = appProperties.llm.dedup.gate.model
+            EpisodeCostContext(
+                scoreStage = episodeService.scoreStageSummary(episodeId),
+                costFor = stageCostFn,
+                // The gate runs on a configured model rather than one resolved per podcast, so the
+                // costs view has nowhere else to read its name from.
+                dedupGateModel = appProperties.llm.dedup.gate.model,
+                projection = episodeService.costProjection(episodeId)
+            )
         ))
     }
 

@@ -3,8 +3,10 @@ package com.aisummarypodcast.podcast
 import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.llm.LlmCostSource
+import com.aisummarypodcast.store.CostStage
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeStatus
+import com.aisummarypodcast.store.LlmStageTotals
 import com.aisummarypodcast.podcast.ScoreStageSummary
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -48,17 +50,17 @@ class EpisodeCostsMapperTest {
         val resp = episode(
             scoreCost = 1, dedupCost = 2, composeCost = 10, recapCost = 1,
             ttsCost = 25, researchCost = 3
-        ).toResponse(scoreStage = ScoreStageSummary(calls = 5))
+        ).toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 5)))
         assertEquals(42.0, resp.costs.totalCostCents)
     }
 
     @Test
     fun `the gate names its configured model only when it issued requests`() {
         val ran = episode(gateIn = 900, gateCalls = 2, gateReported = 0.07)
-            .toResponse(dedupGateModel = "typesafe/jev-1.13")
+            .toResponse(EpisodeCostContext(dedupGateModel = "typesafe/jev-1.13"))
         assertEquals("typesafe/jev-1.13", ran.costs.dedupGate.model)
 
-        val never = episode().toResponse(dedupGateModel = "typesafe/jev-1.13")
+        val never = episode().toResponse(EpisodeCostContext(dedupGateModel = "typesafe/jev-1.13"))
         assertNull(never.costs.dedupGate.model)
     }
 
@@ -67,7 +69,7 @@ class EpisodeCostsMapperTest {
         val resp = episode(
             dedupIn = 5000, dedupCost = 2, dedupReported = 2.0,
             gateIn = 900, gateCalls = 2, gateReported = 0.07
-        ).toResponse(scoreStage = ScoreStageSummary(calls = 5))
+        ).toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 5)))
 
         assertEquals(2.0, resp.costs.dedup.costCents)
         assertEquals(1, resp.costs.dedup.calls)
@@ -82,7 +84,7 @@ class EpisodeCostsMapperTest {
     @Test
     fun `an episode that ran without a gate reports it at zero`() {
         val resp = episode(dedupIn = 5000, dedupCost = 2, dedupReported = 2.0)
-            .toResponse(scoreStage = ScoreStageSummary(calls = 5))
+            .toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 5)))
 
         assertEquals(0, resp.costs.dedupGate.calls)
         assertEquals(0.0, resp.costs.dedupGate.costCents)
@@ -92,7 +94,7 @@ class EpisodeCostsMapperTest {
     @Test
     fun `the dropped candidates break the score row down without adding to the total`() {
         val resp = episode(scoreCost = 4, scoreReported = 4.0).toResponse(
-            scoreStage = ScoreStageSummary(calls = 188, droppedCalls = 67, droppedCostCents = 1.5)
+            EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 188, droppedCalls = 67, droppedCostCents = 1.5))
         )
 
         assertEquals(188, resp.costs.score.calls)
@@ -105,7 +107,7 @@ class EpisodeCostsMapperTest {
     @Test
     fun `an episode with no recorded candidates reports nothing dropped`() {
         val resp = episode(scoreCost = 4, scoreReported = 4.0)
-            .toResponse(scoreStage = ScoreStageSummary(calls = 12))
+            .toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 12)))
 
         assertEquals(12, resp.costs.score.calls)
         assertEquals(0, resp.costs.score.droppedCalls)
@@ -116,7 +118,7 @@ class EpisodeCostsMapperTest {
     fun `score row carries article count and filter model`() {
         val resp = episode(
             scoreIn = 1000, scoreOut = 200, scoreCost = 3
-        ).toResponse(scoreStage = ScoreStageSummary(calls = 5))
+        ).toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 5)))
         assertEquals("anthropic/claude-haiku-4.5", resp.costs.score.model)
         assertEquals(5, resp.costs.score.calls)
         assertEquals(1000, resp.costs.score.inputTokens)
@@ -173,7 +175,7 @@ class EpisodeCostsMapperTest {
         )
         val resp = episode(
             scoreIn = 4785, scoreOut = 1899, scoreCost = 0, scoreReported = 0.0076
-        ).toResponse(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models))
+        ).toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models)))
         assertEquals(0.0076, resp.costs.score.costCents)
     }
 
@@ -190,7 +192,7 @@ class EpisodeCostsMapperTest {
             dedupIn = 2000, dedupOut = 400, dedupCost = 1, dedupReported = 4.62,
             composeIn = 5000, composeOut = 3000, composeCost = 10, composeReported = 9.81,
             recapIn = 1200, recapOut = 300, recapCost = 1, recapReported = 0.5
-        ).toResponse(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models))
+        ).toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models)))
 
         assertEquals(0.0076, resp.costs.score.costCents)
         assertEquals(4.62, resp.costs.dedup.costCents)
@@ -209,7 +211,7 @@ class EpisodeCostsMapperTest {
         // 5000 * 3.00 + 3000 * 15.00 per Mtok = $0.06 = 6.0 cents, not the persisted 10.
         val resp = episode(
             composeIn = 5000, composeOut = 3000, composeCost = 10, composeReported = null
-        ).toResponse(costFor = stageCostFnFromModels(models))
+        ).toResponse(EpisodeCostContext(costFor = stageCostFnFromModels(models)))
         assertEquals(6.0, resp.costs.compose.costCents, 0.0001)
     }
 
@@ -230,7 +232,7 @@ class EpisodeCostsMapperTest {
         )
         val resp = episode(
             scoreIn = 4785, scoreOut = 1899, scoreCost = 0, filterModel = "deepseek/deepseek-v4-flash"
-        ).toResponse(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models))
+        ).toResponse(EpisodeCostContext(scoreStage = ScoreStageSummary(calls = 40), costFor = stageCostFnFromModels(models)))
         assertEquals(0.0843, resp.costs.score.costCents, 0.0001)
     }
 
@@ -245,5 +247,87 @@ class EpisodeCostsMapperTest {
         val resp = episode(scoreCost = 1, dedupCost = 2, composeCost = 10, recapCost = 1).toResponse()
         assertNull(resp.costs.costSource)
         assertEquals(14.0, resp.costs.totalCostCents)
+    }
+
+    private fun projection(vararg stages: LlmStageTotals) =
+        EpisodeCostProjection(stages.associateBy { it.stage })
+
+    private fun totals(
+        stage: String,
+        calls: Int = 1,
+        costUsd: Double? = 0.01,
+        sources: List<LlmCostSource> = listOf(LlmCostSource.API)
+    ) = LlmStageTotals(
+        stage = stage, calls = calls, inputTokens = 1000, outputTokens = 200,
+        costUsd = costUsd, unresolvedCalls = 0, sources = sources
+    )
+
+    @Test
+    fun `a projected stage reports its requests rather than its column`() {
+        // The episode 226 case: the column holds one dedup call because the other one's stage
+        // failed and rolled back, while both requests were issued and both were paid for.
+        val resp = episode(dedupIn = 500, dedupOut = 100, dedupCost = 1, dedupReported = 1.0).toResponse(
+            EpisodeCostContext(projection = projection(totals(CostStage.DEDUP, calls = 2, costUsd = 0.013451)))
+        )
+
+        assertEquals(2, resp.costs.dedup.calls)
+        assertEquals(1.3451, resp.costs.dedup.costCents, 1e-9)
+    }
+
+    @Test
+    fun `a stage left out of the projection keeps its column`() {
+        val resp = episode(dedupIn = 500, dedupOut = 100, dedupCost = 1, dedupReported = 1.0).toResponse(
+            EpisodeCostContext(projection = projection(totals(CostStage.COMPOSE)))
+        )
+
+        assertEquals(1.0, resp.costs.dedup.costCents)
+    }
+
+    @Test
+    fun `a stage of many sub-cent requests does not round away`() {
+        // Summed in USD and converted once: rounding each request to cents first would report zero
+        // for a whole stage of a cheap model.
+        val resp = episode().toResponse(
+            EpisodeCostContext(projection = projection(totals(CostStage.SCORE, calls = 178, costUsd = 0.0004)))
+        )
+
+        assertEquals(0.04, resp.costs.score.costCents, 1e-9)
+    }
+
+    @Test
+    fun `the total follows the projected stages`() {
+        val resp = episode(dedupCost = 1, dedupReported = 1.0).toResponse(
+            EpisodeCostContext(projection = projection(totals(CostStage.DEDUP, costUsd = 0.02)))
+        )
+
+        assertEquals(2.0, resp.costs.totalCostCents, 1e-9)
+    }
+
+    @Test
+    fun `a stage mixing reported and estimated requests reports a mixed source`() {
+        val resp = episode(llmCostSource = LlmCostSource.API).toResponse(
+            EpisodeCostContext(
+                projection = projection(
+                    totals(CostStage.SCORE, sources = listOf(LlmCostSource.API)),
+                    totals(CostStage.DEDUP, sources = listOf(LlmCostSource.TABLE)),
+                    totals(CostStage.GATE),
+                    totals(CostStage.COMPOSE),
+                    totals(CostStage.RECAP)
+                )
+            )
+        )
+
+        assertEquals(LlmCostSource.MIXED.name, resp.costs.costSource)
+    }
+
+    @Test
+    fun `a partly projected episode's source covers its columns too`() {
+        // Its dedup stage is projected and provider-reported; everything else still rests on the
+        // stored source, so saying API would overstate what the total is known to be.
+        val resp = episode(llmCostSource = LlmCostSource.TABLE).toResponse(
+            EpisodeCostContext(projection = projection(totals(CostStage.DEDUP, sources = listOf(LlmCostSource.API))))
+        )
+
+        assertEquals(LlmCostSource.MIXED.name, resp.costs.costSource)
     }
 }

@@ -5,6 +5,17 @@ so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
 months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
 screen.
 
+## [2026-09-22] Record
+
+Added `references/generated-keys-from-a-batch.md`: the xerial SQLite driver
+returns no generated keys from an `executeBatch`, which is what made every
+Spring Data JDBC `saveAll` of new aggregates fail with "After saving the
+identifier must not be null" and left `episode_candidate_articles` empty from
+the day it shipped. Measured with two JDBC programs rather than argued from the
+specification, after an explanation of the driver's behaviour turned out to be
+worth less than one probe of it. The row-by-row alternative was timed in the
+same pass: 200 inserts in 7.5 ms, so batching buys nothing here.
+
 ## [2026-09-22] Lint
 
 Gave every entry an `answers` line and put it under each link in the four section

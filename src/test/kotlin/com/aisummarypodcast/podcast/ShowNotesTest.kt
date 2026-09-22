@@ -44,6 +44,7 @@ class ShowNotesTest {
         episodeRecapGenerator, modelResolver, postArticleRepository,
         episodeSourcesGenerator, articleEligibilityService, eventPublisher,
         audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true),
+        mockk<com.aisummarypodcast.store.LlmCallRepository>(relaxed = true),
         mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true)
     )
 

@@ -1,5 +1,7 @@
 package com.aisummarypodcast.store
 
+import com.aisummarypodcast.llm.DEDUP_GATE_STAGE
+import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.llm.TIMEOUT_ERROR_TYPE
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
@@ -23,6 +25,47 @@ private const val QUALIFIES_FOR_LATENCY =
 private const val BELONGS_TO_EPISODE =
     "(episode_id = :episodeId OR article_id IN " +
         "(SELECT article_id FROM episode_candidate_articles WHERE episode_id = :episodeId))"
+
+/**
+ * The stage names the cost breakdown uses, which are not the stage names the requests are recorded
+ * under. Scoring and recap both run on the podcast's filter model and both record themselves as
+ * `filter`, but the breakdown bills them separately, so they are told apart by what the request was
+ * issued for: a scoring request names the article it scored, a recap request names its episode.
+ */
+object CostStage {
+    const val SCORE = "score"
+    const val RECAP = "recap"
+    const val DEDUP = "dedup"
+    const val COMPOSE = "compose"
+    const val GATE = DEDUP_GATE_STAGE
+
+    /** Every stage an episode is billed for. A stage added above belongs here too. */
+    val ALL = setOf(SCORE, RECAP, DEDUP, COMPOSE, GATE)
+}
+
+/**
+ * One stage of one episode, totalled over the requests recorded for it.
+ *
+ * [calls] counts every request that belongs to the episode, including cached and failed ones, so
+ * this figure and the episode's request list cannot report different numbers.
+ *
+ * [costUsd] and [unresolvedCalls] cover the requests that succeeded. A request that failed reported
+ * no tokens and was not charged, so counting it as a cost that could not be resolved would gate a
+ * stage off its projection for having retried once.
+ *
+ * [unresolvedCalls] is what makes the projection safe to trust: a stage holding a request whose cost
+ * was never resolved (every row written before V76) understates what the stage cost, and reports its
+ * persisted column instead.
+ */
+data class LlmStageTotals(
+    val stage: String,
+    val calls: Int,
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val costUsd: Double?,
+    val unresolvedCalls: Int,
+    val sources: List<LlmCostSource>
+)
 
 /** Latency percentiles for one stage, over the rows that qualify as measured request latency. */
 data class LlmCallLatency(
@@ -70,6 +113,27 @@ interface LlmCallRepositoryCustom {
      * than configured, so there is no deploy-time constant to keep correct.
      */
     fun earliestAttributedStart(): String?
+
+    /**
+     * Per-stage totals over the requests belonging to one episode, keyed by [CostStage].
+     *
+     * The judge is left out: it runs over a finished script rather than producing one, and the
+     * episode is not billed for it.
+     */
+    fun stageTotalsForEpisode(episodeId: Long): List<LlmStageTotals>
+
+    /**
+     * How many of an episode's candidate articles have a scoring request attributed to them, and how
+     * many it recorded. The score stage may only be projected when the two are equal: scoring runs
+     * before the episode exists and reaches it only through its candidates, so a partial log
+     * understates the most expensive stage of the pipeline rather than merely failing to improve it.
+     */
+    fun scoreAttribution(episodeId: Long): ScoreAttribution
+}
+
+/** How much of an episode's scoring the request log can account for. See [LlmCallRepositoryCustom.scoreAttribution]. */
+data class ScoreAttribution(val candidates: Int, val attributed: Int) {
+    val isComplete: Boolean get() = candidates > 0 && attributed == candidates
 }
 
 /**
@@ -147,6 +211,60 @@ class LlmCallRepositoryCustomImpl(
             .query(String::class.java)
             .optional()
             .orElse(null)
+
+    override fun stageTotalsForEpisode(episodeId: Long): List<LlmStageTotals> =
+        jdbcClient.sql(
+            """
+            SELECT CASE
+                       WHEN stage = 'filter' AND article_id IS NOT NULL THEN '${CostStage.SCORE}'
+                       WHEN stage = 'filter' THEN '${CostStage.RECAP}'
+                       ELSE stage
+                   END AS cost_stage,
+                   COUNT(*) AS calls,
+                   SUM(input_tokens) AS input_tokens,
+                   SUM(output_tokens) AS output_tokens,
+                   SUM(CASE WHEN outcome = 'ok' THEN resolved_cost_usd END) AS cost_usd,
+                   SUM(CASE WHEN outcome = 'ok' AND resolved_cost_usd IS NULL THEN 1 ELSE 0 END) AS unresolved_calls,
+                   GROUP_CONCAT(DISTINCT cost_source) AS sources
+            FROM llm_calls
+            WHERE $BELONGS_TO_EPISODE AND stage <> 'eval'
+            GROUP BY cost_stage
+            """.trimIndent()
+        )
+            .param("episodeId", episodeId)
+            .query { rs, _ ->
+                LlmStageTotals(
+                    stage = rs.getString("cost_stage"),
+                    calls = rs.getInt("calls"),
+                    inputTokens = rs.getInt("input_tokens"),
+                    outputTokens = rs.getInt("output_tokens"),
+                    costUsd = rs.getDouble("cost_usd").takeUnless { rs.wasNull() },
+                    unresolvedCalls = rs.getInt("unresolved_calls"),
+                    sources = rs.getString("sources").orEmpty()
+                        .split(",")
+                        .filter { it.isNotBlank() }
+                        .mapNotNull { name -> LlmCostSource.entries.firstOrNull { it.name == name } }
+                )
+            }
+            .list()
+
+    override fun scoreAttribution(episodeId: Long): ScoreAttribution =
+        jdbcClient.sql(
+            """
+            SELECT COUNT(*) AS candidates,
+                   SUM(
+                       CASE WHEN EXISTS (
+                           SELECT 1 FROM llm_calls c
+                           WHERE c.article_id = e.article_id AND c.stage = 'filter'
+                       ) THEN 1 ELSE 0 END
+                   ) AS attributed
+            FROM episode_candidate_articles e
+            WHERE e.episode_id = :episodeId
+            """.trimIndent()
+        )
+            .param("episodeId", episodeId)
+            .query { rs, _ -> ScoreAttribution(rs.getInt("candidates"), rs.getInt("attributed")) }
+            .single()
 
     /**
      * Nearest-rank: the smallest duration at or below which [percentile] percent of the samples fall.

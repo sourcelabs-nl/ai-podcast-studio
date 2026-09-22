@@ -61,6 +61,25 @@ class EpisodeCandidateArticleTest {
     }
 
     @Test
+    fun `a whole run's candidates are written`() {
+        // The path the pipeline actually takes. Writing these through `saveAll` inserted the rows
+        // but failed on the generated keys the SQLite driver returns none of from a batch, so every
+        // episode with candidates failed; a single `save` per row never showed it.
+        repeat(200) { repository.insertIgnore(1L, it.toLong(), CandidateOutcome.USED.name) }
+
+        assertEquals(200, repository.findByEpisodeId(1L).size)
+    }
+
+    @Test
+    fun `recording a candidate twice for one episode is not an error`() {
+        repository.insertIgnore(1L, 10L, CandidateOutcome.USED.name)
+        repository.insertIgnore(1L, 10L, CandidateOutcome.DROPPED_AS_DUPLICATE.name)
+
+        val recorded = repository.findByEpisodeId(1L).single()
+        assertEquals(CandidateOutcome.USED, recorded.outcome)
+    }
+
+    @Test
     fun `an episode's requests include the scoring calls of its dropped candidates`() {
         candidate(1L, 10L, CandidateOutcome.USED)
         candidate(1L, 11L, CandidateOutcome.DROPPED_AS_DUPLICATE)

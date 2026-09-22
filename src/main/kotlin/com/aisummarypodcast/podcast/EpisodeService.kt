@@ -15,11 +15,12 @@ import com.aisummarypodcast.llm.PipelineResult
 import com.aisummarypodcast.llm.PipelineStage
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
+import com.aisummarypodcast.store.CostStage
+import com.aisummarypodcast.store.LlmCallRepository
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeArticle
 import com.aisummarypodcast.store.EpisodeArticleRepository
 import com.aisummarypodcast.store.CandidateOutcome
-import com.aisummarypodcast.store.EpisodeCandidateArticle
 import com.aisummarypodcast.store.EpisodeCandidateArticleRepository
 import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeStatus
@@ -54,6 +55,7 @@ class EpisodeService(
     private val eventPublisher: ApplicationEventPublisher,
     private val audioGenerationService: AudioGenerationService,
     private val evaluationRunRecorder: EvaluationRunRecorder,
+    private val llmCallRepository: LlmCallRepository,
     private val appProperties: AppProperties
 ) {
 
@@ -353,9 +355,13 @@ class EpisodeService(
     private fun saveCandidates(episodeId: Long, candidates: List<EpisodeCandidate>) {
         if (candidates.isEmpty()) return
         episodeCandidateArticleRepository.deleteByEpisodeId(episodeId)
-        episodeCandidateArticleRepository.saveAll(
-            candidates.map { EpisodeCandidateArticle(episodeId = episodeId, articleId = it.articleId, outcome = it.outcome) }
-        )
+        for (candidate in candidates) {
+            episodeCandidateArticleRepository.insertIgnore(
+                episodeId = episodeId,
+                articleId = candidate.articleId,
+                outcome = candidate.outcome.name
+            )
+        }
     }
 
     @Transactional
@@ -713,6 +719,26 @@ class EpisodeService(
             droppedCalls = dropped.size,
             droppedCostCents = cost.costCents ?: 0.0
         )
+    }
+
+    /**
+     * The stages of this episode whose cost may be read from the requests it recorded rather than
+     * from its persisted columns.
+     *
+     * The gate is per stage rather than per episode, because the two kinds of stage lose
+     * attributability for unrelated reasons. Dedup, its gate, compose and recap name their episode
+     * on the request, so they are accountable as soon as any request of theirs carries a resolved
+     * cost. Scoring names only the article, and reaches the episode through its candidates, so it is
+     * accountable only when every candidate has a scoring request behind it. Gating the whole
+     * episode on the weaker of the two would hold a fully recorded dedup stage hostage to a scoring
+     * log that cannot be completed.
+     */
+    fun costProjection(episodeId: Long): EpisodeCostProjection {
+        val scoreIsComplete = llmCallRepository.scoreAttribution(episodeId).isComplete
+        val projectable = llmCallRepository.stageTotalsForEpisode(episodeId)
+            .filter { it.unresolvedCalls == 0 }
+            .filter { it.stage != CostStage.SCORE || scoreIsComplete }
+        return EpisodeCostProjection(projectable.associateBy { it.stage })
     }
 
     fun findByPodcastId(podcastId: String, status: EpisodeStatus? = null): List<Episode> {

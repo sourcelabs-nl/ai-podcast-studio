@@ -3,6 +3,7 @@ package com.aisummarypodcast.podcast
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeMatchDetails
+import com.aisummarypodcast.store.LlmStageTotals
 import com.aisummarypodcast.store.Post
 import com.aisummarypodcast.store.Source
 
@@ -57,6 +58,49 @@ data class ScoreStageSummary(
     val calls: Int,
     val droppedCalls: Int = 0,
     val droppedCostCents: Double = 0.0
+)
+
+/**
+ * The stages of one episode that may be reported from the requests it recorded, keyed by
+ * [com.aisummarypodcast.store.CostStage].
+ *
+ * A stage is here only when the log accounts for the whole of it. A stage that is absent reports its
+ * persisted column, which is the answer for every episode generated before requests named an episode
+ * and for a scoring log that cannot be completed. Empty is therefore the normal state of an old
+ * episode, not a failure.
+ */
+data class EpisodeCostProjection(val stages: Map<String, LlmStageTotals> = emptyMap()) {
+    companion object {
+        val NONE = EpisodeCostProjection()
+    }
+}
+
+/**
+ * Everything the cost breakdown needs beyond the episode row itself.
+ *
+ * Carried as one object rather than as four parameters: they are all answers to "where do this
+ * episode's figures come from", and they grew one at a time through a signature every caller has to
+ * restate.
+ */
+data class EpisodeCostContext(
+    val scoreStage: ScoreStageSummary = ScoreStageSummary(calls = 0),
+    val costFor: StageCostFn = noopStageCostFn,
+    val dedupGateModel: String? = null,
+    /** The stages this episode may report from its recorded requests. Empty means: use the columns. */
+    val projection: EpisodeCostProjection = EpisodeCostProjection.NONE
+)
+
+/**
+ * One stage row's figures, whichever source they came from.
+ *
+ * A projected stage counts its requests, so a stage that ran twice across a failed attempt and a
+ * retry reports both, and a run that paid and then rolled back is no longer lost.
+ */
+internal data class StageFigures(
+    val calls: Int,
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val costCents: Double
 )
 
 data class LinkedArticlesResult(

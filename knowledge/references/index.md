@@ -30,3 +30,5 @@ to inference.
   Read when deciding where Jev can carry a call in this pipeline and where it cannot.
 - [Jev as a script judge, measured against this project's own judge](jev-as-a-judge.md)  
   Read when considering Jev in place of, or alongside, ScriptJudge.
+- [The SQLite driver returns no generated keys from a batch](generated-keys-from-a-batch.md)  
+  Read when a save of several new rows fails with "After saving the identifier must not be null".
