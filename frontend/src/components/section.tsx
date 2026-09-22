@@ -2,27 +2,24 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * The frame a section's content sits in.
+ * The card a block of content sits in, with its heading inside it.
  *
- * Shared across the episode tabs so the panels cannot drift apart when one of them changes. Empty
- * and failure states deliberately stay outside it: a box drawn around a single line of italic text
- * reads as a broken panel rather than as a panel.
+ * Shared across the tabs so the panels cannot drift apart when one of them changes. A tab that is
+ * one block of content passes no [title]: the tab trigger already names it, and a heading repeating
+ * it is noise.
  */
-export function Panel({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn("rounded-lg border border-border p-4", className)}>{children}</div>;
-}
-
-/**
- * A titled block within a tab: the heading sits above the panel rather than inside it, so a tab
- * reads as a column of labelled sections rather than as boxes with captions.
- *
- * The content decides whether to sit in a [Panel], because a section that has nothing to show says
- * so in plain text instead.
- */
-export function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Panel({
+  title,
+  className,
+  children,
+}: {
+  title?: string;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-semibold">{title}</h3>
+    <div className={cn("rounded-lg border border-border p-4", className)}>
+      {title && <h3 className="mb-3 text-sm font-semibold">{title}</h3>}
       {children}
     </div>
   );

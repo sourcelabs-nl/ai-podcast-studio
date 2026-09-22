@@ -23,7 +23,9 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("[&_tr]:border-b", className)}
+      // Every table in the app sets its header off from its body, so the tint lives here rather
+      // than on each call site, where it had started to be forgotten.
+      className={cn("bg-muted/50 [&_tr]:border-b", className)}
       {...props}
     />
   )

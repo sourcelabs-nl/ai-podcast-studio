@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Panel, Section } from "@/components/section";
+import { Panel } from "@/components/section";
+import { cn } from "@/lib/utils";
 import type {
   BackchannelCandidate,
   EpisodeMetricsResponse,
@@ -32,6 +33,28 @@ interface EvaluationTabProps {
 }
 
 const EMPTY_ANCHORS: ScriptJudgeAnchors = { promises: [], humorBeats: [], teaserTopics: [] };
+
+/**
+ * A score's colour band. Nothing in the bundle yet defends a pass/fail threshold, so the bands say
+ * only how high the number is on its own [0, 1] scale, never whether the episode passed.
+ */
+function scoreBand(value: number): { bar: string; text: string } {
+  if (value < 1 / 3) return { bar: "bg-red-500", text: "text-red-600 dark:text-red-400" };
+  if (value < 2 / 3) return { bar: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" };
+  return { bar: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" };
+}
+
+/** A score rendered as a filled track, so a row's height is readable before its digits are. */
+function ScoreBar({ value, className }: { value: number; className?: string }) {
+  return (
+    <div className={cn("h-2 w-full overflow-hidden rounded-full bg-muted", className)}>
+      <div
+        className={cn("h-full rounded-full", scoreBand(value).bar)}
+        style={{ width: `${Math.round(Math.min(Math.max(value, 0), 1) * 100)}%` }}
+      />
+    </div>
+  );
+}
 
 function formatScore(value: number): string {
   return value.toFixed(2);
@@ -119,6 +142,10 @@ function TurnLink({
   );
 }
 
+/**
+ * One judgement, without a frame of its own: the caller decides whether it is the card's whole
+ * content or one of several stacked inside it.
+ */
 function ScoreCard({
   score,
   turnCount,
@@ -131,15 +158,20 @@ function ScoreCard({
   const anchors = parseAnchors(score.anchorsJson);
 
   return (
-    <Panel className="space-y-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold tabular-nums">{formatScore(score.overall)}</span>
-          <span className="text-sm text-muted-foreground">overall</span>
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span className={cn("text-4xl font-bold tabular-nums", scoreBand(score.overall).text)}>
+              {formatScore(score.overall)}
+            </span>
+            <span className="text-sm text-muted-foreground">overall</span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {score.judgeModel} &middot; scorer v{score.scorerVersion} &middot; {formatTimestamp(score.scoredAt)}
+          </span>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {score.judgeModel} &middot; scorer v{score.scorerVersion} &middot; {formatTimestamp(score.scoredAt)}
-        </span>
+        <ScoreBar value={score.overall} className="h-3" />
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -149,17 +181,24 @@ function ScoreCard({
       </p>
 
       <Table>
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
-            <TableHead>Component</TableHead>
-            <TableHead className="text-right">Score</TableHead>
+            <TableHead className="w-32">Component</TableHead>
+            <TableHead className="w-40">Score</TableHead>
             <TableHead>Counts</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow>
             <TableCell className="font-medium">Cliffhangers</TableCell>
-            <TableCell className="text-right tabular-nums">{formatScore(score.cliffhangerScore)}</TableCell>
+            <TableCell>
+              <div className="flex items-center gap-2">
+                <ScoreBar value={score.cliffhangerScore} />
+                <span className={cn("tabular-nums font-medium", scoreBand(score.cliffhangerScore).text)}>
+                  {formatScore(score.cliffhangerScore)}
+                </span>
+              </div>
+            </TableCell>
             <TableCell className="text-xs text-muted-foreground">
               {score.promises} promises, {score.deferredPromises} deferred, {score.unpaidPromises} unpaid
               {score.medianDeferralTurns !== null && `, median deferral ${score.medianDeferralTurns} turns`}
@@ -167,7 +206,14 @@ function ScoreCard({
           </TableRow>
           <TableRow>
             <TableCell className="font-medium">Humor</TableCell>
-            <TableCell className="text-right tabular-nums">{formatScore(score.humorScore)}</TableCell>
+            <TableCell>
+              <div className="flex items-center gap-2">
+                <ScoreBar value={score.humorScore} />
+                <span className={cn("tabular-nums font-medium", scoreBand(score.humorScore).text)}>
+                  {formatScore(score.humorScore)}
+                </span>
+              </div>
+            </TableCell>
             <TableCell className="text-xs text-muted-foreground">
               {score.humorBeats} beats, speaker balance {formatScore(score.humorSpeakerBalance)} (0.5 is even),
               reaction ratio {formatScore(score.humorReactionRatio)}
@@ -175,7 +221,14 @@ function ScoreCard({
           </TableRow>
           <TableRow>
             <TableCell className="font-medium">Teasers</TableCell>
-            <TableCell className="text-right tabular-nums">{formatScore(score.teaserScore)}</TableCell>
+            <TableCell>
+              <div className="flex items-center gap-2">
+                <ScoreBar value={score.teaserScore} />
+                <span className={cn("tabular-nums font-medium", scoreBand(score.teaserScore).text)}>
+                  {formatScore(score.teaserScore)}
+                </span>
+              </div>
+            </TableCell>
             <TableCell className="text-xs text-muted-foreground">
               {score.teaserTopics} distinct topics
             </TableCell>
@@ -184,7 +237,7 @@ function ScoreCard({
       </Table>
 
       <AnchorTables anchors={anchors} turnCount={turnCount} onJumpToTurn={onJumpToTurn} />
-    </Panel>
+    </div>
   );
 }
 
@@ -257,12 +310,12 @@ function ShapeSection({ metrics }: { metrics: ScriptMetrics }) {
   const laughTags = Object.entries(metrics.laughTagsByRole);
 
   return (
-    <Panel className="space-y-2">
+    <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
         {metrics.turnCount} turns, {metrics.totalWords.toLocaleString()} words
       </p>
       <Table>
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             <TableHead>Role</TableHead>
             <TableHead className="text-right">Turns</TableHead>
@@ -298,7 +351,7 @@ function ShapeSection({ metrics }: { metrics: ScriptMetrics }) {
         . A laugh tag is a proxy for humor distribution, never a humor count: a joke carrying no tag
         is invisible here.
       </p>
-    </Panel>
+    </div>
   );
 }
 
@@ -314,7 +367,7 @@ function OutliersSection({
   const { backchannelCandidates, sameSpeakerRuns } = metrics;
 
   return (
-    <Panel className="space-y-3">
+    <div className="space-y-3">
       <div>
         <h4 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
           Backchannel candidates
@@ -324,7 +377,7 @@ function OutliersSection({
         ) : (
           <>
             <Table>
-              <TableHeader className="bg-muted/50">
+              <TableHeader>
                 <TableRow>
                   <TableHead className="w-16">Turn</TableHead>
                   <TableHead>Role</TableHead>
@@ -379,15 +432,14 @@ function OutliersSection({
           </div>
         )}
       </div>
-    </Panel>
+    </div>
   );
 }
 
 function RunsSection({ runs }: { runs: EvaluationRun[] }) {
   return (
-    <Panel>
-      <Table>
-        <TableHeader className="bg-muted/50">
+    <Table>
+        <TableHeader>
           <TableRow>
             <TableHead>Ran at</TableHead>
             <TableHead>Prompt</TableHead>
@@ -413,9 +465,8 @@ function RunsSection({ runs }: { runs: EvaluationRun[] }) {
               <TableCell className="text-xs text-muted-foreground">{run.toolsFiredJson}</TableCell>
             </TableRow>
           ))}
-        </TableBody>
-      </Table>
-    </Panel>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -475,7 +526,7 @@ export function EvaluationTab({
 
   return (
     <div className="space-y-6">
-      <Section title="Attention score">
+      <Panel title="Attention score">
         {failed.scores ? (
           <LoadFailed what="the attention score" />
         ) : newestScore === undefined ? (
@@ -494,21 +545,22 @@ export function EvaluationTab({
                 </summary>
                 <div className="mt-2 space-y-3">
                   {olderScores.map((score) => (
-                    <ScoreCard
-                      key={score.id}
-                      score={score}
-                      turnCount={turnCount}
-                      onJumpToTurn={onJumpToTurn}
-                    />
+                    <Panel key={score.id}>
+                      <ScoreCard
+                        score={score}
+                        turnCount={turnCount}
+                        onJumpToTurn={onJumpToTurn}
+                      />
+                    </Panel>
                   ))}
                 </div>
               </details>
             )}
           </div>
         )}
-      </Section>
+      </Panel>
 
-      <Section title="Script shape">
+      <Panel title="Script shape">
         {failed.metrics ? (
           <LoadFailed what="the script metrics" />
         ) : metrics === null ? (
@@ -516,9 +568,9 @@ export function EvaluationTab({
         ) : (
           <ShapeSection metrics={metrics} />
         )}
-      </Section>
+      </Panel>
 
-      <Section title="Outliers">
+      <Panel title="Outliers">
         {failed.metrics ? (
           <LoadFailed what="the script metrics" />
         ) : metrics === null ? (
@@ -526,9 +578,9 @@ export function EvaluationTab({
         ) : (
           <OutliersSection metrics={metrics} turnCount={turnCount} onJumpToTurn={onJumpToTurn} />
         )}
-      </Section>
+      </Panel>
 
-      <Section title="Run conditions">
+      <Panel title="Run conditions">
         {failed.runs ? (
           <LoadFailed what="the run conditions" />
         ) : runs.length === 0 ? (
@@ -539,7 +591,7 @@ export function EvaluationTab({
         ) : (
           <RunsSection runs={runs} />
         )}
-      </Section>
+      </Panel>
     </div>
   );
 }

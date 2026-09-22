@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Source } from "@/lib/types";
 import { Check, ChevronDown, Download, Pencil, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Panel } from "@/components/section";
 import {
   Table,
   TableBody,
@@ -53,6 +55,11 @@ const SOURCE_TYPES = ["rss", "website", "twitter", "youtube"] as const;
 interface SourcesTabProps {
   userId: string;
   podcastId: string;
+  /**
+   * Where the tab's action buttons render. The podcast page puts them on the row that holds the
+   * tab triggers, so they are passed a node there rather than drawn above the table.
+   */
+  actionsSlot: HTMLElement | null;
 }
 
 interface SourceFormData {
@@ -71,7 +78,7 @@ const defaultFormData: SourceFormData = {
   enabled: true,
 };
 
-export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
+export function SourcesTab({ userId, podcastId, actionsSlot }: SourcesTabProps) {
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -186,22 +193,27 @@ export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
     return <p className="text-muted-foreground">Loading sources...</p>;
   }
 
+  const actions = (
+    <>
+      <Button size="icon-lg" title="Download sources as markdown" onClick={downloadSourcesMarkdown}>
+        <Download className="size-4" />
+      </Button>
+      <Button size="icon-lg" title="Add source" onClick={openAddDialog}>
+        <Plus className="size-4" />
+      </Button>
+    </>
+  );
+
   return (
     <>
-      <div className="flex justify-end gap-2 mb-4">
-        <Button size="icon-lg" title="Download sources as markdown" onClick={downloadSourcesMarkdown}>
-          <Download className="size-4" />
-        </Button>
-        <Button size="icon-lg" title="Add source" onClick={openAddDialog}>
-          <Plus className="size-4" />
-        </Button>
-      </div>
+      {actionsSlot && createPortal(actions, actionsSlot)}
 
       {sources.length === 0 ? (
         <p className="text-muted-foreground">
           {enabledFilter === "all" ? "No sources configured." : `No ${enabledFilter} sources.`}
         </p>
       ) : (
+        <Panel>
         <Table>
           <TableHeader>
             <TableRow>
@@ -322,6 +334,7 @@ export function SourcesTab({ userId, podcastId }: SourcesTabProps) {
             ))}
           </TableBody>
         </Table>
+        </Panel>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) setDialogOpen(false); }}>

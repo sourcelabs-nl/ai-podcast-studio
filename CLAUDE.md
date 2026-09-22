@@ -27,7 +27,7 @@ After fixing code review violations, always re-run the code reviewer (`/code-rev
 
 Controllers validate input, delegate to services, and map responses: no business logic. Never duplicate logic that already exists in a service.
 
-The rules that apply to one kind of file live in `.claude/rules/`, keyed to the paths they govern, and load when such a file is touched: controllers, entities, repositories, schedulers, migrations, tests, `application.yaml`, main Kotlin sources (concurrency, transactions, parameter objects, Jackson) and `knowledge/` entries. For the full set of review rules see the `code-review` skill or run `/code-review`.
+The rules that apply to one kind of file live in `.claude/rules/`, keyed to the paths they govern, and load when such a file is touched: controllers, entities, repositories, schedulers, migrations, tests, `application.yaml`, main Kotlin sources (concurrency, transactions, parameter objects, Jackson), dashboard layout and `knowledge/` entries. For the full set of review rules see the `code-review` skill or run `/code-review`.
 
 **Post-implementation check:** After every code change, validate that the architecture guidelines are respected, especially controller hygiene (no business logic, no direct repository access) and proper service layer delegation. Fix violations before considering the change complete.
 

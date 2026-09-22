@@ -1,6 +1,6 @@
 "use client";
 
-import { Panel, Section } from "@/components/section";
+import { Panel } from "@/components/section";
 import type { EpisodeCosts } from "@/lib/types";
 import {
   Table,
@@ -22,6 +22,22 @@ function formatCents(cents: number): string {
 function formatInt(n: number): string {
   if (n === 0) return "—";
   return n.toLocaleString();
+}
+
+/**
+ * One stage as the table renders it. [input] and [output] are formatted here rather than in the
+ * cell, because the columns hold whatever a stage is billed for: tokens for an LLM stage,
+ * characters for TTS, and nothing at all for a stage billed per call.
+ */
+interface StageRow {
+  key: string;
+  label: string;
+  note?: string | null;
+  model: string | null;
+  calls: number;
+  input: string;
+  output: string;
+  costCents: number;
 }
 
 export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
@@ -48,11 +64,82 @@ export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
   // is what an episode generated before its candidates were recorded reports.
   const droppedCalls = costs.score.droppedCalls ?? 0;
 
+  // Sorted by spend, dearest first: the row worth looking at is the one the episode paid most for,
+  // and the pipeline's own order says nothing a reader of this table needs.
+  const rows: StageRow[] = [
+    {
+      key: "score",
+      label: "Scoring",
+      note: droppedCalls > 0
+        ? `${droppedCalls.toLocaleString()} dropped, ${formatCents(costs.score.droppedCostCents ?? 0)}`
+        : null,
+      model: costs.score.model,
+      calls: costs.score.calls,
+      input: formatInt(costs.score.inputTokens),
+      output: formatInt(costs.score.outputTokens),
+      costCents: costs.score.costCents,
+    },
+    {
+      key: "dedup",
+      label: "Dedup",
+      model: costs.dedup.model,
+      calls: costs.dedup.calls,
+      input: formatInt(costs.dedup.inputTokens),
+      output: formatInt(costs.dedup.outputTokens),
+      costCents: costs.dedup.costCents,
+    },
+    {
+      key: "dedup-gate",
+      label: "Dedup Gate",
+      model: costs.dedupGate?.model ?? null,
+      calls: costs.dedupGate?.calls ?? 0,
+      input: formatInt(costs.dedupGate?.inputTokens ?? 0),
+      output: formatInt(costs.dedupGate?.outputTokens ?? 0),
+      costCents: costs.dedupGate?.costCents ?? 0,
+    },
+    {
+      key: "compose",
+      label: "Compose",
+      model: costs.compose.model,
+      calls: costs.compose.calls,
+      input: formatInt(costs.compose.inputTokens),
+      output: formatInt(costs.compose.outputTokens),
+      costCents: costs.compose.costCents,
+    },
+    {
+      key: "recap",
+      label: "Recap",
+      model: costs.recap.model,
+      calls: costs.recap.calls,
+      input: formatInt(costs.recap.inputTokens),
+      output: formatInt(costs.recap.outputTokens),
+      costCents: costs.recap.costCents,
+    },
+    {
+      key: "tts",
+      label: "TTS",
+      model: costs.tts.model,
+      calls: costs.tts.calls,
+      // TTS is billed per character, which is what it sends: the input column carries it.
+      input: `${formatInt(costs.tts.characters)} chars`,
+      output: "—",
+      costCents: costs.tts.costCents,
+    },
+    {
+      key: "research",
+      label: "Research",
+      model: "Tavily",
+      calls: costs.research.calls,
+      input: "—",
+      output: "—",
+      costCents: costs.research.costCents,
+    },
+  ].sort((a, b) => b.costCents - a.costCents);
+
   return (
-    <Section title="Cost per stage">
-      <Panel className="space-y-3">
+    <Panel className="space-y-3">
         <Table>
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             <TableRow>
               <TableHead>Stage</TableHead>
               <TableHead>Model</TableHead>
@@ -63,84 +150,21 @@ export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow>
-              <TableCell className="font-medium">
-                Scoring
-                {droppedCalls > 0 && (
-                  <span className="block text-xs font-normal text-muted-foreground">
-                    {droppedCalls.toLocaleString()} dropped, {formatCents(costs.score.droppedCostCents ?? 0)}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {costs.score.model ?? "—"}
-              </TableCell>
-              <TableCell className="text-right">{formatInt(costs.score.calls)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.score.inputTokens)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.score.outputTokens)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatCents(costs.score.costCents)}</TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell className="font-medium">Dedup</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {costs.dedup.model ?? "—"}
-              </TableCell>
-              <TableCell className="text-right">{formatInt(costs.dedup.calls)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.dedup.inputTokens)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.dedup.outputTokens)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatCents(costs.dedup.costCents)}</TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell className="font-medium">Dedup Gate</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {costs.dedupGate?.model ?? "—"}
-              </TableCell>
-              <TableCell className="text-right">{formatInt(costs.dedupGate?.calls ?? 0)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.dedupGate?.inputTokens ?? 0)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.dedupGate?.outputTokens ?? 0)}</TableCell>
-              <TableCell className="text-right tabular-nums">
-                {formatCents(costs.dedupGate?.costCents ?? 0)}
-              </TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell className="font-medium">Compose</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {costs.compose.model ?? "—"}
-              </TableCell>
-              <TableCell className="text-right">{formatInt(costs.compose.calls)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.compose.inputTokens)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.compose.outputTokens)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatCents(costs.compose.costCents)}</TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell className="font-medium">Recap</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {costs.recap.model ?? "—"}
-              </TableCell>
-              <TableCell className="text-right">{formatInt(costs.recap.calls)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.recap.inputTokens)}</TableCell>
-              <TableCell className="text-right">{formatInt(costs.recap.outputTokens)}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatCents(costs.recap.costCents)}</TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell className="font-medium">TTS</TableCell>
-              <TableCell className="text-xs text-muted-foreground">
-                {costs.tts.model ?? "—"}
-              </TableCell>
-              <TableCell className="text-right">{formatInt(costs.tts.calls)}</TableCell>
-              <TableCell className="text-right" colSpan={2}>
-                {formatInt(costs.tts.characters)} chars
-              </TableCell>
-              <TableCell className="text-right tabular-nums">{formatCents(costs.tts.costCents)}</TableCell>
-            </TableRow>
-            <TableRow>
-              <TableCell className="font-medium">Research</TableCell>
-              <TableCell className="text-xs text-muted-foreground">Tavily</TableCell>
-              <TableCell className="text-right">{formatInt(costs.research.calls)}</TableCell>
-              <TableCell className="text-right">—</TableCell>
-              <TableCell className="text-right">—</TableCell>
-              <TableCell className="text-right tabular-nums">{formatCents(costs.research.costCents)}</TableCell>
-            </TableRow>
+            {rows.map((row) => (
+              <TableRow key={row.key}>
+                <TableCell className="font-medium">
+                  {row.label}
+                  {row.note && (
+                    <span className="block text-xs font-normal text-muted-foreground">{row.note}</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{row.model ?? "—"}</TableCell>
+                <TableCell className="text-right">{formatInt(row.calls)}</TableCell>
+                <TableCell className="text-right">{row.input}</TableCell>
+                <TableCell className="text-right">{row.output}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCents(row.costCents)}</TableCell>
+              </TableRow>
+            ))}
           </TableBody>
           <TableFooter>
             <TableRow>
@@ -158,7 +182,6 @@ export function CostsTab({ costs }: { costs: EpisodeCosts | undefined }) {
             research costs are accurate for legacy episodes.
           </p>
         )}
-      </Panel>
-    </Section>
+    </Panel>
   );
 }

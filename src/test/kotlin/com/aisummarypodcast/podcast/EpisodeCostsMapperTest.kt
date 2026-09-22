@@ -53,6 +53,16 @@ class EpisodeCostsMapperTest {
     }
 
     @Test
+    fun `the gate names its configured model only when it issued requests`() {
+        val ran = episode(gateIn = 900, gateCalls = 2, gateReported = 0.07)
+            .toResponse(dedupGateModel = "typesafe/jev-1.13")
+        assertEquals("typesafe/jev-1.13", ran.costs.dedupGate.model)
+
+        val never = episode().toResponse(dedupGateModel = "typesafe/jev-1.13")
+        assertNull(never.costs.dedupGate.model)
+    }
+
+    @Test
     fun `the gate is a row of its own beside the stage it relieves`() {
         val resp = episode(
             dedupIn = 5000, dedupCost = 2, dedupReported = 2.0,

@@ -24,7 +24,7 @@ import { ScriptContent, countScriptTurns } from "@/components/script-viewer";
 import { ArticlesTab } from "@/components/articles-tab";
 import { CostsTab } from "@/components/costs-tab";
 import { LatencyTab } from "@/components/latency-tab";
-import { Panel, Section } from "@/components/section";
+import { Panel } from "@/components/section";
 import { EvaluationTab } from "@/components/evaluation-tab";
 import { PublicationsTab } from "@/components/publications-tab";
 import { PublishWizard } from "@/components/publish-wizard";
@@ -32,6 +32,19 @@ import { useTabParam } from "@/hooks/use-tab-param";
 
 const WORDS_PER_MINUTE = 150;
 const TABS = ["script", "articles", "publications", "costs", "latency", "evaluation"] as const;
+
+/**
+ * The published sources page for this episode, or null when it has none.
+ *
+ * The publisher writes `<slug>-sources.html` next to `<slug>.mp3` in the same directory, so the
+ * audio URL of a successful publish is the one place the episode's public base path is known here.
+ */
+function publishedSourcesUrl(publications: EpisodePublication[]): string | null {
+  const audioUrl = publications.find(
+    (p) => p.status === "PUBLISHED" && p.externalUrl?.endsWith(".mp3")
+  )?.externalUrl;
+  return audioUrl ? audioUrl.replace(/\.mp3$/, "-sources.html") : null;
+}
 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   GENERATED: "outline",
@@ -59,6 +72,8 @@ export default function EpisodeDetailPage() {
   const [loading, setLoading] = useState(true);
   const [articleCount, setArticleCount] = useState<number | null>(null);
   const [published, setPublished] = useState(false);
+  /** The published sources page, absent until the episode has been published somewhere with one. */
+  const [sourcesUrl, setSourcesUrl] = useState<string | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -71,8 +86,14 @@ export default function EpisodeDetailPage() {
   const fetchPublished = useCallback((userId: string, podcastId: string, episodeId: string) => {
     fetch(`/api/users/${userId}/podcasts/${podcastId}/episodes/${episodeId}/publications`)
       .then((res) => (res.ok ? res.json() : []))
-      .then((pubs: EpisodePublication[]) => setPublished(pubs.some((p) => p.status === "PUBLISHED")))
-      .catch(() => setPublished(false));
+      .then((pubs: EpisodePublication[]) => {
+        setPublished(pubs.some((p) => p.status === "PUBLISHED"));
+        setSourcesUrl(publishedSourcesUrl(pubs));
+      })
+      .catch(() => {
+        setPublished(false);
+        setSourcesUrl(null);
+      });
   }, []);
 
   const fetchEpisode = useCallback(() => {
@@ -231,6 +252,19 @@ export default function EpisodeDetailPage() {
             )}
             {episode.recap && !episode.showNotes && (
               <> &middot; {episode.recap}</>
+            )}
+            {sourcesUrl && (
+              <>
+                {" "}&middot;{" "}
+                <a
+                  href={sourcesUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline underline-offset-2 hover:no-underline"
+                >
+                  sources
+                </a>
+              </>
             )}
           </p>
           {episode.status === "FAILED" && (
@@ -414,7 +448,10 @@ export default function EpisodeDetailPage() {
         const summary = sourcesIdx >= 0 ? episode.showNotes.slice(0, sourcesIdx) : episode.showNotes;
         const sources = sourcesIdx >= 0 ? episode.showNotes.slice(sourcesIdx + 2) : null;
         return (
-          <div className="mb-6 text-sm text-muted-foreground bg-muted rounded-md p-4 overflow-hidden" style={{ wordBreak: "break-word" }}>
+          <div
+            className="mb-6 overflow-hidden rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground"
+            style={{ wordBreak: "break-word" }}
+          >
             <p>{summary}</p>
             {sources && (
               <details className="mt-3">
@@ -446,8 +483,7 @@ export default function EpisodeDetailPage() {
 
         <TabsContent value="script">
           <div className="mt-4">
-            <Section title="Episode script">
-              <Panel>
+            <Panel>
                 <ScriptContent
                   scriptText={episode.scriptText}
                   style={podcast.style}
@@ -455,8 +491,7 @@ export default function EpisodeDetailPage() {
                   focusedTurn={focusedTurn}
                   showTurnNumbers
                 />
-              </Panel>
-            </Section>
+            </Panel>
           </div>
         </TabsContent>
 

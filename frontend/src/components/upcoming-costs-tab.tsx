@@ -1,6 +1,6 @@
 "use client";
 
-import { Panel, Section } from "@/components/section";
+import { Panel } from "@/components/section";
 import type { LlmStageCost } from "@/lib/types";
 import {
   Table,
@@ -39,10 +39,9 @@ export function UpcomingCostsTab({ scoring }: { scoring: LlmStageCost | undefine
   }
 
   return (
-    <Section title="Spent so far">
-      <Panel className="space-y-3">
+    <Panel title="Spent so far" className="space-y-3">
         <Table>
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             <TableRow>
               <TableHead>Stage</TableHead>
               <TableHead>Model</TableHead>
@@ -75,7 +74,6 @@ export function UpcomingCostsTab({ scoring }: { scoring: LlmStageCost | undefine
           These articles have already been scored and charged. Generating the episode adds the dedup,
           compose, recap and audio stages.
         </p>
-      </Panel>
-    </Section>
+    </Panel>
   );
 }

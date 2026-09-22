@@ -38,6 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EpisodeMatchDetails } from "@/components/episode-match-details";
+import { Panel } from "@/components/section";
 import { Input } from "@/components/ui/input";
 import { PublishWizard, TARGETS } from "@/components/publish-wizard";
 import { PublicationsTab } from "@/components/publications-tab";
@@ -103,6 +104,8 @@ export default function EpisodesPage() {
   const [publishedEpisodeIds, setPublishedEpisodeIds] = useState<Set<number>>(new Set());
   const [fullyPublishedEpisodeIds, setFullyPublishedEpisodeIds] = useState<Set<number>>(new Set());
   const [refreshKey, setRefreshKey] = useState(0);
+  /** The node the sources tab renders its action buttons into, kept in state so the portal re-runs once it mounts. */
+  const [sourcesActions, setSourcesActions] = useState<HTMLDivElement | null>(null);
   const [upcomingCount, setUpcomingCount] = useState<number>(0);
   const [upcomingPostCount, setUpcomingPostCount] = useState<number>(0);
   const [countdown, setCountdown] = useState<string | null>(null);
@@ -420,6 +423,8 @@ export default function EpisodesPage() {
             <TabsTrigger value="publications">Publications</TabsTrigger>
             <TabsTrigger value="sources">Sources</TabsTrigger>
           </TabsList>
+          {/* The sources tab renders its action buttons into this slot, so they share the tab row. */}
+          {currentTab === "sources" && <div ref={setSourcesActions} className="flex items-center gap-2" />}
           {/* Search filters the episode list only, so it appears only while that tab is active. */}
           {currentTab === "episodes" && (
             <div className="flex items-center gap-3">
@@ -458,6 +463,7 @@ export default function EpisodesPage() {
             </p>
           ) : (
             <>
+            <Panel>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -757,6 +763,7 @@ export default function EpisodesPage() {
                 ))}
               </TableBody>
             </Table>
+            </Panel>
             <Paginator
               page={page}
               pageSize={pageSize}
@@ -782,7 +789,11 @@ export default function EpisodesPage() {
 
         <TabsContent value="sources">
           <div className="mt-4">
-            <SourcesTab userId={selectedUser.id} podcastId={params.podcastId} />
+            <SourcesTab
+              userId={selectedUser.id}
+              podcastId={params.podcastId}
+              actionsSlot={sourcesActions}
+            />
           </div>
         </TabsContent>
       </Tabs>

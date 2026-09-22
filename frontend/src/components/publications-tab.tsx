@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Panel, Section } from "@/components/section";
+import { Panel } from "@/components/section";
 import { Paginator } from "@/components/paginator";
 
 interface PublicationsTabProps {
@@ -146,7 +146,7 @@ export function PublicationsTab({
   }
 
   return (
-    <Section title="Publications">
+    <div className="space-y-3">
       <Panel>
         <Table>
           <TableHeader>
@@ -304,6 +304,6 @@ export function PublicationsTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Section>
+    </div>
   );
 }

@@ -7,7 +7,7 @@ import type {
   LlmCallLatencyResponse,
   StageLatency,
 } from "@/lib/types";
-import { Panel, Section } from "@/components/section";
+import { Panel } from "@/components/section";
 import {
   Table,
   TableBody,
@@ -56,6 +56,15 @@ function formatTime(startedAt: string): string {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+/**
+ * Slowest first, on p99: an episode issues a handful of requests per stage, so p99 is its slowest
+ * request rather than a tail estimate. A stage that issued nothing has no timing to rank and sits
+ * at the bottom.
+ */
+function sortedStages(stages: StageLatency[]): StageLatency[] {
+  return [...stages].sort((a, b) => (b.p99Ms ?? -1) - (a.p99Ms ?? -1));
 }
 
 function StageRow({ stage }: { stage: StageLatency }) {
@@ -108,9 +117,14 @@ function RequestOutcome({ request }: { request: LlmCall }) {
 }
 
 function RequestList({ requests }: { requests: LlmCall[] }) {
+  // Slowest first, so the request worth explaining is the first one read. A cache hit performed no
+  // request, so its duration does not rank it.
+  const sorted = [...requests].sort(
+    (a, b) => (b.cacheHit ? -1 : b.durationMs) - (a.cacheHit ? -1 : a.durationMs)
+  );
   return (
     <Table>
-      <TableHeader className="bg-muted/50">
+      <TableHeader>
         <TableRow>
           <TableHead>Started</TableHead>
           <TableHead>Stage</TableHead>
@@ -120,7 +134,7 @@ function RequestList({ requests }: { requests: LlmCall[] }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {requests.map((request, index) => (
+        {sorted.map((request, index) => (
           <TableRow key={`${request.startedAt}-${index}`}>
             <TableCell className="tabular-nums text-muted-foreground">
               {formatTime(request.startedAt)}
@@ -205,28 +219,26 @@ export function LatencyTab({ episodeId }: { episodeId: number }) {
 
   if (calls?.predatesAttribution) {
     return (
-      <Section title="LLM request latency">
+      <Panel title="LLM request latency">
         <p className="text-sm text-muted-foreground">
           This episode was generated before requests recorded which episode they belonged to, so
           none of its requests can be shown. Episodes generated from now on will have them.
         </p>
-      </Section>
+      </Panel>
     );
   }
 
   return (
     <div className="space-y-6">
-      <Section title="LLM request latency">
-        <p className="text-xs text-muted-foreground">
-          Per-request timings for this episode, against each stage&apos;s configured timeout. The
-          percentiles cover requests that answered and requests that timed out; cache hits and
-          faster failures are left out, so a stage at its ceiling reads as one.
-        </p>
-
-        {latency && (
-          <Panel>
-            <Table>
-            <TableHeader className="bg-muted/50">
+      {latency && (
+        <Panel title="LLM request latency" className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Per-request timings for this episode, against each stage&apos;s configured timeout. The
+            percentiles cover requests that answered and requests that timed out; cache hits and
+            faster failures are left out, so a stage at its ceiling reads as one.
+          </p>
+          <Table>
+            <TableHeader>
               <TableRow>
                 <TableHead>Stage</TableHead>
                 <TableHead className="text-right">Requests</TableHead>
@@ -237,31 +249,28 @@ export function LatencyTab({ episodeId }: { episodeId: number }) {
                 <TableHead className="text-right">Timeout</TableHead>
               </TableRow>
             </TableHeader>
-              <TableBody>
-                {latency.stages.map((stage) => (
-                  <StageRow key={stage.stage} stage={stage} />
-                ))}
-              </TableBody>
-            </Table>
-          </Panel>
-        )}
-      </Section>
+            <TableBody>
+              {sortedStages(latency.stages).map((stage) => (
+                <StageRow key={stage.stage} stage={stage} />
+              ))}
+            </TableBody>
+          </Table>
+        </Panel>
+      )}
 
-      <Section title="Requests">
+      <Panel title="Requests" className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Every request this episode issued, newest first, including cache hits and failures.
+          Every request this episode issued, slowest first, including cache hits and failures.
         </p>
 
         {calls && calls.requests.length > 0 ? (
-          <Panel>
-            <RequestList requests={calls.requests} />
-          </Panel>
+          <RequestList requests={calls.requests} />
         ) : (
           <p className="text-sm text-muted-foreground italic">
             This episode issued no recorded requests.
           </p>
         )}
-      </Section>
+      </Panel>
     </div>
   );
 }

@@ -82,7 +82,8 @@ internal fun <T : Any, R : Any> org.springframework.data.domain.Page<T>.toRespon
 
 internal fun Episode.toResponse(
     scoreStage: ScoreStageSummary = ScoreStageSummary(calls = 0),
-    costFor: StageCostFn = noopStageCostFn
+    costFor: StageCostFn = noopStageCostFn,
+    dedupGateModel: String? = null
 ) = EpisodeResponse(
     id = id!!,
     podcastId = podcastId,
@@ -108,7 +109,7 @@ internal fun Episode.toResponse(
     pipelineStage = pipelineStage,
     researchCalls = researchCalls,
     researchCostCents = researchCostCents,
-    costs = buildCosts(scoreStage, costFor)
+    costs = buildCosts(scoreStage, costFor, dedupGateModel)
 )
 
 /**
@@ -143,7 +144,8 @@ internal fun EpisodeSearchHit.toResponse(): EpisodeResponse {
 
 private fun Episode.buildCosts(
     scoreStage: ScoreStageSummary,
-    costFor: StageCostFn
+    costFor: StageCostFn,
+    dedupGateModel: String?
 ): EpisodeCostsResponse {
     fun llmCalls(input: Int, output: Int, cost: Double): Int =
         if (input > 0 || output > 0 || cost > 0) 1 else 0
@@ -164,8 +166,10 @@ private fun Episode.buildCosts(
     val dedupModelLabel = dedupModel ?: filterModel
     val dedupCost = dedupReportedCostCents
         ?: effective(dedupCostCents, dedupModelLabel, dedupInputTokens, dedupOutputTokens)
-    // The gate carries no model column of its own: it is configured, not resolved per podcast, and
-    // an episode that ran without it has nothing to name.
+    // The gate carries no model column of its own: it is configured, not resolved per podcast. The
+    // configured model is named only for an episode whose gate actually issued requests, since for
+    // an episode that ran without one it would name a model that never saw this script.
+    val gateModelLabel = dedupGateModel?.takeIf { dedupGateCalls > 0 }
     val gateCost = dedupGateReportedCostCents
         ?: effective(dedupGateCostCents, null, dedupGateInputTokens, dedupGateOutputTokens)
     val composeCost = composeReportedCostCents
@@ -195,7 +199,7 @@ private fun Episode.buildCosts(
             costCents = dedupCost
         ),
         dedupGate = LlmStageCostResponse(
-            model = null,
+            model = gateModelLabel,
             // Stored rather than derived from tokens: the gate chunks its candidates and retries
             // transient failures, so its request count does not follow from its size.
             calls = dedupGateCalls,
