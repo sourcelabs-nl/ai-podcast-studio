@@ -120,7 +120,9 @@ class FeedGenerator(
 
             SyndEntryImpl().apply {
                 val generatedInstant = Instant.parse(episode.generatedAt)
-                title = "$feedTitle - ${generatedInstant.atOffset(ZoneOffset.UTC).toLocalDate()}"
+                val dateTitle = "$feedTitle - ${generatedInstant.atOffset(ZoneOffset.UTC).toLocalDate()}"
+                // A focus episode shares its date with the regular one, so its title names the focus.
+                title = episode.focus?.let { "$dateTitle - Special: $it" } ?: dateTitle
                 link = sourcesUrl
                 publishedDate = Date.from(generatedInstant)
 

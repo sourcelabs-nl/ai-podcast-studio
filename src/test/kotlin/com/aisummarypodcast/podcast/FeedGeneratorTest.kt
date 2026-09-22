@@ -247,6 +247,26 @@ class FeedGeneratorTest {
     }
 
     @Test
+    fun `a focus episode title names its focus next to the date`() {
+        val regular = Episode(
+            id = 1L, podcastId = "p1", generatedAt = "2025-01-01T10:00:00Z",
+            scriptText = "Script", status = EpisodeStatus.GENERATED,
+            audioFilePath = "/data/p1/episodes/briefing-20250101-100000.mp3", durationSeconds = 120
+        )
+        val focus = regular.copy(id = 2L, generatedAt = "2025-01-01T20:00:00Z", focus = "Claude Opus 5.5 release",
+            audioFilePath = "/data/p1/episodes/briefing-20250101-200000.mp3")
+        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(focus, regular)
+        every { podcastImageService.get("p1") } returns null
+        every { episodeSourcesGenerator.deriveSlug(regular) } returns "briefing-20250101-100000"
+        every { episodeSourcesGenerator.deriveSlug(focus) } returns "briefing-20250101-200000"
+        every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(2L, 1L)) } returns emptyMap()
+
+        val xml = feedGenerator.generate(podcast, user)
+        assertTrue(xml.contains("<title>Tech Daily - 2025-01-01 - Special: Claude Opus 5.5 release</title>"))
+        assertTrue(xml.contains("<title>Tech Daily - 2025-01-01</title>"))
+    }
+
+    @Test
     fun `content encoded lists topic names without article titles when topics present`() {
         val episode = Episode(
             id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",

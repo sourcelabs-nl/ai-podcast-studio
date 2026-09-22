@@ -15,3 +15,8 @@
 
 - [x] 3.1 `mvn test` passes
 - [x] 3.2 Restart the app and check that discarding published episode 226 returns 409 and leaves it GENERATED and published
+
+## Focus episodes next to the regular episode in the feed
+
+- [x] Same-day publication replacement in `PublishingService.publish` only replaces an episode of the same kind (regular with regular, focus with focus), so publishing a focus episode keeps the regular episode of that day live. Verified by `PublishingServiceTest`.
+- [x] A focus episode's feed title names its focus after the date (`<podcast> - <date> - Special: <focus>`), so podcast apps can tell it from the regular episode of the same day. Verified by `FeedGeneratorTest`.

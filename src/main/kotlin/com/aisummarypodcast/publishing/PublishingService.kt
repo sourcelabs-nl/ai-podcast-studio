@@ -58,7 +58,9 @@ class PublishingService(
             return updateExisting(publisher, episode, podcast, userId, existing)
         }
 
-        // Replace any existing publication from another episode with the same date (regenerated episodes)
+        // Replace any existing publication from another episode of the same kind with the same date
+        // (regenerated episodes). A focus episode is an extra next to the regular one, so the two never
+        // replace each other.
         val episodeDate = episode.generatedAt.substring(0, 10) // YYYY-MM-DD
         val previousPublications = publicationRepository.findPublishedByPodcastIdAndTarget(podcast.id, target)
         for (prev in previousPublications) {
@@ -66,6 +68,7 @@ class PublishingService(
             val prevEpisode = episodeRepository.findByIdOrNull(prev.episodeId) ?: continue
             val prevDate = prevEpisode.generatedAt.substring(0, 10)
             if (prevDate != episodeDate) continue
+            if ((prevEpisode.focus != null) != (episode.focus != null)) continue
             try {
                 if (prev.externalId != null) {
                     withContext(Dispatchers.IO) { publisher.unpublish(userId, prev.externalId) }

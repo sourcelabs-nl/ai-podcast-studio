@@ -74,6 +74,40 @@ class PublishingServiceTest {
     }
 
     @Test
+    fun `publishing a focus episode keeps the same-day regular publication`() {
+        val focusEpisode = episode.copy(id = 2L, focus = "Claude Opus 5.5 release")
+        val regularPublication = EpisodePublication(id = 5L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, externalId = "sc-1", createdAt = "now")
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(2L, "soundcloud") } returns null
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(regularPublication)
+        every { episodeRepository.findById(1L) } returns java.util.Optional.of(episode)
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        coEvery { publisher.publish(focusEpisode, podcast, "user1") } returns PublishResult("sc-2", "https://soundcloud.com/track/2")
+
+        runBlocking { service.publish(focusEpisode, podcast, "user1", "soundcloud") }
+
+        verify(exactly = 0) { publicationRepository.delete(regularPublication) }
+        verify(exactly = 0) { publisher.unpublish(any(), "sc-1") }
+    }
+
+    @Test
+    fun `publishing a regenerated regular episode replaces the same-day regular publication`() {
+        val regenerated = episode.copy(id = 2L)
+        val previous = EpisodePublication(id = 5L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, externalId = "sc-1", createdAt = "now")
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(2L, "soundcloud") } returns null
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(previous)
+        every { episodeRepository.findById(1L) } returns java.util.Optional.of(episode)
+        every { publisher.unpublish("user1", "sc-1") } returns Unit
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = 10L) }
+        coEvery { publisher.publish(regenerated, podcast, "user1") } returns PublishResult("sc-2", "https://soundcloud.com/track/2")
+
+        runBlocking { service.publish(regenerated, podcast, "user1", "soundcloud") }
+
+        verify { publicationRepository.delete(previous) }
+    }
+
+    @Test
     fun `publish throws for unknown target`() {
         assertThrows<IllegalArgumentException> {
             runBlocking { service.publish(episode, podcast, "user1", "youtube") }
