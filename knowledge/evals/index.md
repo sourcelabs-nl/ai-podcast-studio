@@ -32,6 +32,8 @@ Negative results are recorded on the same terms as positive ones.
   Read when deciding whether to remove or keep the CURIOSITY HOOKS bullet, or wondering why the judged score does not move when a prompt rule does.
 - [Structured output fixes the speaker tags and breaks the length](structured-output-for-scripts.md)  
   Read when considering JSON output for the compose stage, or chasing mismatched speaker tags.
+- [Compose spends most of its output budget on reasoning, and default routing serves it from a slower DeepInfra endpoint](compose-reasoning-and-routing-2026-09.md)  
+  Read when deciding whether to lower compose reasoning effort, add throughput-based OpenRouter provider routing, or diagnosing why a compose call ran long or cost more than expected.
 
 The [[curiosity-hooks-conflict]] ablation has been run: see
 [[curiosity-hooks-ablation]].

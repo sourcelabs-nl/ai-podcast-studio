@@ -7,6 +7,16 @@ screen.
 
 ## [2026-09-22] Record
 
+Added `evals/compose-reasoning-and-routing-2026-09.md`: on episodes 220-228,
+DeepSeek compose spent 67-90% of its output tokens on reasoning, default
+price-weighted routing served it from a slower DeepInfra endpoint than faster
+endpoints passing the same quantization floor, and moving research ahead of
+compose (precompose-research, commit cb9e14b) removed a second full-price
+tool-calling round trip. Recorded as unresolved whether throughput routing or
+lower reasoning effort holds up under an A/B on script quality.
+
+## [2026-09-22] Record
+
 Added `references/generated-keys-from-a-batch.md`: the xerial SQLite driver
 returns no generated keys from an `executeBatch`, which is what made every
 Spring Data JDBC `saveAll` of new aggregates fail with "After saving the
