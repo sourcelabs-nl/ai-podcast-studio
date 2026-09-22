@@ -2,6 +2,7 @@ package com.aisummarypodcast.store
 
 import com.aisummarypodcast.llm.DEDUP_GATE_STAGE
 import com.aisummarypodcast.llm.LlmCostSource
+import com.aisummarypodcast.llm.RESEARCH_PLAN_STAGE
 import com.aisummarypodcast.llm.TIMEOUT_ERROR_TYPE
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
@@ -38,6 +39,12 @@ object CostStage {
     const val DEDUP = "dedup"
     const val COMPOSE = "compose"
     const val GATE = DEDUP_GATE_STAGE
+
+    /**
+     * The research plan. Not in [ALL]: it has no persisted episode columns, so it is only ever read
+     * from the log, and the breakdown adds it to the research row.
+     */
+    const val RESEARCH_PLAN = RESEARCH_PLAN_STAGE
 
     /** Every stage an episode is billed for. A stage added above belongs here too. */
     val ALL = setOf(SCORE, RECAP, DEDUP, COMPOSE, GATE)
@@ -84,7 +91,9 @@ data class LlmCallRow(
     val model: String,
     val durationMs: Long,
     val outcome: String,
-    val cacheHit: Boolean
+    val cacheHit: Boolean,
+    val servedProvider: String? = null,
+    val reasoningTokens: Int? = null
 )
 
 /**
@@ -187,7 +196,7 @@ class LlmCallRepositoryCustomImpl(
     override fun requestsForEpisode(episodeId: Long): List<LlmCallRow> =
         jdbcClient.sql(
             """
-            SELECT started_at, stage, model, duration_ms, outcome, cache_hit
+            SELECT started_at, stage, model, duration_ms, outcome, cache_hit, served_provider, reasoning_tokens
             FROM llm_calls
             WHERE $BELONGS_TO_EPISODE
             ORDER BY started_at DESC, id DESC
@@ -201,7 +210,9 @@ class LlmCallRepositoryCustomImpl(
                     model = rs.getString("model"),
                     durationMs = rs.getLong("duration_ms"),
                     outcome = rs.getString("outcome"),
-                    cacheHit = rs.getBoolean("cache_hit")
+                    cacheHit = rs.getBoolean("cache_hit"),
+                    servedProvider = rs.getString("served_provider"),
+                    reasoningTokens = rs.getInt("reasoning_tokens").takeUnless { rs.wasNull() }
                 )
             }
             .list()

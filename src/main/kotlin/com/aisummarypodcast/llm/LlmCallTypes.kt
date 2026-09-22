@@ -83,5 +83,9 @@ data class LlmCallRecord(
     val cacheHit: Boolean = false,
     val outcome: LlmCallOutcome = LlmCallOutcome.OK,
     val errorType: String? = null,
-    val attribution: LlmCallAttribution = LlmCallAttribution.NONE
+    val attribution: LlmCallAttribution = LlmCallAttribution.NONE,
+    /** The upstream provider that served the request, as OpenRouter reports it; null when unreported. */
+    val servedProvider: String? = null,
+    /** How many of [outputTokens] were reasoning; null when unreported. */
+    val reasoningTokens: Int? = null
 )

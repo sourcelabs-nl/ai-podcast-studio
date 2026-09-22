@@ -1,5 +1,9 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.research.PreComposeResearch
+
+import com.aisummarypodcast.research.BackgroundSource
+
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
 import com.aisummarypodcast.config.EncryptionProperties
@@ -40,21 +44,33 @@ class DialogueComposerTest {
         Article(id = 2, sourceId = "s1", title = "Cloud News", body = "Cloud is growing.", url = "https://example.com/cloud", contentHash = "h2", summary = "Cloud growth.")
     )
 
+
+    private val sampleResearch = PreComposeResearch(
+        sources = listOf(BackgroundSource("o5 reactions", "Experts weigh in on o5", "https://news.example.com/o5", "Researchers call it a step change.")),
+        researchCalls = 1
+    )
+
+    private val focusMatch = PastEpisodeMatch(
+        episodeId = 9, generatedAt = "2026-09-21", topics = "Claude Opus 5.5", recapSnippet = "A deep dive into Opus 5.5.", isFocusEpisode = true
+    )
+
     @Test
-    fun `prompt instructs the model to call searchPastEpisodes before treating any topic as new`() {
-        val prompt = composer.buildPrompt(articles, podcast)
-        assertTrue(prompt.contains("searchPastEpisodes"))
-        assertTrue(prompt.contains("HISTORY CHECK"))
+    fun `prompt carries past coverage as a block and names no tool`() {
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(research = PreComposeResearch(history = listOf(focusMatch))))
+        assertTrue(prompt.contains("Previously covered (past episodes"))
+        assertTrue(prompt.contains("PREVIOUSLY COVERED:"))
+        assertFalse(prompt.contains("searchPastEpisodes"))
     }
 
     @Test
-    fun `prompt includes webSearch nudge when deepDiveEnabled, omits otherwise`() {
-        val enabled = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = true))
-        assertTrue(enabled.contains("webSearch"))
+    fun `prompt carries background research when the stage found some, omits it otherwise`() {
+        val enabled = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = true), ComposeContext(research = sampleResearch))
         assertTrue(enabled.contains("DEEP DIVE"))
+        assertTrue(enabled.contains("Experts weigh in on o5"))
+        assertFalse(enabled.contains("webSearch"))
 
         val disabled = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = false))
-        assertFalse(disabled.contains("webSearch"))
+        assertFalse(disabled.contains("Background research (web search"))
         assertFalse(disabled.contains("DEEP DIVE"))
     }
 
@@ -273,12 +289,12 @@ class DialogueComposerTest {
     }
 
     @Test
-    fun `focus episode prompt names the focus and offers webSearch at the raised budget without deep dive`() {
-        val prompt = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = false), ComposeContext(focus = "Claude Opus 5.5 release"))
+    fun `focus episode prompt names the focus and spends its research on the one subject`() {
+        val prompt = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = false), ComposeContext(focus = "Claude Opus 5.5 release", research = sampleResearch))
 
         assertTrue(prompt.contains("Claude Opus 5.5 release"))
-        assertTrue(prompt.contains("`webSearch`"))
-        assertTrue(prompt.contains("budget of 5 calls"))
+        assertTrue(prompt.contains("This episode is about a single subject"))
+        assertTrue(prompt.contains("Experts weigh in on o5"))
     }
 
     @Test
@@ -292,10 +308,14 @@ class DialogueComposerTest {
     fun `regular prompt names recent focus episodes and treats a focus match as a continuation`() {
         val prompt = composer.buildPrompt(
             articles, podcast,
-            ComposeContext(recentFocusEpisodes = listOf(RecentFocusEpisode("Claude Opus 5.5 release", "2026-09-21T12:00:00Z")))
+            ComposeContext(
+                recentFocusEpisodes = listOf(RecentFocusEpisode("Claude Opus 5.5 release", "2026-09-21T12:00:00Z")),
+                research = PreComposeResearch(history = listOf(focusMatch))
+            )
         )
 
         assertTrue(prompt.contains("\"Claude Opus 5.5 release\" (2026-09-21)"))
-        assertTrue(prompt.contains("isFocusEpisode = true"))
+        assertTrue(prompt.contains("treat it as a continuation"))
+        assertTrue(prompt.contains("[focus episode]"))
     }
 }

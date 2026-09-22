@@ -2,7 +2,7 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.SupportedLanguage
-import com.aisummarypodcast.research.RESEARCH_TOOL_CAP
+import com.aisummarypodcast.research.PreComposeResearch
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
 import org.slf4j.LoggerFactory
@@ -151,58 +151,65 @@ fun buildTopicOrderBlock(topicLabels: List<String>): String {
 }
 
 /**
- * Prompt block instructing the LLM to consult prior-episode coverage via the
- * `searchPastEpisodes` tool before treating any subject as new. Included in every
- * compose-stage prompt; the tool itself is registered by `ChatClientFactory.createForCompose`.
- */
-/**
- * Prompt block for the `searchPastEpisodes` tool. Deliberately subordinate to the
+ * The rule on what counts as new, and, when the research stage found past episodes matching this
+ * episode's subjects, how to use them. The matches are deliberately subordinate to the
  * `[FOLLOW-UP: ...]` headers: those come from the dedup stage, which compared every candidate's
- * title and summary against the actual set of historical episode articles, while the tool matches
- * keywords against past scripts and so reports a hit whenever a product name recurs in a different
- * story. An earlier version told the model to treat any hit as prior coverage, and a regeneration
- * of episode 197 duly claimed the GPT-6 Astra launch had been "covered yesterday" on three keyword
- * matches, when the previous episode never mentioned it and the older match was a pre-release
- * benchmark story. It demoted the day's lead story on that basis.
+ * title and summary against the actual set of historical episode articles, while the history
+ * search matches keywords against past scripts and so reports a hit whenever a product name recurs
+ * in a different story. An earlier version told the model to treat any hit as prior coverage, and a
+ * regeneration of episode 197 duly claimed the GPT-6 Astra launch had been "covered yesterday" on
+ * three keyword matches, when the previous episode never mentioned it and the older match was a
+ * pre-release benchmark story. It demoted the day's lead story on that basis.
  */
-fun buildHistoryLookupBlock(): String = """
-            - WHAT COUNTS AS NEW: The `[FOLLOW-UP: ...]` headers above the article groups are authoritative. An article group carrying such a header continues a story from an earlier episode, and you may reference that prior coverage. An article group with NO header is new: cover it as news, and keep it eligible to lead the episode
-            - HISTORY CHECK: You may call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}) to see how a recurring subject was framed before, so you can reference it accurately and avoid reusing the same phrasing, examples or statistics. Use it for wording, not for the running order. A keyword match is NOT evidence that today's development was already covered: do NOT skip a story, demote it out of the lead, or claim the audience already heard it, unless it carries a `[FOLLOW-UP: ...]` header saying so. Never assert when a topic was previously covered unless the header states it. You have a small budget for these lookups
-            - FOCUS EPISODE MATCHES: A match with `isFocusEpisode = true` is a special episode that covered one subject in depth. Do NOT skip that subject because of it: treat it as a continuation, lead with what is new since that episode, and you may reuse a few of the same articles where they support the new developments rather than avoiding them entirely"""
-
-/**
- * Prompt block instructing the LLM to use the `webSearch` Tavily tool to enrich the 2-3 most
- * newsworthy stories with outside context, within the episode-wide call budget. Empty when
- * [researchEnabled] is false; in that case the tool is not registered at all and the LLM must
- * not be hinted to call it. [budget] is the episode-wide call cap the tool was registered with.
- * A focus episode ([focusEpisode]) spends its budget on the one subject the episode is about.
- */
-fun buildWebSearchBlock(
-    researchEnabled: Boolean,
-    hasSubtopics: Boolean = false,
-    budget: Int = RESEARCH_TOOL_CAP,
-    focusEpisode: Boolean = false
-): String {
-    if (!researchEnabled) return ""
-    if (focusEpisode) return """
-            - DEEP DIVE: This episode is about a single subject, so research it properly: call the `webSearch` tool with distinct queries (for example the announcement itself, reactions, benchmarks or numbers, and what it means for the field) to pull context the articles lack. Weave what you find into the script with proper attribution. You have an episode-wide budget of $budget calls; spend most of it, each on a different angle"""
-    if (!hasSubtopics) return """
-            - DEEP DIVE: Identify the 2-3 most newsworthy stories in this episode and call the `webSearch` tool roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of $budget calls total; aim to spend 2-3 of them across the standout stories rather than all on one"""
-    return """
-            - DEEP DIVE: Use the `webSearch` tool ONLY for stories you will cover in a full segment, never for rapid-fire stories (a one-sentence mention cannot absorb fetched context). Pick the 2-3 most newsworthy full-segment stories, preferring higher-weight subtopics when stories are comparable, and call `webSearch` roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of $budget calls total; aim to spend 2-3 of them across the standout stories rather than all on one, and never multiply it by the number of subtopics"""
+fun buildHistoryGuidanceBlock(research: PreComposeResearch): String {
+    val whatCountsAsNew = """
+            - WHAT COUNTS AS NEW: The `[FOLLOW-UP: ...]` headers above the article groups are authoritative. An article group carrying such a header continues a story from an earlier episode, and you may reference that prior coverage. An article group with NO header is new: cover it as news, and keep it eligible to lead the episode"""
+    if (research.history.isEmpty()) return whatCountsAsNew
+    return whatCountsAsNew + """
+            - PREVIOUSLY COVERED: The "Previously covered" section below lists past episodes of this podcast whose recaps match today's subjects. Use it to see how a recurring subject was framed before, so you can reference it accurately and avoid reusing the same phrasing, examples or statistics. Use it for wording, not for the running order. A match is NOT evidence that today's development was already covered: do NOT skip a story, demote it out of the lead, or claim the audience already heard it, unless it carries a `[FOLLOW-UP: ...]` header saying so. Never assert when a topic was previously covered unless the header states it
+            - FOCUS EPISODE MATCHES: A match marked [focus episode] is a special episode that covered one subject in depth. Do NOT skip that subject because of it: treat it as a continuation, lead with what is new since that episode, and you may reuse a few of the same articles where they support the new developments rather than avoiding them entirely"""
 }
 
 /**
- * The web-search block for a compose run, derived from the podcast and the run's [context] so all
- * three composers mention `webSearch` exactly when [ChatClientFactory.buildComposeTools] registers it.
+ * How to use the web research the research stage ran before compose. Empty when it found nothing,
+ * which includes every run where web search does not apply. A focus episode spends its research on
+ * the one subject the episode is about; a podcast with subtopics keeps outside context out of the
+ * rapid-fire stories, where a one-sentence mention cannot absorb it.
  */
-fun buildWebSearchBlock(podcast: Podcast, context: ComposeContext, hasSubtopics: Boolean): String =
-    buildWebSearchBlock(
-        researchEnabled = podcast.deepDiveEnabled || context.focusResearchEnabled,
-        hasSubtopics = hasSubtopics,
-        budget = researchCapFor(context),
-        focusEpisode = context.focusResearchEnabled
-    )
+fun buildResearchGuidanceBlock(context: ComposeContext, hasSubtopics: Boolean): String {
+    if (context.research.sources.isEmpty()) return ""
+    if (context.focus != null) return """
+            - DEEP DIVE: This episode is about a single subject, so use the "Background research" section below properly: weave its context (the announcement itself, reactions, benchmarks or numbers, what it means for the field) into the script with proper attribution, drawing on several of its sources rather than one"""
+    if (!hasSubtopics) return """
+            - DEEP DIVE: The "Background research" section below holds outside context (background, related developments, dissenting takes) on the most newsworthy stories. Weave the relevant snippets into those segments with proper attribution; ignore results that do not fit a story you cover"""
+    return """
+            - DEEP DIVE: The "Background research" section below holds outside context (background, related developments, dissenting takes) on the most newsworthy stories. Use it ONLY in stories you cover in a full segment, never in rapid-fire stories (a one-sentence mention cannot absorb fetched context). Weave the relevant snippets into those segments with proper attribution; ignore results that do not fit a story you cover"""
+}
+
+private val WHITESPACE_RUN = Regex("\\s+")
+
+/**
+ * The research stage's findings as data sections placed after the article summaries: web search
+ * results with their source, and matching past episodes with their date and recap. Each section is
+ * omitted when it is empty, so the guidance above never points at a section that is not there.
+ */
+fun buildResearchDataBlock(research: PreComposeResearch): String = buildString {
+    if (research.sources.isNotEmpty()) {
+        append("\n\n            Background research (web search results gathered for this episode):")
+        research.sources.forEachIndexed { index, source ->
+            append("\n            ${index + 1}. ${source.title} (${extractDomain(source.url)}, ${source.url})")
+            append("\n            ${source.snippet.replace(WHITESPACE_RUN, " ").trim()}")
+        }
+    }
+    if (research.history.isNotEmpty()) {
+        append("\n\n            Previously covered (past episodes of this podcast matching today's subjects):")
+        for (match in research.history) {
+            val marker = if (match.isFocusEpisode) " [focus episode]" else ""
+            val topics = match.topics.ifBlank { "(none recorded)" }
+            append("\n            - ${match.generatedAt}$marker: topics $topics. ${match.recapSnippet}")
+        }
+    }
+}
 
 /**
  * The run-specific instructions a compose prompt carries beyond the podcast's own settings: the
@@ -221,7 +228,7 @@ fun buildRunContextBlock(context: ComposeContext): String = buildString {
         for (episode in context.recentFocusEpisodes) {
             append("\n            - \"${episode.focus}\" (${episode.generatedAt.take(10)})")
         }
-        append("\n            If today's articles touch one of these subjects, look it up with `searchPastEpisodes` and treat it as a follow-up: ")
+        append("\n            If today's articles touch one of these subjects, treat it as a follow-up (the \"Previously covered\" section shows how it was framed, when it matched): ")
         append("lead with what is new since that episode instead of repeating it, and do not drop the subject just because it was covered.")
     }
     context.extraInstruction?.takeIf { it.isNotBlank() }?.let { feedback ->
@@ -276,12 +283,12 @@ fun buildNoEchoTurnBlock(): String =
  * Shared "explain for non-experts" rule for every compose-stage prompt. The audience is not
  * all specialists, so for complex or unfamiliar subjects the script is allowed (and encouraged)
  * to slow down and explain what something is, how it works, or why it matters, rather than
- * rushing past it. Pairs with the deep-dive / webSearch tool: when outside context is needed to
- * make a topic understandable, the model may pull it in (within budget). Included verbatim in
+ * rushing past it. Pairs with the background research: when outside context is needed to make a
+ * topic understandable, the model may draw on it. Included verbatim in
  * briefing, dialogue, and interview prompts so the rule lives in one place.
  */
 fun buildAudienceBlock(): String =
-    "\n            - EXPLAIN FOR NON-EXPERTS: This is cutting-edge material and not every listener already follows each subject. Whenever a genuinely complex or unfamiliar concept comes up, take a moment to explain it clearly in plain language before moving on: what it is, how it works at a high level, and why it matters (the consequences). Define jargon the first time it appears and reach for an everyday analogy when it helps. Do not go super in-depth or turn it into a lecture: aim for just enough that a non-specialist understands what is being discussed, which also gives advanced listeners a beat to absorb the information. Keep each explanation brief, and prioritise the concepts that genuinely warrant it over cramming in another story. When a topic genuinely needs outside context to make sense and a web search tool is available, use it (within budget) to enrich the explanation."
+    "\n            - EXPLAIN FOR NON-EXPERTS: This is cutting-edge material and not every listener already follows each subject. Whenever a genuinely complex or unfamiliar concept comes up, take a moment to explain it clearly in plain language before moving on: what it is, how it works at a high level, and why it matters (the consequences). Define jargon the first time it appears and reach for an everyday analogy when it helps. Do not go super in-depth or turn it into a lecture: aim for just enough that a non-specialist understands what is being discussed, which also gives advanced listeners a beat to absorb the information. Keep each explanation brief, and prioritise the concepts that genuinely warrant it over cramming in another story. When a topic genuinely needs outside context to make sense and the \"Background research\" section covers it, use that context to enrich the explanation."
 
 /**
  * Shared "numbers for the ear" rule for every compose-stage prompt. Dense benchmark scores,
@@ -556,7 +563,7 @@ fun resolveSpeakerRoles(podcast: Podcast): Set<String> =
 
 /**
  * Strips any text before the first opening speaker tag and after the last closing speaker tag.
- * The compose LLM tends to "think out loud" after its last tool call (e.g. "I have enough
+ * The compose LLM tends to "think out loud" before the script (e.g. "I have enough
  * context. Writing the script now.") before emitting the tagged script, despite the prompt
  * forbidding text outside speaker tags. The TTS parser already ignores such text, but it must
  * not be stored in the episode script (it shows in the dashboard and pollutes word counts).

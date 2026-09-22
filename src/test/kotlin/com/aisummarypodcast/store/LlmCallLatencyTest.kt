@@ -170,4 +170,23 @@ class LlmCallLatencyTest {
 
         assertEquals("2026-09-14T00:00:00Z", llmCallRepository.earliestAttributedStart())
     }
+
+    @Test
+    fun `an episode's request list carries the served provider and reasoning tokens`() {
+        llmCallRepository.save(
+            LlmCall(
+                startedAt = "2026-09-15T10:00:00Z", stage = "compose", provider = "openrouter", model = "m",
+                durationMs = 1000, inputTokens = 10, outputTokens = 20, cacheHit = false, outcome = "ok",
+                episodeId = 7, servedProvider = "Google", reasoningTokens = 15
+            )
+        )
+        call(durationMs = 1000, episodeId = 7)
+
+        val requests = llmCallRepository.requestsForEpisode(7)
+
+        val recorded = requests.single { it.servedProvider != null }
+        assertEquals("Google", recorded.servedProvider)
+        assertEquals(15, recorded.reasoningTokens)
+        assertNull(requests.single { it.servedProvider == null }.reasoningTokens)
+    }
 }

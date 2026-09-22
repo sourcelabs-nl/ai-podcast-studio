@@ -221,7 +221,10 @@ private fun Episode.buildCosts(context: EpisodeCostContext): EpisodeCostsRespons
     )
 
     val ttsCost = (ttsCostCents ?: 0).toDouble()
-    val researchCost = (researchCostCents ?: 0).toDouble()
+    // The research row is the Tavily searches plus the query-planning call. The plan costs a fraction
+    // of a cent and has no persisted column, so it is read from the requests the episode recorded.
+    val researchPlanCost = (projection.stages[CostStage.RESEARCH_PLAN]?.costUsd ?: 0.0) * USD_TO_CENTS
+    val researchCost = (researchCostCents ?: 0).toDouble() + researchPlanCost
     // The score row's dropped breakdown is deliberately absent: that money is already inside the
     // score row, and adding it would charge the episode twice for the same requests.
     val totalCostCents = score.costCents + dedup.costCents + gate.costCents + compose.costCents +

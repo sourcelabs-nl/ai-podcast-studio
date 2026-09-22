@@ -214,7 +214,7 @@ data class RegenerateScriptRequest(
     val feedback: String
 )
 
-/** One recorded `webSearch` result of a focus episode, with the query that found it. */
+/** One recorded web search result of an episode's research stage, with the query that found it. */
 data class ResearchSourceResponse(
     val query: String,
     val title: String,

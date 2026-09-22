@@ -55,7 +55,9 @@ class LlmCallLogService(
                     outcome = record.outcome.value,
                     errorType = record.errorType,
                     episodeId = record.attribution.episodeId,
-                    articleId = record.attribution.articleId
+                    articleId = record.attribution.articleId,
+                    servedProvider = record.servedProvider,
+                    reasoningTokens = record.reasoningTokens
                 )
             )
         } catch (e: RuntimeException) {

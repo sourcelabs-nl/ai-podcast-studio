@@ -142,7 +142,7 @@ class CachingChatModel(
         llmCallLogService.record(
             LlmCallRecord(
                 startedAt = startedAt,
-                stage = resolvedModel.stage.value,
+                stage = resolvedModel.telemetryStage,
                 provider = resolvedModel.provider,
                 model = resolvedModel.model,
                 duration = elapsed,
@@ -150,7 +150,9 @@ class CachingChatModel(
                 outputTokens = usage.outputTokens,
                 reportedCostUsd = usage.reportedCostUsd,
                 cacheHit = cacheHit,
-                attribution = attribution
+                attribution = attribution,
+                servedProvider = servedProviderOf(response),
+                reasoningTokens = usage.reasoningTokens
             )
         )
     }
@@ -164,7 +166,7 @@ class CachingChatModel(
         llmCallLogService.record(
             LlmCallRecord(
                 startedAt = startedAt,
-                stage = resolvedModel.stage.value,
+                stage = resolvedModel.telemetryStage,
                 provider = resolvedModel.provider,
                 model = resolvedModel.model,
                 duration = elapsed,

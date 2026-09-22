@@ -204,4 +204,44 @@ class CachingChatModelTelemetryTest {
 
         assertEquals(42L, recorded.captured.attribution.episodeId)
     }
+
+    @Test
+    fun `a call records the served provider and the reasoning tokens`() {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        val nativeUsage = com.openai.models.completions.CompletionUsage.builder()
+            .promptTokens(200).completionTokens(50).totalTokens(250)
+            .completionTokensDetails(
+                com.openai.models.completions.CompletionUsage.CompletionTokensDetails.builder().reasoningTokens(40).build()
+            )
+            .build()
+        every { delegate.call(prompt) } returns ChatResponse(
+            listOf(Generation(AssistantMessage("A script"))),
+            ChatResponseMetadata.builder().usage(DefaultUsage(200, 50, 250, nativeUsage)).keyValue("provider", "Anthropic").build()
+        )
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+
+        model.call(prompt)
+
+        assertEquals("Anthropic", recorded.captured.servedProvider)
+        assertEquals(40, recorded.captured.reasoningTokens)
+    }
+
+    @Test
+    fun `a borrowed model records under its telemetry stage`() {
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } returns response()
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        val planModel = CachingChatModel(
+            delegate, llmCacheRepository,
+            resolvedModel.copy(stage = PipelineStage.FILTER, telemetryStage = RESEARCH_PLAN_STAGE),
+            llmCallLogService
+        )
+
+        planModel.call(prompt)
+
+        assertEquals("research-plan", recorded.captured.stage)
+        assertNull(recorded.captured.servedProvider)
+    }
 }

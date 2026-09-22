@@ -15,7 +15,6 @@ data class CompositionResult(
     val script: String,
     val usage: TokenUsage,
     val topicOrder: List<String> = emptyList(),
-    val researchCalls: Int = 0,
     /** Populated only for an evaluation run; see [EvaluationRunProvenance]. */
     val provenance: EvaluationRunProvenance? = null
 )
@@ -44,11 +43,9 @@ class BriefingComposer(
 
     suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing briefing from {} articles for podcast '{}' ({}) (style: {})", articles.size, podcast.name, podcast.id, podcast.style)
-        val toolBudget = ToolBudget()
-        val chatClient = chatClientFactory.createForCompose(
-            podcast.userId, composeModelDef, podcast, toolBudget,
-            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId),
-            context = context
+        val chatClient = chatClientFactory.createForModel(
+            podcast.userId, composeModelDef,
+            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId)
         )
         val prompt = buildPrompt(articles, podcast, context)
 
@@ -71,15 +68,13 @@ class BriefingComposer(
                 script = stripLeadingMetaCommentary(extraction.script),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
-                researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME),
                 provenance = EvaluationRunProvenance.of(
                     context = context,
                     prompt = prompt,
                     composeModel = composeModelDef.model,
                     temperature = resolveTemperature(podcast, appProperties),
                     variety = varietyPicker.pick(podcast.id, context.episodeDate),
-                    usage = usage,
-                    toolBudget = toolBudget
+                    usage = usage
                 )
             )
         }
@@ -140,7 +135,7 @@ class BriefingComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
-            Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast, context, plan != null)}
+            Engagement techniques:$humorBlock${buildHistoryGuidanceBlock(context.research)}${buildResearchGuidanceBlock(context, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction${buildColdOpenPacingBlock()}
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - SHORT SEGMENTS WITH SIGNPOSTING: Keep individual topic segments concise. Use clear verbal signposts and smooth transitions so listeners always know where they are. $transitionsDirective${buildAudienceBlock()}
@@ -148,7 +143,7 @@ class BriefingComposer(
             - SIGN-OFF: $signOffDirective Make the wording feel fresh; do not reuse phrasing from previous episodes$nextEpisodeBlock$languageInstruction$customInstructionsBlock${buildRunContextBlock(context)}
 
             Article summaries:
-            $summaryBlock$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
+            $summaryBlock${buildResearchDataBlock(context.research)}$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
         """.trimIndent()
     }
 

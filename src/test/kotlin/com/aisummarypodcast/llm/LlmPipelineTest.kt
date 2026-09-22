@@ -1,5 +1,8 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.research.PreComposeResearch
+import com.aisummarypodcast.research.PreComposeResearchService
+
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
 import com.aisummarypodcast.config.ComposeProperties
@@ -65,6 +68,9 @@ class LlmPipelineTest {
     }
     private val articleEligibilityService = mockk<ArticleEligibilityService>()
     private val topicDedupFilter = mockk<TopicDedupFilter>()
+    private val preComposeResearchService = mockk<PreComposeResearchService> {
+        coEvery { research(any()) } returns PreComposeResearch.NONE
+    }
 
     private val window = EpisodeWindow(
         start = Instant.parse("2026-03-17T14:00:00Z"),
@@ -91,7 +97,8 @@ class LlmPipelineTest {
     private val pipeline = LlmPipeline(
         articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
         sourceRepository, postRepository, sourceAggregator, appProperties, ttsProviderFactory,
-        articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
+        articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry(),
+        preComposeResearchService
     )
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Tech Daily", topic = "tech", relevanceThreshold = 5)
@@ -120,7 +127,8 @@ class LlmPipelineTest {
         articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
         sourceRepository, postRepository, sourceAggregator,
         appProperties.copy(compose = ComposeProperties(maxArticles = maxArticles)), ttsProviderFactory,
-        articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
+        articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry(),
+        preComposeResearchService
     )
 
     private fun setupBasicPipeline(articles: List<Article> = listOf(scoredArticle), podcast: Podcast = this.podcast) {
@@ -277,7 +285,8 @@ class LlmPipelineTest {
         val cappedPipeline = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry(),
+        preComposeResearchService
         )
 
         val low = scoredArticle.copy(id = 1, relevanceScore = 5)
@@ -305,7 +314,8 @@ class LlmPipelineTest {
         val cappedPipeline = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, cappedProperties, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry(),
+        preComposeResearchService
         )
 
         val low = scoredArticle.copy(id = 1, relevanceScore = 5)
@@ -461,7 +471,8 @@ class LlmPipelineTest {
         val pipelineWithLowThreshold = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, lowThresholdProps, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry(),
+        preComposeResearchService
         )
 
         val articles = (1..100).map { articleWithBody(10000) }
@@ -645,6 +656,46 @@ class LlmPipelineTest {
         assertEquals(listOf("AI Safety"), result.topicOrder)
     }
 
+    @Test
+    fun `compose researches the focus and the clusters first and hands the result to the composer`() = runTest {
+        val filteredArticle = FilteredArticle(scoredArticle, topic = "AI Safety")
+        val research = PreComposeResearch(
+            sources = listOf(com.aisummarypodcast.research.BackgroundSource("q", "t", "https://x.com", "s")),
+            researchCalls = 2
+        )
+        val request = slot<com.aisummarypodcast.research.ResearchRequest>()
+        coEvery { preComposeResearchService.research(capture(request)) } returns research
+        every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
+        coEvery { briefingComposer.compose(any(), podcast, composeModelDef, match { it.research == research }) } returns
+            CompositionResult("Script", TokenUsage(500, 200))
+
+        val result = pipeline.compose(
+            listOf(filteredArticle), podcast,
+            ComposeContext(topicLabels = listOf("AI Safety"), focus = "Opus", episodeId = 12)
+        )
+
+        assertEquals(listOf("Opus", "AI Safety"), request.captured.subjects)
+        assertTrue(request.captured.focusEpisode)
+        assertEquals(12L, request.captured.episodeId)
+        assertEquals(2, result.researchCalls)
+        assertEquals(2 * appProperties.research.tavily.costPerCallCents, result.researchCostCents)
+    }
+
+    @Test
+    fun `compose falls back to the article titles when there are no clusters`() = runTest {
+        val request = slot<com.aisummarypodcast.research.ResearchRequest>()
+        coEvery { preComposeResearchService.research(capture(request)) } returns PreComposeResearch.NONE
+        every { modelResolver.resolve(podcast, PipelineStage.COMPOSE) } returns composeModelDef
+        coEvery { briefingComposer.compose(any(), podcast, composeModelDef, any()) } returns
+            CompositionResult("Script", TokenUsage(500, 200))
+
+        val result = pipeline.compose(listOf(FilteredArticle(scoredArticle)), podcast)
+
+        assertEquals(listOf("AI News"), request.captured.subjects)
+        assertEquals(0, result.researchCalls)
+        assertNull(result.researchCostCents)
+    }
+
     // --- scoreReadySources (eager ranking) tests ---
 
     @Test
@@ -710,7 +761,8 @@ class LlmPipelineTest {
         val pipelineWithLowThreshold = LlmPipeline(
             articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver, articleRepository,
             sourceRepository, postRepository, sourceAggregator, lowThresholdProps, ttsProviderFactory,
-            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry()
+            articleEligibilityService, topicDedupFilter, episodeWindowResolver, testRetryRegistry(),
+        preComposeResearchService
         )
         val articles = (1..100).map { articleWithBody(10000) }
 
@@ -746,7 +798,7 @@ class LlmPipelineTest {
         articleScoreSummarizer, briefingComposer, dialogueComposer, interviewComposer, modelResolver,
         articleRepository, sourceRepository, postRepository, sourceAggregator, appProperties,
         ttsProviderFactory, articleEligibilityService, topicDedupFilter, episodeWindowResolver,
-        testComposeRetryRegistry()
+        testComposeRetryRegistry(), preComposeResearchService
     )
 
     @Test

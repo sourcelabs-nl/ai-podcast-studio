@@ -42,6 +42,15 @@ class RoleTagValidationAdvisor(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    private val discarded = java.util.Collections.synchronizedList(mutableListOf<TokenUsage>())
+
+    /**
+     * The usage of every response this advisor rejected and re-issued. Those requests were paid
+     * for, so the composer adds them to the final response's usage; otherwise the compose stage
+     * would report only its last attempt. A fresh advisor is built per compose call.
+     */
+    val discardedUsage: List<TokenUsage> get() = discarded.toList()
+
     override fun getName(): String = "Role Tag Validation Advisor"
 
     override fun getOrder(): Int = 0
@@ -53,7 +62,7 @@ class RoleTagValidationAdvisor(
         while (true) {
             val response = callAdvisorChain.copy(this).nextCall(currentRequest)
             val chatResponse = response.chatResponse()
-            if (chatResponse == null || chatResponse.hasToolCalls()) return response
+            if (chatResponse == null) return response
 
             val problem = validate(chatResponse.result?.output?.text.orEmpty()) ?: return response
 
@@ -64,6 +73,7 @@ class RoleTagValidationAdvisor(
                 )
             }
 
+            discarded += TokenUsage.fromChatResponse(chatResponse)
             log.warn("Compose LLM {}; retrying (attempt {}/{})", problem.summary, attempt + 1, maxRetries)
             currentRequest = currentRequest.mutate()
                 .prompt(currentRequest.prompt().augmentUserMessage(problem.correction))
@@ -101,9 +111,11 @@ class RoleTagValidationAdvisor(
             )
         }
 
-        // What the pipeline will actually store, so a repairable fault is not re-prompted.
+        // What the pipeline will actually store, so a repairable fault is not re-prompted. The
+        // topic-order block is stripped first, as the composers do, or the clean-up reports it as
+        // discarded untagged text on every script.
         val structureProblem = findTurnStructureProblem(
-            cleanUpComposedScript(text, allowedRoles), allowedRoles
+            cleanUpComposedScript(TopicOrderExtractor.extract(text).script, allowedRoles), allowedRoles
         ) ?: return null
 
         return TagProblem(

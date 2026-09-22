@@ -27,20 +27,20 @@ class DialogueComposer(
 
     suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing dialogue from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
-        val toolBudget = ToolBudget()
-        val chatClient = chatClientFactory.createForCompose(
-            podcast.userId, composeModelDef, podcast, toolBudget,
-            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId),
-            context = context
+        val chatClient = chatClientFactory.createForModel(
+            podcast.userId, composeModelDef,
+            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId)
         )
         val prompt = buildPrompt(articles, podcast, context)
+
+        val tagValidation = RoleTagValidationAdvisor(resolveSpeakerRoles(podcast))
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
                     .options(buildComposeOptions(composeModelDef, podcast, appProperties))
-                    .advisors(RoleTagValidationAdvisor(resolveSpeakerRoles(podcast)))
+                    .advisors(tagValidation)
                     .call()
                     .chatResponse()
             }
@@ -49,20 +49,19 @@ class DialogueComposer(
                 ?: throw IllegalStateException("Empty response from LLM for dialogue composition")
 
             val extraction = TopicOrderExtractor.extract(rawScript)
-            val usage = TokenUsage.fromChatResponse(chatResponse)
+            // The attempts the tag validation discarded were paid for too.
+            val usage = tagValidation.discardedUsage.fold(TokenUsage.fromChatResponse(chatResponse), TokenUsage::plus)
             CompositionResult(
                 script = cleanUpComposedScript(extraction.script, resolveSpeakerRoles(podcast)),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
-                researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME),
                 provenance = EvaluationRunProvenance.of(
                     context = context,
                     prompt = prompt,
                     composeModel = composeModelDef.model,
                     temperature = resolveTemperature(podcast, appProperties),
                     variety = varietyPicker.pick(podcast.id, context.episodeDate),
-                    usage = usage,
-                    toolBudget = toolBudget
+                    usage = usage
                 )
             )
         }
@@ -136,7 +135,7 @@ class DialogueComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildSpeakerTagFormatBlock(speakerRoles.toSet())}${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
-            Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast, context, plan != null)}
+            Engagement techniques:$humorBlock${buildHistoryGuidanceBlock(context.research)}${buildResearchGuidanceBlock(context, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction${buildColdOpenPacingBlock()}
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - CURIOSITY HOOKS: The ${speakerRoles.first()} should use rhetorical questions and teaser hooks before transitions. Create micro-curiosity loops that pull listeners forward, but vary the phrasing each transition (do not reuse the same hook twice in one episode)${buildNoEmptySetupBlock()}${buildNoEchoTurnBlock()}
@@ -153,7 +152,7 @@ class DialogueComposer(
             - Vary transition wording across the episode; do not reuse a stock bridge phrase$nameInstruction$languageInstruction$customInstructionsBlock${buildRunContextBlock(context)}
 
             Article summaries:
-            $summaryBlock$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
+            $summaryBlock${buildResearchDataBlock(context.research)}$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
         """.trimIndent()
     }
 

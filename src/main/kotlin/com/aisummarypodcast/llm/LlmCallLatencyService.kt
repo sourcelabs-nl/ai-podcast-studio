@@ -48,7 +48,9 @@ class LlmCallLatencyService(
                 model = it.model,
                 durationMs = it.durationMs,
                 outcome = it.outcome,
-                cacheHit = it.cacheHit
+                cacheHit = it.cacheHit,
+                servedProvider = it.servedProvider,
+                reasoningTokens = it.reasoningTokens
             )
         }
         return EpisodeLlmCallsResponse(

@@ -1,5 +1,8 @@
 package com.aisummarypodcast.llm
 
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -9,10 +12,13 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.ai.chat.messages.AssistantMessage
+import org.springframework.ai.chat.metadata.ChatResponseMetadata
+import org.springframework.ai.chat.metadata.DefaultUsage
 import org.springframework.ai.chat.model.ChatModel
 import org.springframework.ai.chat.model.ChatResponse
 import org.springframework.ai.chat.model.Generation
 import org.springframework.ai.chat.prompt.Prompt
+import org.slf4j.LoggerFactory
 
 /**
  * Only [ChatModel] is mocked; [ChatClient] and the real Spring AI advisor chain run for real, so
@@ -70,24 +76,50 @@ class RoleTagValidationAdvisorTest {
     }
 
     @Test
-    fun `response with pending tool calls bypasses role validation`() {
+    fun `the usage of a rejected attempt is kept for the compose stage total`() {
         val chatModel = mockk<ChatModel>()
-        val toolCallMessage = AssistantMessage.builder()
-            .content("<function_results>partial</function_results>")
-            .toolCalls(listOf(AssistantMessage.ToolCall("id-1", "function", "searchPastEpisodes", "{}")))
-            .build()
-        every { chatModel.call(any<Prompt>()) } returns ChatResponse(listOf(Generation(toolCallMessage)))
+        val metadata = { input: Int, output: Int ->
+            ChatResponseMetadata.builder().usage(DefaultUsage(input, output)).build()
+        }
+        every { chatModel.call(any<Prompt>()) } returnsMany listOf(
+            ChatResponse(listOf(Generation(AssistantMessage("Hi there, no tags."))), metadata(1000, 10000)),
+            ChatResponse(listOf(Generation(AssistantMessage("<interviewer>Hi</interviewer><expert>Hello</expert>"))), metadata(1100, 9000))
+        )
+        val advisor = RoleTagValidationAdvisor(allowedRoles)
 
-        val result = buildChatClient(chatModel).prompt()
+        val response = buildChatClient(chatModel).prompt()
             .user("Write a script.")
-            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .advisors(advisor)
             .call()
-            .content()
+            .chatResponse()
 
-        // Tool-call round trips are resolved internally by Spring AI before a final text
-        // response reaches this advisor; a response that still carries tool calls is passed
-        // through untouched rather than validated, since its text is not the final script.
-        assertEquals("<function_results>partial</function_results>", result)
+        val total = advisor.discardedUsage.fold(TokenUsage.fromChatResponse(response), TokenUsage::plus)
+        assertEquals(1, advisor.discardedUsage.size)
+        assertEquals(2100, total.inputTokens)
+        assertEquals(19000, total.outputTokens)
+    }
+
+    @Test
+    fun `a trailing topic-order block is not reported as discarded text`() {
+        val chatModel = mockk<ChatModel>()
+        val script = "<interviewer>Hi</interviewer><expert>Hello</expert>\n" +
+            "|||TOPIC_ORDER|||\n[\"AI\", \"Cloud\"]\n|||END_TOPIC_ORDER|||"
+        every { chatModel.call(any<Prompt>()) } returns response(script)
+        val logger = LoggerFactory.getLogger("com.aisummarypodcast.llm.ComposerUtils") as Logger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        logger.addAppender(appender)
+
+        try {
+            buildChatClient(chatModel).prompt()
+                .user("Write a script.")
+                .advisors(RoleTagValidationAdvisor(allowedRoles))
+                .call()
+                .content()
+        } finally {
+            logger.detachAppender(appender)
+        }
+
+        assertTrue(appender.list.none { it.formattedMessage.contains("Discarded") }, appender.list.joinToString { it.formattedMessage })
         verify(exactly = 1) { chatModel.call(any<Prompt>()) }
     }
 

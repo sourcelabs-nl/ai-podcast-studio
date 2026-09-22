@@ -9,8 +9,9 @@ import com.aisummarypodcast.util.sha256
  * is not deterministic, so a difference between two sets of scripts is only attributable if the
  * conditions of each run are known. Every field here is something that would silently invalidate
  * that comparison if it differed unnoticed: a substituted model, a different temperature, a
- * different variety rotation, a run that never reached the model, or a tool that fired in one arm
- * and not the other.
+ * different variety rotation, a run that never reached the model, or research that differed between
+ * the arms. [toolsFired] keeps its name from when research ran as compose tools; it now counts the
+ * web searches and past-episode matches the pre-compose research stage handed to the prompt.
  *
  * [cacheHit] is false on every row this writes today, because the bypass disables the cache read
  * itself and a completion that was never looked up cannot be replayed. It is recorded rather than
@@ -28,6 +29,9 @@ data class EvaluationRunProvenance(
     val toolsFired: Map<String, Int>
 ) {
     companion object {
+        const val WEB_SEARCHES = "webSearches"
+        const val HISTORY_MATCHES = "historyMatches"
+
         /**
          * Captures the conditions of a compose call. Returns null unless the run asked to bypass
          * the cache, so an ordinary generation records nothing.
@@ -38,8 +42,7 @@ data class EvaluationRunProvenance(
             composeModel: String,
             temperature: Double,
             variety: PromptVarietySelection,
-            usage: TokenUsage,
-            toolBudget: ToolBudget
+            usage: TokenUsage
         ): EvaluationRunProvenance? {
             if (!context.bypassLlmCache) return null
             return EvaluationRunProvenance(
@@ -49,7 +52,10 @@ data class EvaluationRunProvenance(
                 temperature = temperature,
                 cacheBypassed = true,
                 cacheHit = usage.reportedCostFromCache,
-                toolsFired = toolBudget.invocationCounts()
+                toolsFired = mapOf(
+                    WEB_SEARCHES to context.research.researchCalls,
+                    HISTORY_MATCHES to context.research.history.size
+                )
             )
         }
     }

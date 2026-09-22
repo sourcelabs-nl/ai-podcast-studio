@@ -1,5 +1,9 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.research.PreComposeResearch
+
+import com.aisummarypodcast.research.BackgroundSource
+
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
 import com.aisummarypodcast.config.ComposeProperties
@@ -174,20 +178,44 @@ class BriefingComposerTest {
         )
     )
 
+
+    private val sampleResearch = PreComposeResearch(
+        sources = listOf(BackgroundSource("o5 reactions", "Experts weigh in on o5", "https://news.example.com/o5", "Researchers call it a step change.")),
+        researchCalls = 1
+    )
+
+    private val focusMatch = PastEpisodeMatch(
+        episodeId = 9, generatedAt = "2026-09-21", topics = "Claude Opus 5.5", recapSnippet = "A deep dive into Opus 5.5.", isFocusEpisode = true
+    )
+
     @Test
-    fun `buildPrompt instructs the model to call searchPastEpisodes before treating any topic as new`() {
+    fun `buildPrompt carries past coverage as a block and names no tool`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", language = "en")
-        val prompt = composer.buildPrompt(sampleArticles, podcast)
-        assertTrue(prompt.contains("searchPastEpisodes"), "Expected the history lookup tool name in the prompt")
-        assertTrue(prompt.contains("HISTORY CHECK"), "Expected the HISTORY CHECK directive in the prompt")
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(research = PreComposeResearch(history = listOf(focusMatch))))
+        assertTrue(prompt.contains("Previously covered (past episodes"))
+        assertTrue(prompt.contains("2026-09-21 [focus episode]: topics Claude Opus 5.5. A deep dive into Opus 5.5."))
+        assertTrue(prompt.contains("PREVIOUSLY COVERED:"))
+        assertFalse(prompt.contains("searchPastEpisodes"))
     }
 
     @Test
-    fun `buildPrompt includes webSearch nudge when deepDiveEnabled`() {
-        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", deepDiveEnabled = true)
+    fun `buildPrompt omits the history guidance when nothing matched`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech")
         val prompt = composer.buildPrompt(sampleArticles, podcast)
-        assertTrue(prompt.contains("webSearch"), "Expected webSearch tool name in prompt when deep-dive enabled")
+        assertTrue(prompt.contains("WHAT COUNTS AS NEW"))
+        assertFalse(prompt.contains("PREVIOUSLY COVERED:"))
+        assertFalse(prompt.contains("Previously covered (past episodes"))
+    }
+
+    @Test
+    fun `buildPrompt carries background research when the stage found some`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech", deepDiveEnabled = true)
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(research = sampleResearch))
         assertTrue(prompt.contains("DEEP DIVE"), "Expected DEEP DIVE directive in prompt")
+        assertTrue(prompt.contains("Background research (web search results"))
+        assertTrue(prompt.contains("1. Experts weigh in on o5 (news.example.com, https://news.example.com/o5)"))
+        assertTrue(prompt.contains("Researchers call it a step change."))
+        assertFalse(prompt.contains("webSearch"))
     }
 
     @Test
@@ -287,7 +315,7 @@ class BriefingComposerTest {
 
         val chatClient = mockk<ChatClient>()
         every { chatClient.prompt() } returns chatClientRequestSpec
-        every { chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any()) } returns chatClient
+        every { chatClientFactory.createForModel(podcast.userId, composeModelDef, any(), any()) } returns chatClient
 
         val result = composer.compose(articles, podcast, composeModelDef)
 
@@ -317,13 +345,13 @@ class BriefingComposerTest {
         val chatClient = mockk<ChatClient>()
         every { chatClient.prompt() } returns chatClientRequestSpec
         every {
-            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false, context = any())
+            chatClientFactory.createForModel(podcast.userId, composeModelDef, useCache = false, attribution = any())
         } returns chatClient
 
         composer.compose(articles, podcast, composeModelDef, ComposeContext(bypassLlmCache = true))
 
         verify {
-            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false, context = any())
+            chatClientFactory.createForModel(podcast.userId, composeModelDef, useCache = false, attribution = any())
         }
     }
 
@@ -592,13 +620,13 @@ class BriefingComposerTest {
         val articles = listOf(
             Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s")
         )
-        val prompt = composer.buildPrompt(articles, podcast)
-        assertTrue(prompt.contains("DEEP DIVE: Identify the 2-3 most newsworthy"))
-        assertFalse(prompt.contains("full-segment subtopics"))
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(research = sampleResearch))
+        assertTrue(prompt.contains("DEEP DIVE: The \"Background research\" section below"))
+        assertFalse(prompt.contains("never in rapid-fire stories"))
     }
 
     @Test
-    fun `deep-dive prompt with subtopics restricts webSearch to full segments`() {
+    fun `deep-dive prompt with subtopics restricts research to full segments`() {
         val podcast = Podcast(
             id = "p1", userId = "u1", name = "T", topic = "tech", deepDiveEnabled = true,
             subtopics = com.aisummarypodcast.store.Subtopics(mapOf("LLMs" to 10, "Other AI" to 1)),
@@ -608,10 +636,9 @@ class BriefingComposerTest {
             Article(id = 1, sourceId = "s1", title = "A", body = "b", url = "https://x.com/1", contentHash = "h1", summary = "s1", subtopic = "LLMs"),
             Article(id = 2, sourceId = "s1", title = "B", body = "b", url = "https://x.com/2", contentHash = "h2", summary = "s2", subtopic = "Other AI")
         )
-        val prompt = composer.buildPrompt(articles, podcast)
-        assertTrue(prompt.contains("ONLY for stories you will cover in a full segment"))
-        assertTrue(prompt.contains("preferring higher-weight subtopics"))
-        assertTrue(prompt.contains("episode-wide budget of 3 calls"))
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(research = sampleResearch))
+        assertTrue(prompt.contains("ONLY in stories you cover in a full segment"))
+        assertTrue(prompt.contains("never in rapid-fire stories"))
     }
 
     @Test
@@ -658,12 +685,12 @@ class BriefingComposerTest {
     }
 
     @Test
-    fun `focus episode prompt names the focus and offers webSearch at the raised budget without deep dive`() {
-        val prompt = composer.buildPrompt(sampleArticles, Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech"), ComposeContext(focus = "Claude Opus 5.5 release"))
+    fun `focus episode prompt names the focus and spends its research on the one subject`() {
+        val prompt = composer.buildPrompt(sampleArticles, Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech"), ComposeContext(focus = "Claude Opus 5.5 release", research = sampleResearch))
 
         assertTrue(prompt.contains("Claude Opus 5.5 release"))
-        assertTrue(prompt.contains("`webSearch`"))
-        assertTrue(prompt.contains("budget of 5 calls"))
+        assertTrue(prompt.contains("This episode is about a single subject"))
+        assertTrue(prompt.contains("Experts weigh in on o5"))
     }
 
     @Test
@@ -677,10 +704,15 @@ class BriefingComposerTest {
     fun `regular prompt names recent focus episodes and treats a focus match as a continuation`() {
         val prompt = composer.buildPrompt(
             sampleArticles, Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech"),
-            ComposeContext(recentFocusEpisodes = listOf(RecentFocusEpisode("Claude Opus 5.5 release", "2026-09-21T12:00:00Z")))
+            ComposeContext(
+                recentFocusEpisodes = listOf(RecentFocusEpisode("Claude Opus 5.5 release", "2026-09-21T12:00:00Z")),
+                research = PreComposeResearch(history = listOf(focusMatch))
+            )
         )
 
         assertTrue(prompt.contains("\"Claude Opus 5.5 release\" (2026-09-21)"))
-        assertTrue(prompt.contains("isFocusEpisode = true"))
+        assertTrue(prompt.contains("treat it as a follow-up"))
+        assertTrue(prompt.contains("treat it as a continuation"))
+        assertTrue(prompt.contains("[focus episode]"))
     }
 }

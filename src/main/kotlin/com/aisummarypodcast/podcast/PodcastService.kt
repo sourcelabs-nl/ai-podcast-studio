@@ -371,7 +371,8 @@ class PodcastService(
 
     /**
      * Recomposes a focus episode under review with a reviewer's [feedback], in the background: the
-     * same locked article set, research rerun, and the result written onto the same episode, which
+     * same locked article set, research rerun (the plan and searches replay from their caches, and the
+     * new run replaces the recorded sources), and the result written onto the same episode, which
      * stays in review. Repeatable; the episode keeps only the latest feedback.
      */
     fun recomposeFocusEpisodeAsync(episode: Episode, podcast: Podcast, feedback: String): Episode {
@@ -408,7 +409,6 @@ class PodcastService(
         // The focus summaries were never persisted; rescoring the locked set recovers them, and the
         // LLM cache replays the calls the first run already paid for.
         val selection = llmPipeline.scoreForFocus(podcast, linked.articles, focus, episodeId, onProgress)
-        episodeService.clearResearchSources(episodeId)
 
         val window = episodeWindowResolver.windowOf(episode) ?: episodeWindowResolver.resolveForNow(podcast)
         val composeResult = llmPipeline.compose(

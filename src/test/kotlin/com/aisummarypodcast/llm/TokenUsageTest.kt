@@ -115,4 +115,41 @@ class TokenUsageTest {
         assertEquals(0.00042, usage.reportedCostUsd)
         assertTrue(usage.reportedCostFromCache)
     }
+
+    @Test
+    fun `reads the reasoning tokens from the native usage`() {
+        val nativeUsage = CompletionUsage.builder()
+            .promptTokens(500).completionTokens(100).totalTokens(600)
+            .completionTokensDetails(CompletionUsage.CompletionTokensDetails.builder().reasoningTokens(70).build())
+            .build()
+
+        assertEquals(70, TokenUsage.fromChatResponse(responseWith(nativeUsage)).reasoningTokens)
+    }
+
+    @Test
+    fun `reasoning tokens are null when the provider does not report them`() {
+        assertNull(TokenUsage.fromChatResponse(responseWith(openRouterUsage(null))).reasoningTokens)
+    }
+
+    @Test
+    fun `adding two usages sums tokens and keeps a cost only when both reported one`() {
+        val both = TokenUsage(100, 10, 0.01, reasoningTokens = 5) + TokenUsage(200, 20, 0.02)
+        assertEquals(300, both.inputTokens)
+        assertEquals(30, both.outputTokens)
+        assertEquals(0.03, both.reportedCostUsd!!, 1e-9)
+        assertEquals(5, both.reasoningTokens)
+
+        assertNull((TokenUsage(100, 10, 0.01) + TokenUsage(200, 20)).reportedCostUsd)
+        assertNull((TokenUsage(1, 1) + TokenUsage(1, 1)).reasoningTokens)
+    }
+
+    @Test
+    fun `the served provider is read from the response metadata`() {
+        val metadata = ChatResponseMetadata.builder().usage(DefaultUsage(1, 1)).keyValue("provider", "Google").build()
+        val response = ChatResponse(listOf(Generation(AssistantMessage("text"))), metadata)
+
+        assertEquals("Google", servedProviderOf(response))
+        assertNull(servedProviderOf(responseWith(null)))
+        assertNull(servedProviderOf(null))
+    }
 }

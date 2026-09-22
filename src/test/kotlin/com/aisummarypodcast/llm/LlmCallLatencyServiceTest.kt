@@ -42,12 +42,12 @@ class LlmCallLatencyServiceTest {
     private val service = LlmCallLatencyService(llmCallRepository, episodeRepository, appProperties)
 
     @Test
-    fun `the dedup gate is reported alongside the pipeline stages`() {
+    fun `the dedup gate and the research plan are reported alongside the pipeline stages`() {
         every { llmCallRepository.latencyPercentiles(any()) } returns emptyList()
 
         val stages = service.latencySince(Duration.ofDays(1)).stages.map { it.stage }
 
-        assertEquals(PipelineStage.entries.map { it.value } + DEDUP_GATE_STAGE, stages)
+        assertEquals(PipelineStage.entries.map { it.value } + DEDUP_GATE_STAGE + RESEARCH_PLAN_STAGE, stages)
     }
 
     @Test

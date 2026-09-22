@@ -29,6 +29,10 @@ import org.springframework.data.relational.core.mapping.Table
  * other stage covers a whole set. A scoring request is issued when the article arrives, before the
  * episode that uses it exists, so it names an article and no episode, and an episode gathers those
  * requests through its candidates.
+ *
+ * [servedProvider] is the upstream provider OpenRouter routed the request to, and [reasoningTokens]
+ * how many of [outputTokens] were reasoning. Both are null where the response did not say, which
+ * includes cache hits and failed requests.
  */
 @Table("llm_calls")
 data class LlmCall(
@@ -48,5 +52,7 @@ data class LlmCall(
     val errorType: String? = null,
     val episodeId: Long? = null,
     val articleId: Long? = null,
+    val servedProvider: String? = null,
+    val reasoningTokens: Int? = null,
     @Version val version: Long? = null
 )

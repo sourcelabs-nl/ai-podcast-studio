@@ -13,6 +13,12 @@ import java.time.Duration
 const val DEDUP_GATE_STAGE = "dedup-gate"
 
 /**
+ * The stage name the pre-compose research plan records its requests under. It runs on the filter
+ * model, but it is neither scoring nor recap, and the cost breakdown bills it to research.
+ */
+const val RESEARCH_PLAN_STAGE = "research-plan"
+
+/**
  * A stage the latency report covers, and the request timeout its calls are issued with.
  *
  * This exists because the reported stages are not the same set as [PipelineStage]. That enum also
@@ -33,6 +39,7 @@ data class ReportedStage(val stage: String, val timeout: Duration) {
          */
         fun all(properties: AppProperties): List<ReportedStage> =
             PipelineStage.entries.map { ReportedStage(it.value, it.timeout(properties.llm.timeouts)) } +
-                ReportedStage(DEDUP_GATE_STAGE, properties.llm.dedup.gate.timeout)
+                ReportedStage(DEDUP_GATE_STAGE, properties.llm.dedup.gate.timeout) +
+                ReportedStage(RESEARCH_PLAN_STAGE, PipelineStage.FILTER.timeout(properties.llm.timeouts))
     }
 }

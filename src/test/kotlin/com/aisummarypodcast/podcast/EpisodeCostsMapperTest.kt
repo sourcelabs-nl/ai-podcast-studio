@@ -157,6 +157,20 @@ class EpisodeCostsMapperTest {
     }
 
     @Test
+    fun `research row adds the recorded research-plan cost to the searches`() {
+        val plan = LlmStageTotals(
+            stage = CostStage.RESEARCH_PLAN, calls = 1, inputTokens = 400, outputTokens = 60,
+            costUsd = 0.002, unresolvedCalls = 0, sources = listOf(LlmCostSource.API)
+        )
+        val resp = episode(researchCalls = 3, researchCost = 3)
+            .toResponse(EpisodeCostContext(projection = com.aisummarypodcast.podcast.EpisodeCostProjection(mapOf(CostStage.RESEARCH_PLAN to plan))))
+
+        assertEquals(3, resp.costs.research.calls)
+        assertEquals(3.2, resp.costs.research.costCents, 1e-9)
+        assertEquals(3.2, resp.costs.totalCostCents, 1e-9)
+    }
+
+    @Test
     fun `nullable tts and research collapse to zero in response`() {
         val resp = episode().toResponse()
         assertEquals(0, resp.costs.tts.calls)

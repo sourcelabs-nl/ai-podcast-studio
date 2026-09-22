@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import com.aisummarypodcast.research.PreComposeResearch
 import java.time.LocalDate
 
 /**
@@ -31,14 +32,16 @@ import java.time.LocalDate
  * carries this object, and a preview has no episode to name, so it stays null.
  *
  * [focus] is the focus text of a focus episode, null for a regular episode. A focus episode always
- * has the `webSearch` tool at the raised budget ([focusResearchEnabled]), records the sources it
- * returns against [episodeId], and tells the model what the episode is about.
+ * runs web research at the raised query cap and tells the model what the episode is about.
  *
  * [extraInstruction] is a reviewer's feedback on the previous script of a focus episode, appended to
  * the prompt like the TTS guidelines are.
  *
  * [recentFocusEpisodes] are the focus episodes aired since the previous regular episode, so a regular
  * episode picks their topics up as a follow-up rather than repeating or ignoring them.
+ *
+ * [research] is what the pre-compose research stage found: web search results and past-episode
+ * matches. Like [ttsScriptGuidelines] it is filled in by the pipeline, so callers leave it empty.
  */
 data class ComposeContext(
     val ttsScriptGuidelines: String = "",
@@ -50,10 +53,9 @@ data class ComposeContext(
     val episodeId: Long? = null,
     val focus: String? = null,
     val extraInstruction: String? = null,
-    val recentFocusEpisodes: List<RecentFocusEpisode> = emptyList()
-) {
-    val focusResearchEnabled: Boolean get() = focus != null
-}
+    val recentFocusEpisodes: List<RecentFocusEpisode> = emptyList(),
+    val research: PreComposeResearch = PreComposeResearch.NONE
+)
 
 /** A focus episode that aired since the previous regular episode, as the compose prompt names it. */
 data class RecentFocusEpisode(

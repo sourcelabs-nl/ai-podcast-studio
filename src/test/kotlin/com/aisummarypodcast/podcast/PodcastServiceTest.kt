@@ -494,7 +494,6 @@ class PodcastServiceTest {
         every { episodeService.markRecomposing(focusEpisode) } returns focusEpisode.copy(pipelineStage = "composing")
         every { episodeService.updatePipelineStage(any(), any()) } returns Unit
         every { episodeService.findLinkedArticlesAndTopics(30L) } returns LinkedArticlesResult(listOf(linkedArticle), emptyList(), emptyMap(), emptyMap())
-        every { episodeService.clearResearchSources(30L) } returns Unit
         coEvery { llmPipeline.scoreForFocus(podcast, listOf(linkedArticle), "Claude Opus 5.5 release", 30L, any()) } returns selection
         coEvery { llmPipeline.compose(selection.articles, podcast, any(), any()) } returns composeResult
         every { episodeService.saveFeedbackRecompose(any(), composeResult, "shorter") } answers {

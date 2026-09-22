@@ -14,6 +14,9 @@ import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.PostRepository
 import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceRepository
+import com.aisummarypodcast.research.PreComposeResearch
+import com.aisummarypodcast.research.PreComposeResearchService
+import com.aisummarypodcast.research.ResearchRequest
 import com.aisummarypodcast.tts.TtsProviderFactory
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -124,7 +127,8 @@ class LlmPipeline(
     private val articleEligibilityService: ArticleEligibilityService,
     private val topicDedupFilter: TopicDedupFilter,
     private val episodeWindowResolver: EpisodeWindowResolver,
-    private val retryRegistry: RetryRegistry
+    private val retryRegistry: RetryRegistry,
+    private val preComposeResearchService: PreComposeResearchService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -508,7 +512,8 @@ class LlmPipeline(
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         val composeContext = context.copy(
             ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
-            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate)
+            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate),
+            research = research(toCompose, podcast, context)
         )
 
         // Retried only on a transient provider fault (see the `compose` instance): an invalid or
@@ -527,9 +532,8 @@ class LlmPipeline(
 
         val composeCost = CostEstimator.resolveLlmCost(compositionResult.usage, composeModelDef.cost)
 
-        val researchCostCents = if (compositionResult.researchCalls > 0) {
-            compositionResult.researchCalls * appProperties.research.tavily.costPerCallCents
-        } else null
+        val researchCalls = composeContext.research.researchCalls
+        val researchCostCents = researchCostCents(researchCalls)
 
         return ComposeStageResult(
             script = compositionResult.script,
@@ -539,7 +543,7 @@ class LlmPipeline(
             composeCostCents = composeCost.costCents?.roundToInt(),
             composeCostSource = composeCost.source,
             composeReportedCostCents = composeCost.reportedCostCents,
-            researchCalls = compositionResult.researchCalls,
+            researchCalls = researchCalls,
             researchCostCents = researchCostCents,
             provenance = compositionResult.provenance
         )
@@ -558,16 +562,16 @@ class LlmPipeline(
     ): PipelineResult {
         val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
         val ttsProvider = ttsProviderFactory.resolve(podcast)
+        onProgress("composing", mapOf("articleCount" to articles.size))
         val composeContext = context.copy(
             ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
-            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate)
+            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate),
+            research = research(articles, podcast, context)
         )
 
-        onProgress("composing", mapOf("articleCount" to articles.size))
-
         // Recompose runs no dedup stage, so the annotations must come from the source episode's
-        // stored links. Without them the composer has no continuity signal and substitutes the
-        // searchPastEpisodes tool, which demoted a launch story on an unrelated keyword match.
+        // stored links. Without them the composer has no continuity signal and leans on the
+        // keyword-matched history block, which once demoted a launch story on an unrelated match.
         val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
             when (podcast.style) {
                 PodcastStyle.DIALOGUE -> dialogueComposer.compose(articles, podcast, composeModelDef, composeContext)
@@ -580,9 +584,8 @@ class LlmPipeline(
         val composeCost = CostEstimator.resolveLlmCost(compositionResult.usage, composeModelDef.cost)
         val costCents = composeCost.costCents?.roundToInt()
 
-        val researchCostCents = if (compositionResult.researchCalls > 0) {
-            compositionResult.researchCalls * appProperties.research.tavily.costPerCallCents
-        } else null
+        val researchCalls = composeContext.research.researchCalls
+        val researchCostCents = researchCostCents(researchCalls)
 
         // Recompose reuses already-scored articles; score-stage totals are carried so the
         // Costs tab still shows the cost of scoring this episode's articles.
@@ -602,7 +605,7 @@ class LlmPipeline(
             processedArticleIds = articles.map { it.id!! },
             followUpAnnotations = context.followUpAnnotations,
             topicOrder = compositionResult.topicOrder,
-            researchCalls = compositionResult.researchCalls,
+            researchCalls = researchCalls,
             researchCostCents = researchCostCents,
             scoreInputTokens = scoreInputTokens,
             scoreOutputTokens = scoreOutputTokens,
@@ -680,13 +683,14 @@ class LlmPipeline(
 
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         val followUpAnnotations = buildFollowUpAnnotations(dedupResult.filteredArticles)
-        val composeContext = ComposeContext(
+        val previewContext = ComposeContext(
             ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
             followUpAnnotations = followUpAnnotations,
             topicLabels = dedupResult.filteredArticles.mapNotNull { it.topic }.distinct(),
             episodeDate = episodeDate,
             nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, episodeDate)
         )
+        val composeContext = previewContext.copy(research = research(toCompose, podcast, previewContext))
 
         // Same transient-fault retry as the compose stage above.
         val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
@@ -703,6 +707,30 @@ class LlmPipeline(
             articleIds = toCompose.map { it.id!! }
         )
     }
+
+    /**
+     * Runs the pre-compose research stage for a compose run. It sits outside the compose retry, so a
+     * transient compose fault does not repeat the research. The subjects are the focus of a focus
+     * episode followed by the topic clusters, or the article titles for a run that has neither.
+     */
+    private suspend fun research(articles: List<Article>, podcast: Podcast, context: ComposeContext): PreComposeResearch {
+        val subjects = (listOfNotNull(context.focus) + context.topicLabels)
+            .ifEmpty { articles.map { it.title } }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        return preComposeResearchService.research(
+            ResearchRequest(
+                podcast = podcast,
+                subjects = subjects,
+                focusEpisode = context.focus != null,
+                episodeId = context.episodeId
+            )
+        )
+    }
+
+    private fun researchCostCents(researchCalls: Int): Int? =
+        if (researchCalls > 0) researchCalls * appProperties.research.tavily.costPerCallCents else null
 
     private fun buildFollowUpAnnotations(filteredArticles: List<FilteredArticle>): Map<Long, String> {
         val annotations = mutableMapOf<Long, String>()

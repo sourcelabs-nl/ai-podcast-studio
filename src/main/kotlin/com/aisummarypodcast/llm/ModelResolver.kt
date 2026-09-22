@@ -10,12 +10,17 @@ import org.springframework.stereotype.Component
  * A model resolved for one pipeline stage. [stage] travels with the model so downstream code —
  * notably the per-stage request timeout in [ChatClientFactory] — does not have to be told the
  * stage a second time.
+ *
+ * [telemetryStage] is the stage name the requests are recorded under. It is the stage's own name
+ * unless a caller borrows a stage's model for work of its own, as the research plan borrows the
+ * filter model and records as [RESEARCH_PLAN_STAGE] so its requests are not read as scoring.
  */
 data class ResolvedModel(
     val provider: String,
     val model: String,
     val cost: ModelCost?,
-    val stage: PipelineStage
+    val stage: PipelineStage,
+    val telemetryStage: String = stage.value
 )
 
 @Component

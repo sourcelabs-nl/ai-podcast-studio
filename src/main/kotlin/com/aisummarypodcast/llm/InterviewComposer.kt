@@ -31,20 +31,20 @@ class InterviewComposer(
 
     suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
         log.info("[LLM] Composing interview from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
-        val toolBudget = ToolBudget()
-        val chatClient = chatClientFactory.createForCompose(
-            podcast.userId, composeModelDef, podcast, toolBudget,
-            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId),
-            context = context
+        val chatClient = chatClientFactory.createForModel(
+            podcast.userId, composeModelDef,
+            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId)
         )
         val prompt = buildPrompt(articles, podcast, context)
+
+        val tagValidation = RoleTagValidationAdvisor(INTERVIEW_ROLES)
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
                 chatClient.prompt()
                     .user(prompt)
                     .options(buildComposeOptions(composeModelDef, podcast, appProperties))
-                    .advisors(RoleTagValidationAdvisor(INTERVIEW_ROLES))
+                    .advisors(tagValidation)
                     .call()
                     .chatResponse()
             }
@@ -53,20 +53,19 @@ class InterviewComposer(
                 ?: throw IllegalStateException("Empty response from LLM for interview composition")
 
             val extraction = TopicOrderExtractor.extract(rawScript)
-            val usage = TokenUsage.fromChatResponse(chatResponse)
+            // The attempts the tag validation discarded were paid for too.
+            val usage = tagValidation.discardedUsage.fold(TokenUsage.fromChatResponse(chatResponse), TokenUsage::plus)
             CompositionResult(
                 script = cleanUpComposedScript(extraction.script, INTERVIEW_ROLES),
                 usage = usage,
                 topicOrder = extraction.topicOrder,
-                researchCalls = toolBudget.invocations(com.aisummarypodcast.research.RESEARCH_TOOL_NAME),
                 provenance = EvaluationRunProvenance.of(
                     context = context,
                     prompt = prompt,
                     composeModel = composeModelDef.model,
                     temperature = resolveTemperature(podcast, appProperties),
                     variety = varietyPicker.pick(podcast.id, context.episodeDate),
-                    usage = usage,
-                    toolBudget = toolBudget
+                    usage = usage
                 )
             )
         }
@@ -146,7 +145,7 @@ class InterviewComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
-            Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast, context, plan != null)}
+            Engagement techniques:$humorBlock${buildHistoryGuidanceBlock(context.research)}${buildResearchGuidanceBlock(context, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction${buildColdOpenPacingBlock()}
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode (do not lean on the same hook construction twice)${buildNoEmptySetupBlock()}${buildNoEchoTurnBlock()}
@@ -174,7 +173,7 @@ class InterviewComposer(
             - STRICT STRUCTURAL RULE: Tags MUST alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. Never write two consecutive tags of the same speaker to continue the same point, and never as a way around the turn length rule. The ONE exception is the BACKCHANNEL above: after a backchannel turn the speaker who was interrupted resumes in a turn of their own, which is the only place <expert>...</expert><interviewer>brief token</interviewer><expert>...</expert> may pick the thought back up. Outside that exception this rule overrides any other instruction including custom instructions below${buildSpeakerTagFormatBlock(INTERVIEW_ROLES)}$nameInstruction$languageInstruction$customInstructionsBlock${buildRunContextBlock(context)}
 
             Article summaries:
-            $summaryBlock$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
+            $summaryBlock${buildResearchDataBlock(context.research)}$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock
         """.trimIndent()
     }
 

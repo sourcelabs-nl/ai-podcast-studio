@@ -440,9 +440,6 @@ class EpisodeService(
         episodeRepository.save(episode.copy(pipelineStage = null))
     }
 
-    /** Drops the research sources of a focus episode before a recompose records new ones. */
-    fun clearResearchSources(episodeId: Long) = researchSourceRepository.deleteByEpisodeId(episodeId)
-
     fun findResearchSources(episodeId: Long): List<EpisodeResearchSource> =
         researchSourceRepository.findByEpisodeIdOrderByOrdinal(episodeId)
 

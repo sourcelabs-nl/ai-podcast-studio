@@ -16,8 +16,29 @@ data class TokenUsage(
     val outputTokens: Int,
     val reportedCostUsd: Double? = null,
     /** True when [reportedCostUsd] was replayed from the LLM cache rather than freshly charged. */
-    val reportedCostFromCache: Boolean = false
+    val reportedCostFromCache: Boolean = false,
+    /**
+     * How many of [outputTokens] were reasoning, from `usage.completion_tokens_details.reasoning_tokens`.
+     * Null when the provider did not report it, which includes every cache hit.
+     */
+    val reasoningTokens: Int? = null
 ) {
+
+    /**
+     * The usage of two requests made for one result, such as a script and the attempt the
+     * speaker-tag validation discarded before it. A reported cost is only summed when both parts
+     * reported one: a partial sum presented as the whole would understate the charge, so the
+     * total then carries none and is costed from the configured rates.
+     */
+    operator fun plus(other: TokenUsage): TokenUsage = TokenUsage(
+        inputTokens = inputTokens + other.inputTokens,
+        outputTokens = outputTokens + other.outputTokens,
+        reportedCostUsd = if (reportedCostUsd != null && other.reportedCostUsd != null) reportedCostUsd + other.reportedCostUsd else null,
+        reportedCostFromCache = reportedCostFromCache && other.reportedCostFromCache,
+        reasoningTokens = if (reasoningTokens == null && other.reasoningTokens == null) null
+            else (reasoningTokens ?: 0) + (other.reasoningTokens ?: 0)
+    )
+
     companion object {
         private val log = LoggerFactory.getLogger(TokenUsage::class.java)
 
@@ -40,8 +61,17 @@ data class TokenUsage(
                 inputTokens = usage.promptTokens ?: 0,
                 outputTokens = usage.completionTokens ?: 0,
                 reportedCostUsd = cachedCost ?: reportedCostFromNativeUsage(usage.nativeUsage),
-                reportedCostFromCache = cachedCost != null
+                reportedCostFromCache = cachedCost != null,
+                reasoningTokens = reasoningTokensFromNativeUsage(usage.nativeUsage)
             )
+        }
+
+        /** Same degradation as the cost: any shape failure means "not reported". */
+        private fun reasoningTokensFromNativeUsage(nativeUsage: Any?): Int? {
+            if (nativeUsage !is CompletionUsage) return null
+            return runCatching {
+                nativeUsage.completionTokensDetails().flatMap { it.reasoningTokens() }.orElse(null)?.toInt()
+            }.getOrNull()
         }
 
         /**

@@ -54,33 +54,38 @@ class ComposerBannedPromptsTest {
 
     @ParameterizedTest
     @EnumSource(PodcastStyle::class)
-    fun `built compose prompt subordinates the history tool to the follow-up annotations`(style: PodcastStyle) {
-        val prompt = buildPromptFor(style)
+    fun `built compose prompt subordinates past coverage to the follow-up annotations`(style: PodcastStyle) {
+        val prompt = buildPromptFor(style, withHistory = true)
 
-        // Dedup compares titles and summaries against the real historical article set; the tool
-        // only matches keywords against past scripts. Told to treat any hit as prior coverage, the
+        // Dedup compares titles and summaries against the real historical article set; the history
+        // search only matches keywords against past scripts. Told to treat any hit as prior coverage, the
         // composer claimed a launch had been "covered yesterday" and dropped it from the lead.
         assertTrue(
             prompt.contains("WHAT COUNTS AS NEW"),
             "Compose prompt for style $style must state that the [FOLLOW-UP: ...] headers are authoritative"
         )
         assertTrue(
-            prompt.contains("A keyword match is NOT evidence"),
+            prompt.contains("A match is NOT evidence"),
             "Compose prompt for style $style must forbid demoting a story on a keyword match alone"
         )
     }
 
-    private fun buildPromptFor(style: PodcastStyle): String {
+    private fun buildPromptFor(style: PodcastStyle, withHistory: Boolean = false): String {
         val podcast = podcastForStyle(style)
+        val context = if (!withHistory) ComposeContext() else ComposeContext(
+            research = com.aisummarypodcast.research.PreComposeResearch(
+                history = listOf(PastEpisodeMatch(1, "2026-09-01", "GPT-6", "Benchmarks leaked."))
+            )
+        )
         return when (style) {
             PodcastStyle.DIALOGUE ->
-                DialogueComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast)
+                DialogueComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
 
             PodcastStyle.INTERVIEW ->
-                InterviewComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast)
+                InterviewComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
 
             else ->
-                BriefingComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast)
+                BriefingComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
         }
     }
 

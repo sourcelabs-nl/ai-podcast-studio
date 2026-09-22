@@ -28,7 +28,11 @@ data class LlmCallResponse(
     val model: String,
     val durationMs: Long,
     val outcome: String,
-    val cacheHit: Boolean
+    val cacheHit: Boolean,
+    /** The upstream provider OpenRouter served the request from; null when unreported. */
+    val servedProvider: String? = null,
+    /** How many of the request's output tokens were reasoning; null when unreported. */
+    val reasoningTokens: Int? = null
 )
 
 /**
