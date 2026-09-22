@@ -27,7 +27,21 @@ Nothing in the application reads this directory.
 - [`evals/`](evals/index.md): experiments and their conditions
 - [`references/`](references/index.md): external material we learn from
 
-[`log.md`](log.md) records what changed here and when, newest first.
+[`log.md`](log.md) records what changed here and when, newest first. Past months
+move to `log-archive-YYYY-MM.md` unchanged once the current file gets long, so the
+whole history reads with `grep "^## \[" knowledge/log*.md`.
+
+## Frontmatter
+
+`okf_version`, `type`, `title` and `status` on every entry. `generated` and
+`verified` carry provenance, described below. `answers` is this bundle's own
+addition: one line naming the situation in which someone needs the entry, which
+is what the section indexes list under each link. It is what a reader routes on,
+so it states the occasion rather than the conclusion; the title already carries
+the conclusion.
+
+Findings about third-party models add `method`, `model_version` and an absolute
+`stale_after`.
 
 ## Entry types
 

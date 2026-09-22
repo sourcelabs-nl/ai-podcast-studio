@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: Two turns by one speaker are fine; two turns saying the same thing are not
+answers: tempted to add a structural check that blocks two consecutive turns by one speaker
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/InterviewComposer.kt, STRATEGIC CLIFFHANGERS
 generated:

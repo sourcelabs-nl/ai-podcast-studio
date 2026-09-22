@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: experiment
 title: Episode 208 against 209, an observation rather than an experiment
+answers: about to cite the 208 against 209 numbers as evidence for anything
 status: stable
 varied: the attention-device rules in the compose prompt
 held_fixed: none of the conditions an experiment needs

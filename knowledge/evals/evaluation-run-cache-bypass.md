@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: Repeating a prompt variant needs an explicit cache bypass
+answers: setting up an eval or ablation run, or getting suspiciously identical output across runs meant to be independent
 status: stable
 method: >
   Read from the cache key itself rather than observed in a wrong result, then

@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: experiment
 title: Structural baseline over the 18 most recent episodes
+answers: asking whether an episode's length or turn structure is anomalous, or setting a structural threshold
 status: stable
 varied: nothing
 held_fixed: not applicable, this is a description of the archive rather than a comparison

@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: experiment
 title: The judged baseline over the archive
+answers: choosing a threshold for a script quality gate, or asking whether an episode scores better than history
 status: stable
 method: >
   One judge call per script over every scorable episode in the archive, at scorer

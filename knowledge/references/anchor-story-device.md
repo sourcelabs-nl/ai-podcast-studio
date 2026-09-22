@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: reference
 title: The anchor story as a throughline
+answers: looking for an untried attention or structure device for the compose prompt
 status: draft
 generated:
   by: claude-opus-5

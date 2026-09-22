@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: reference
 title: What a Narro RSS feed carries, and what it does not
+answers: changing how threads are reconstructed from Narro-sourced X content
 status: stable
 method: >
   Fetched one combined feed live and read all 50 items: the element names present

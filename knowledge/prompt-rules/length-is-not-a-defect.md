@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: Turn length and episode length are judged by ear, not by the numbers
+answers: deciding whether to gate on episode length or turn length
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/InterviewComposer.kt, STRICT TURN LENGTH
 generated:

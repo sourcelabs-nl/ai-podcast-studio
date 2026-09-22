@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: A short turn has to bring its own words
+answers: diagnosing a short turn that sounds wrong, or editing the no-echo rule
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/ComposerUtils.kt, buildNoEchoTurnBlock
 generated:

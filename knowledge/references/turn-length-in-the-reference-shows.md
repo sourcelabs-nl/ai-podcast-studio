@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: The reference shows have long turns, not short ones
+answers: considering shorter turns to get closer to the reference shows
 status: stable
 method: >
   Cue and word counts over the two reference transcripts, plus a qualitative

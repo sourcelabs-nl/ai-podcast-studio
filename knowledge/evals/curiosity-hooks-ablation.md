@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: experiment
 title: Removing CURIOSITY HOOKS cuts the cheap promises, not the real ones
+answers: deciding whether to remove or keep the CURIOSITY HOOKS bullet, or wondering why the judged score does not move when a prompt rule does
 status: stable
 method: >
   Two arms, five composes each, of the same source episode (208) from its own

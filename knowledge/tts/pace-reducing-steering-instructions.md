@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: Pace-reducing steering instructions cost about ten seconds a turn
+answers: adding or debugging a pace or delivery cue in a TTS request
 status: stable
 model_version: inworld-tts-2
 method: >

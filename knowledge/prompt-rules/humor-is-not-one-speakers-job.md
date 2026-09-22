@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: Humor is not one speaker's job
+answers: editing the humour block, or noticing every joke comes from one speaker
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/ComposerUtils.kt, buildHumorBlock
 generated:

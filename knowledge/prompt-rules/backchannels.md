@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: A backchannel is what lets an idea run long
+answers: tuning the backchannel rule, or wondering why two turns from one speaker are sometimes right
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/InterviewComposer.kt, BACKCHANNELS
 generated:

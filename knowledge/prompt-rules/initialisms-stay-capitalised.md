@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: An initialism stays in capitals
+answers: an acronym or model name comes out mispronounced, or reviewing the model-name rewrite
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/ComposerUtils.kt, buildModelNamesBlock
 generated:

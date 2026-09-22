@@ -15,7 +15,11 @@ Each entry states how it was measured and expires: the vendor changes the model
 without changing the model id, so a finding past its `stale_after` is a
 hypothesis to re-measure, not a fact.
 
-- [Pace-reducing steering instructions cost 10 seconds a turn](pace-reducing-steering-instructions.md)
-- [An opening steering instruction over-commits](unanchored-opening-cues.md)
-- [Phoneme spans are unreliable under CREATIVE](phoneme-spans-under-creative.md)
-- [An unlisted sound tag becomes a steering instruction](unlisted-sound-tags.md)
+- [Pace-reducing steering instructions cost about ten seconds a turn](pace-reducing-steering-instructions.md)  
+  Read when adding or debugging a pace or delivery cue in a TTS request.
+- [A steering instruction on a speaker's first turn over-commits](unanchored-opening-cues.md)  
+  Read when a steering instruction sounds over the top on a speaker's opening line.
+- [Phoneme spans are unreliable under CREATIVE delivery mode](phoneme-spans-under-creative.md)  
+  Read when a name is mispronounced in a rendered episode, or deciding how to fix a pronunciation.
+- [An unlisted sound tag becomes a steering instruction](unlisted-sound-tags.md)  
+  Read when a turn's delivery turns strange partway through, or adding a new sound tag.

@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: A steering instruction on a speaker's first turn over-commits
+answers: a steering instruction sounds over the top on a speaker's opening line
 status: stable
 model_version: inworld-tts-2
 method: >

@@ -1,6 +1,28 @@
 # Log
 
-Newest first. Each entry begins with `## [2026-09-21] Record
+Newest first. Each entry begins with `## [YYYY-MM-DD]` followed by the operation,
+so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
+months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
+screen.
+
+## [2026-09-22] Lint
+
+Gave every entry an `answers` line and put it under each link in the four section
+indexes, so an index says when you would need an entry rather than only what it
+concluded. The titles here are already statements, which does half that work, but
+a title states the conclusion and a reader arrives with the occasion: "a name is
+mispronounced" reaches `phoneme-spans-under-creative`, "phoneme spans" only does
+if you already knew.
+
+Stopped `.claude/rules/knowledge-entries.md` restating the format that
+`knowledge/index.md` specifies, since the two had begun to diverge on what is
+required. The spec travels with the bundle; the rules file says how an entry gets
+written here. Recorded the monthly log archive convention in both.
+
+Repaired this file's own header, which had swallowed the heading of the entry
+below it.
+
+## [2026-09-21] Record
 
 Made the dedup gate's Jev calls visible as `llm_call` rows under their own stage.
 First live run: 47 of 188 candidates excluded, two requests at p50 512ms and p95

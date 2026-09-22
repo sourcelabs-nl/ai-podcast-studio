@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: Dedup guards the article boundary, not the claim boundary
+answers: a listener reports the same fact twice across episodes, or considering claim-level dedup
 status: stable
 method: >
   A listener reported hearing content twice. Both scripts were read directly and

@@ -16,10 +16,17 @@ is not automatically a model for this one. Third-party formats we read are
 described here on the same terms: what the format guarantees, and what it leaves
 to inference.
 
-- [The Dutch two-host reference shows](dutch-two-host-shows.md)
-- [The reference shows have long turns, not short ones](turn-length-in-the-reference-shows.md)
-- [The anchor story as a throughline](anchor-story-device.md)
-- [What a Narro RSS feed carries, and what it does not](narro-feed-format.md)
-- [Server-side web search, and why this project keeps Tavily](server-side-web-search-on-the-jvm.md)
-- [What Jev can decide for this pipeline, and what it cannot](jev-decisions-endpoint.md)
-- [Jev as a script judge, measured against this project's own judge](jev-as-a-judge.md)
+- [The Dutch two-host reference shows](dutch-two-host-shows.md)  
+  Read when deciding whether to imitate something heard in the reference shows.
+- [The reference shows have long turns, not short ones](turn-length-in-the-reference-shows.md)  
+  Read when considering shorter turns to get closer to the reference shows.
+- [The anchor story as a throughline](anchor-story-device.md)  
+  Read when looking for an untried attention or structure device for the compose prompt.
+- [What a Narro RSS feed carries, and what it does not](narro-feed-format.md)  
+  Read when changing how threads are reconstructed from Narro-sourced X content.
+- [Server-side web search, and why this project keeps Tavily](server-side-web-search-on-the-jvm.md)  
+  Read when considering a move off Tavily to a provider's own web search.
+- [What Jev can decide for this pipeline, and what it cannot](jev-decisions-endpoint.md)  
+  Read when deciding where Jev can carry a call in this pipeline and where it cannot.
+- [Jev as a script judge, measured against this project's own judge](jev-as-a-judge.md)  
+  Read when considering Jev in place of, or alongside, ScriptJudge.

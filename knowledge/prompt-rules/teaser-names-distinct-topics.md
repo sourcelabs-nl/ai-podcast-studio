@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: The teaser names distinct topics from different parts of the episode
+answers: editing the teaser block, or diagnosing a teaser that repeats the opening story
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/InterviewComposer.kt, TEASER
 generated:

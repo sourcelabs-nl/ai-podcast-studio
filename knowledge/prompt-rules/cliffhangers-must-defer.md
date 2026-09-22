@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: Cliffhangers must defer and park explicitly
+answers: editing the cliffhanger block, or diagnosing a hook that carries no real tension
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/InterviewComposer.kt, STRATEGIC CLIFFHANGERS
 generated:

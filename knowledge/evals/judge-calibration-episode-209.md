@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: The judge's anchors match the hand audit of episode 209
+answers: deciding how far to trust a ScriptJudge score before changing a prompt rule on it
 status: stable
 method: one judge call over episode 209's stored script, compared against the by-hand audit recorded in [[episode-208-vs-209]]
 model_version: deepseek/deepseek-v4.1-flash

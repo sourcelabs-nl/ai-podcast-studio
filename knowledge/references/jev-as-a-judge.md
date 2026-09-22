@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: Jev as a script judge, measured against this project's own judge
+answers: considering Jev in place of, or alongside, ScriptJudge
 status: stable
 generated:
   by: claude-opus-5

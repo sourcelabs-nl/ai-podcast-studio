@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: An unlisted sound tag becomes a steering instruction
+answers: a turn's delivery turns strange partway through, or adding a new sound tag
 status: stable
 model_version: inworld-tts-2
 method: >

@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: rule-rationale
 title: CURIOSITY HOOKS may work against the cliffhanger rule
+answers: investigating whether two prompt rules are working against each other
 status: stable
 source: src/main/kotlin/com/aisummarypodcast/llm/InterviewComposer.kt, CURIOSITY HOOKS
 generated:

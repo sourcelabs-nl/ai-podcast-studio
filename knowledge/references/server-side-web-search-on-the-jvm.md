@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: reference
 title: Server-side web search, and why this project keeps Tavily
+answers: considering a move off Tavily to a provider's own web search
 status: draft
 method: >
   Desk research over the OpenAI Responses API docs, the OpenRouter web-search

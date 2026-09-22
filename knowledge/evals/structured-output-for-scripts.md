@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: experiment
 title: Structured output fixes the speaker tags and breaks the length
+answers: considering JSON output for the compose stage, or chasing mismatched speaker tags
 status: stable
 method: >
   Three paired runs against the OpenRouter chat-completions API directly, not

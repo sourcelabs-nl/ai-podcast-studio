@@ -61,15 +61,19 @@ The frontend lives in `frontend/`. Its conventions are documented in `frontend/C
 
 `knowledge/` holds what we have measured about the models and APIs this project
 depends on, why the prompt rules are shaped the way they are, and what has been
-tried and rejected. It is a plain Open Knowledge Format v0.2 directory: markdown
-with YAML frontmatter, no loader and no build step. Nothing in the application
-reads it, and no automated process writes to it.
+tried and rejected. Nothing in the application reads it, and no automated process
+writes to it. `knowledge/index.md` specifies the format and lists the contents;
+`.claude/rules/knowledge-entries.md` says how an entry gets written here.
 
 **Three layers.** The raw layer is the episode archive and its scripts, probe
 output, score rows, reference transcripts, the git history, the OpenSpec archive
 and past session transcripts; it is cited, never rewritten. The bundle is the
-layer the agent owns and maintains. Read `knowledge/index.md` for its contents,
-and `.claude/rules/knowledge-entries.md` for how an entry is written.
+layer the agent owns and maintains.
+
+**Finding an entry** starts at a section `index.md`, where each link carries a
+line saying when you would need it. That line comes from the entry's `answers`
+field, so an entry that gains one loses nothing and an entry without one cannot
+be routed to.
 
 **Three operations:**
 

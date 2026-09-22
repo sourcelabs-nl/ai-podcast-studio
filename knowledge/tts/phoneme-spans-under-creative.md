@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: finding
 title: Phoneme spans are unreliable under CREATIVE delivery mode
+answers: a name is mispronounced in a rendered episode, or deciding how to fix a pronunciation
 status: stable
 model_version: inworld-tts-2
 method: >

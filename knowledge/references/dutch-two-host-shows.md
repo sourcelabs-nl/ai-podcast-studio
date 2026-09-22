@@ -2,6 +2,7 @@
 okf_version: "0.2"
 type: reference
 title: The Dutch two-host reference shows
+answers: deciding whether to imitate something heard in the reference shows
 status: stable
 generated:
   by: claude-opus-5
