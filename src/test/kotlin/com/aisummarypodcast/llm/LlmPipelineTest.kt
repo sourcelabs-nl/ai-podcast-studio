@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -781,5 +782,38 @@ class LlmPipelineTest {
         }
 
         assertEquals(1, attempts)
+    }
+
+    private fun stubFocusCandidates(vararg focusScores: Int) {
+        val candidates = focusScores.indices.map { scored(it + 1L, relevance = 2) }
+        every { sourceRepository.findByPodcastId(podcast.id) } returns listOf(source)
+        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
+        every { articleEligibilityService.findEligibleArticlesForFocus(listOf("s1"), podcast, window) } returns candidates
+        coEvery { articleScoreSummarizer.scoreForFocus(candidates, "Claude Opus 5.5 release", podcast, filterModelDef, any(), any()) } returns
+            candidates.mapIndexed { i, a -> FocusScoredArticle(a.copy(relevanceScore = focusScores[i]), TokenUsage(100, 20)) }
+    }
+
+    @Test
+    fun `focus selection keeps only articles relevant to the focus`() = runTest {
+        stubFocusCandidates(9, 2, 6)
+
+        val selection = pipeline.selectForFocus(podcast, window, "Claude Opus 5.5 release")
+
+        assertEquals(setOf(1L, 3L), selection.articles.map { it.article.id }.toSet())
+        assertEquals(300, selection.scoreInputTokens)
+        coVerify(exactly = 0) { articleScoreSummarizer.scoreSummarize(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `focus selection with no relevant article fails naming the focus`() = runTest {
+        stubFocusCandidates(1, 2)
+
+        val error = assertThrows(NoFocusRelevantArticlesException::class.java) {
+            kotlinx.coroutines.runBlocking { pipeline.selectForFocus(podcast, window, "Claude Opus 5.5 release") }
+        }
+
+        assertTrue(error.message!!.contains("Claude Opus 5.5 release"))
+        assertTrue(error.message!!.contains("No relevant articles"))
     }
 }

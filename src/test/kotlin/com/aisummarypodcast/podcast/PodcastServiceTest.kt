@@ -473,4 +473,53 @@ class PodcastServiceTest {
 
         assertNull(podcastService.findArticlePosts(podcast, 99L))
     }
+
+    @Test
+    fun `feedback recompose rewrites the same focus episode against its linked articles`() {
+        val focusEpisode = Episode(
+            id = 30L, podcastId = "p1", generatedAt = "2026-09-22T08:00:00Z", scriptText = "old",
+            status = EpisodeStatus.PENDING_REVIEW, focus = "Claude Opus 5.5 release"
+        )
+        val linkedArticle = Article(
+            id = 1L, sourceId = "s1", title = "Opus", body = "b", url = "https://example.com/o", contentHash = "h"
+        )
+        val selection = com.aisummarypodcast.llm.FocusSelection(
+            articles = listOf(com.aisummarypodcast.llm.FilteredArticle(linkedArticle)), filterModel = "f", scoreInputTokens = 0, scoreOutputTokens = 0,
+            scoreCostCents = 0, scoreCostSource = com.aisummarypodcast.llm.LlmCostSource.API_CACHED, scoreReportedCostCents = null
+        )
+        val composeResult = com.aisummarypodcast.llm.ComposeStageResult(
+            script = "new", composeModel = "c", usage = com.aisummarypodcast.llm.TokenUsage(1, 1), topicOrder = emptyList(),
+            composeCostCents = 1, composeCostSource = com.aisummarypodcast.llm.LlmCostSource.API
+        )
+        every { episodeService.markRecomposing(focusEpisode) } returns focusEpisode.copy(pipelineStage = "composing")
+        every { episodeService.updatePipelineStage(any(), any()) } returns Unit
+        every { episodeService.findLinkedArticlesAndTopics(30L) } returns LinkedArticlesResult(listOf(linkedArticle), emptyList(), emptyMap(), emptyMap())
+        every { episodeService.clearResearchSources(30L) } returns Unit
+        coEvery { llmPipeline.scoreForFocus(podcast, listOf(linkedArticle), "Claude Opus 5.5 release", 30L, any()) } returns selection
+        coEvery { llmPipeline.compose(selection.articles, podcast, any(), any()) } returns composeResult
+        every { episodeService.saveFeedbackRecompose(any(), composeResult, "shorter") } answers {
+            firstArg<Episode>().copy(scriptText = "new", reviewFeedback = "shorter", pipelineStage = null)
+        }
+        coEvery { episodeService.regenerateRecap(any(), podcast) } answers { firstArg() }
+
+        val returned = podcastService.recomposeFocusEpisodeAsync(focusEpisode, podcast, "shorter")
+
+        org.junit.jupiter.api.Assertions.assertEquals(30L, returned.id)
+        coVerify(timeout = 5000) { episodeService.saveFeedbackRecompose(match { it.id == 30L }, composeResult, "shorter") }
+        coVerify {
+            llmPipeline.compose(selection.articles, podcast, match {
+                it.focus == "Claude Opus 5.5 release" && it.extraInstruction == "shorter" && it.episodeId == 30L
+            }, any())
+        }
+        verify(exactly = 0) { episodeService.createGeneratingEpisode(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `feedback recompose is refused for a regular episode`() {
+        val regular = Episode(id = 31L, podcastId = "p1", generatedAt = "x", scriptText = "s", status = EpisodeStatus.PENDING_REVIEW)
+
+        org.junit.jupiter.api.Assertions.assertThrows(EpisodeNotRecomposableException::class.java) {
+            podcastService.recomposeFocusEpisodeAsync(regular, podcast, "shorter")
+        }
+    }
 }

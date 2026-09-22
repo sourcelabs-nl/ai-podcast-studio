@@ -10,6 +10,7 @@ import com.aisummarypodcast.config.StageTimeouts
 import com.aisummarypodcast.research.RESEARCH_TOOL_NAME
 import com.aisummarypodcast.research.ResearchService
 import com.aisummarypodcast.research.ResearchTool
+import com.aisummarypodcast.store.EpisodeResearchSourceRepository
 import com.aisummarypodcast.store.LlmCacheRepository
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.user.UserProviderConfigService
@@ -42,7 +43,8 @@ class ChatClientFactoryComposeToolsTest {
         episodeHistoryRepository = mockk<EpisodeHistoryRepository>(),
         researchService = mockk<ResearchService>(),
         llmCallLogService = mockk<LlmCallLogService>(relaxed = true),
-        appProperties = appProperties
+        appProperties = appProperties,
+        researchSourceRepository = mockk<EpisodeResearchSourceRepository>(relaxed = true)
     )
 
     private fun resolved(stage: PipelineStage) =
@@ -107,6 +109,21 @@ class ChatClientFactoryComposeToolsTest {
         repeat(com.aisummarypodcast.research.RESEARCH_TOOL_CAP) {
             assertTrue(budget.tryConsume(RESEARCH_TOOL_NAME))
         }
+        assertFalse(budget.tryConsume(RESEARCH_TOOL_NAME))
+    }
+
+    @Test
+    fun `focus episode registers research with the raised budget even without deep dive`() {
+        val budget = ToolBudget()
+        val tools = factory.buildComposeTools(
+            "u1", podcast(deepDive = false), budget, ComposeContext(focus = "Claude Opus 5.5 release", episodeId = 7L)
+        )
+
+        assertTrue(tools.any { it is ResearchTool })
+        repeat(com.aisummarypodcast.research.FOCUS_RESEARCH_TOOL_CAP) {
+            assertTrue(budget.tryConsume(RESEARCH_TOOL_NAME))
+        }
+        assertEquals(5, com.aisummarypodcast.research.FOCUS_RESEARCH_TOOL_CAP)
         assertFalse(budget.tryConsume(RESEARCH_TOOL_NAME))
     }
 }

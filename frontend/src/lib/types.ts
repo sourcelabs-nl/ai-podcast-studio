@@ -65,6 +65,10 @@ export interface Episode {
   researchCalls?: number;
   researchCostCents?: number;
   costs?: EpisodeCosts;
+  /** The focus text of a focus episode; absent for a regular episode. */
+  focus?: string | null;
+  /** The latest feedback a reviewer submitted to recompose a focus episode. */
+  reviewFeedback?: string | null;
   /** Why this episode matched a search. Absent when the request carried no search query. */
   matches?: EpisodeMatches;
 }
@@ -399,4 +403,11 @@ export interface EpisodeLlmCallsResponse {
   episodeId: number;
   predatesAttribution: boolean;
   requests: LlmCall[];
+}
+
+/** One recorded web-search result of a focus episode, with the query that found it. */
+export interface ResearchSource {
+  query: string;
+  title: string;
+  url: string;
 }

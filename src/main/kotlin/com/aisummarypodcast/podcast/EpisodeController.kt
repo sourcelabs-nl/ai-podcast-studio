@@ -108,6 +108,50 @@ class EpisodeController(
         return ResponseEntity.ok(updated.toResponse())
     }
 
+    /**
+     * Recomposes a focus episode under review with the reviewer's feedback, against the same
+     * articles, in the background. The same episode is updated and stays in review.
+     */
+    @PostMapping("/{episodeId}/regenerate-script")
+    fun regenerateScript(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @PathVariable episodeId: Long,
+        @RequestBody request: RegenerateScriptRequest
+    ): ResponseEntity<Any> {
+        userService.findById(userId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
+        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+
+        val episode = episodeService.findById(episodeId)
+            ?: return ResponseEntity.notFound().build()
+        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+
+        if (request.feedback.isBlank()) {
+            return ResponseEntity.badRequest().body(mapOf("error" to "feedback must not be blank"))
+        }
+
+        val updated = podcastService.recomposeFocusEpisodeAsync(episode, podcast, request.feedback.trim())
+        return ResponseEntity.accepted().body(updated.toResponse())
+    }
+
+    @GetMapping("/{episodeId}/research-sources")
+    fun researchSources(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @PathVariable episodeId: Long
+    ): ResponseEntity<List<ResearchSourceResponse>> {
+        userService.findById(userId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
+        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+
+        val episode = episodeService.findById(episodeId)
+            ?: return ResponseEntity.notFound().build()
+        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+
+        return ResponseEntity.ok(episodeService.findResearchSources(episodeId).map { it.toResponse() })
+    }
+
     @PostMapping("/{episodeId}/approve")
     fun approve(
         @PathVariable userId: String,

@@ -26,6 +26,7 @@ import { CostsTab } from "@/components/costs-tab";
 import { LatencyTab } from "@/components/latency-tab";
 import { Panel } from "@/components/section";
 import { EvaluationTab } from "@/components/evaluation-tab";
+import { FocusReviewPanel } from "@/components/focus-review-panel";
 import { PublicationsTab } from "@/components/publications-tab";
 import { PublishWizard } from "@/components/publish-wizard";
 import { useTabParam } from "@/hooks/use-tab-param";
@@ -442,6 +443,15 @@ export default function EpisodeDetailPage() {
           )}
         </div>
       </div>
+
+      {episode.focus && (
+        <FocusReviewPanel
+          userId={selectedUser.id}
+          podcastId={params.podcastId}
+          episode={episode}
+          onRecomposeStarted={fetchEpisode}
+        />
+      )}
 
       {episode.showNotes && (() => {
         const sourcesIdx = episode.showNotes.indexOf("\n\nSources:");

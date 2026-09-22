@@ -7,7 +7,8 @@ data class PastEpisodeMatch(
     val episodeId: Long,
     val generatedAt: String,
     val topics: String,
-    val recapSnippet: String
+    val recapSnippet: String,
+    val isFocusEpisode: Boolean = false
 )
 
 @Repository
@@ -21,10 +22,13 @@ class EpisodeHistoryRepository(
 
         return jdbcClient.sql(
             """
-            SELECT episode_id, generated_at, topics, recap
+            SELECT episode_history_fts.episode_id, episode_history_fts.generated_at,
+                   episode_history_fts.topics, episode_history_fts.recap,
+                   e.focus IS NOT NULL AS is_focus_episode
             FROM episode_history_fts
+            LEFT JOIN episodes e ON e.id = episode_history_fts.episode_id
             WHERE episode_history_fts MATCH :query
-              AND podcast_id = :podcastId
+              AND episode_history_fts.podcast_id = :podcastId
             ORDER BY bm25(episode_history_fts) ASC
             LIMIT :limit
             """.trimIndent()
@@ -37,7 +41,8 @@ class EpisodeHistoryRepository(
                     episodeId = rs.getLong("episode_id"),
                     generatedAt = isoDate(rs.getString("generated_at")),
                     topics = rs.getString("topics") ?: "",
-                    recapSnippet = truncateSnippet(rs.getString("recap") ?: "")
+                    recapSnippet = truncateSnippet(rs.getString("recap") ?: ""),
+                    isFocusEpisode = rs.getBoolean("is_focus_episode")
                 )
             }
             .list()

@@ -1,9 +1,12 @@
 package com.aisummarypodcast.research
 
 import com.aisummarypodcast.llm.ToolBudget
+import com.aisummarypodcast.store.EpisodeResearchSource
+import com.aisummarypodcast.store.EpisodeResearchSourceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.ai.tool.annotation.Tool
 import org.springframework.ai.tool.annotation.ToolParam
+import java.util.concurrent.atomic.AtomicInteger
 
 data class WebSearchHit(
     val title: String,
@@ -20,6 +23,9 @@ const val RESEARCH_TOOL_NAME = "webSearch"
 
 const val RESEARCH_TOOL_CAP = 3
 
+/** A focus episode leans on research for context its few articles lack, so it gets a larger budget. */
+const val FOCUS_RESEARCH_TOOL_CAP = 5
+
 private const val MAX_RESULTS = 5
 
 /**
@@ -30,15 +36,22 @@ private const val MAX_RESULTS = 5
  * tool.
  *
  * A fresh instance is constructed per compose call by [com.aisummarypodcast.llm.ChatClientFactory.createForCompose].
+ *
+ * When [recordForEpisodeId] is set (a focus episode), every hit is recorded against that episode
+ * with the query that found it, so the review screen can show the sources. The tool is the only
+ * place that sees the query and the raw hits together.
  */
 class ResearchTool(
     private val researchService: ResearchService,
     private val toolBudget: ToolBudget,
     private val userId: String,
-    private val podcastId: String
+    private val podcastId: String,
+    private val researchSourceRepository: EpisodeResearchSourceRepository? = null,
+    private val recordForEpisodeId: Long? = null
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+    private val recordedCount = AtomicInteger(0)
 
     @Tool(
         name = RESEARCH_TOOL_NAME,
@@ -59,6 +72,23 @@ class ResearchTool(
         val hits = response.results.map { WebSearchHit(title = it.title, url = it.url, snippet = it.content) }
 
         log.info("[Tool] webSearch podcast='{}' query='{}' hits={}", podcastId, query, hits.size)
+        record(query, hits)
         return WebSearchResult(results = hits, budgetExhausted = false)
+    }
+
+    private fun record(query: String, hits: List<WebSearchHit>) {
+        val repository = researchSourceRepository ?: return
+        val episodeId = recordForEpisodeId ?: return
+        for (hit in hits) {
+            repository.save(
+                EpisodeResearchSource(
+                    episodeId = episodeId,
+                    query = query,
+                    title = hit.title,
+                    url = hit.url,
+                    ordinal = recordedCount.getAndIncrement()
+                )
+            )
+        }
     }
 }

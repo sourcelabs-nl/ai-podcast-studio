@@ -8,7 +8,9 @@ data class PastEpisodeMatchDto(
     val episodeId: Long,
     val generatedAt: String,
     val topics: String,
-    val recapSnippet: String
+    val recapSnippet: String,
+    /** True when the matched episode was a focus episode: a continuation to build on, not to skip. */
+    val isFocusEpisode: Boolean = false
 )
 
 data class SearchPastEpisodesResult(
@@ -41,7 +43,7 @@ class HistoryLookupTool(
         name = HISTORY_LOOKUP_TOOL_NAME,
         description = "Search this podcast's prior episodes (recaps, scripts, topic labels) for previous coverage of a subject. " +
             "Call this with one or two keywords BEFORE treating any topic as new. Returns up to 5 ranked past-episode matches, " +
-            "each with the episode's date, topic labels, and a short recap snippet."
+            "each with the episode's date, topic labels, a short recap snippet, and whether it was a focus episode."
     )
     fun searchPastEpisodes(
         @ToolParam(description = "Keyword(s) describing the topic to check (e.g. \"speckit\", \"OpenAI o3\"). Keep it short.")
@@ -61,7 +63,8 @@ class HistoryLookupTool(
                     episodeId = it.episodeId,
                     generatedAt = it.generatedAt,
                     topics = it.topics,
-                    recapSnippet = it.recapSnippet
+                    recapSnippet = it.recapSnippet,
+                    isFocusEpisode = it.isFocusEpisode
                 )
             }
 

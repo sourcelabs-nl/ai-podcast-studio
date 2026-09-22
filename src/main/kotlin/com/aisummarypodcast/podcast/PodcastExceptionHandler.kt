@@ -23,4 +23,9 @@ class PodcastExceptionHandler {
     fun handleNotRerunnable(e: EpisodeNotRerunnableException): ResponseEntity<Any> =
         ResponseEntity.status(HttpStatus.CONFLICT)
             .body(mapOf("error" to e.message, "code" to "episode_not_rerunnable"))
+
+    @ExceptionHandler(EpisodeNotRecomposableException::class)
+    fun handleNotRecomposable(e: EpisodeNotRecomposableException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(mapOf("error" to e.message, "code" to "episode_not_recomposable"))
 }

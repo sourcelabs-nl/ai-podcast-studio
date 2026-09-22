@@ -224,17 +224,21 @@ class PodcastController(
     }
 
     @PostMapping("/{podcastId}/generate")
-    fun generate(@PathVariable userId: String, @PathVariable podcastId: String): ResponseEntity<Any> {
+    fun generate(
+        @PathVariable userId: String,
+        @PathVariable podcastId: String,
+        @RequestBody(required = false) request: GenerateEpisodeRequest?
+    ): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (podcast.userId != userId) return ResponseEntity.notFound().build()
 
-        log.info("Manual briefing generation triggered for podcast {}", podcastId)
+        log.info("Manual briefing generation triggered for podcast {} (focus: {})", podcastId, request?.focus)
 
         // Generation runs in the background (it can take minutes); we return 202 with the GENERATING
         // episode id and the UI follows progress via SSE. Running it inline in the request would tie
         // it to the async-request timeout, which would cancel the in-flight pipeline.
-        val episode = podcastService.generateBriefingAsync(podcast)
+        val episode = podcastService.generateBriefingAsync(podcast, request?.focus)
             ?: return ResponseEntity.status(409).body(mapOf("message" to "An episode is already generating for this podcast"))
 
         return ResponseEntity.accepted().body(mapOf("message" to "Generation started", "episodeId" to episode.id))

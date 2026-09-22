@@ -22,20 +22,29 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
 
     fun findByPodcastIdAndStatusIn(podcastId: String, statuses: Collection<EpisodeStatus>): List<Episode>
 
+    /**
+     * The podcast's most recent regular episode that still covers its window: neither failed nor
+     * discarded, published or not. Discard rolls the schedule back to it, so a slot an unpublished
+     * episode already covered is not treated as due again.
+     */
     // Status values must match EpisodeStatus enum names
     @Query("""
-        SELECT e.* FROM episodes e
-        JOIN episode_publications ep ON ep.episode_id = e.id
-        WHERE e.podcast_id = :podcastId
-          AND e.status = 'GENERATED'
-          AND ep.status = 'PUBLISHED'
-        ORDER BY e.generated_at DESC
+        SELECT * FROM episodes
+        WHERE podcast_id = :podcastId
+          AND window_end IS NOT NULL
+          AND status NOT IN ('FAILED', 'DISCARDED')
+          AND focus IS NULL
+        ORDER BY generated_at DESC
         LIMIT 1
     """)
-    fun findLatestPublishedByPodcastId(podcastId: String): Episode?
+    fun findLatestCoveringByPodcastId(podcastId: String): Episode?
 
+    /**
+     * The podcast's most recent regular episodes. A focus episode is left out: it never consumed its
+     * articles, so the dedup stage must not treat them as already covered.
+     */
     // Status values must match EpisodeStatus enum names
-    @Query("SELECT * FROM episodes WHERE podcast_id = :podcastId AND status = 'GENERATED' ORDER BY generated_at DESC LIMIT :limit")
+    @Query("SELECT * FROM episodes WHERE podcast_id = :podcastId AND status = 'GENERATED' AND focus IS NULL ORDER BY generated_at DESC LIMIT :limit")
     fun findRecentGeneratedByPodcastId(podcastId: String, limit: Int): List<Episode>
 
     fun findByStatus(status: EpisodeStatus): List<Episode>
@@ -43,7 +52,8 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
     /**
      * Where the podcast's article coverage ends at or before [windowEnd]: the latest `window_end` of
      * an episode that carries a window and was neither failed nor discarded. A failed or discarded
-     * episode covered nothing, so its window must stay claimable by a later run.
+     * episode covered nothing, so its window must stay claimable by a later run. A focus episode is
+     * left out for the same reason: it does not advance the regular schedule.
      */
     // Status values must match EpisodeStatus enum names
     @Query("""
@@ -52,6 +62,7 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
           AND window_end IS NOT NULL
           AND window_end <= :windowEnd
           AND status NOT IN ('FAILED', 'DISCARDED')
+          AND focus IS NULL
         ORDER BY window_end DESC
         LIMIT 1
     """)

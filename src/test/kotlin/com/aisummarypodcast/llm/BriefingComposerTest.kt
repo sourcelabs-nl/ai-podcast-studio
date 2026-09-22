@@ -317,13 +317,13 @@ class BriefingComposerTest {
         val chatClient = mockk<ChatClient>()
         every { chatClient.prompt() } returns chatClientRequestSpec
         every {
-            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false)
+            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false, context = any())
         } returns chatClient
 
         composer.compose(articles, podcast, composeModelDef, ComposeContext(bypassLlmCache = true))
 
         verify {
-            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false)
+            chatClientFactory.createForCompose(podcast.userId, composeModelDef, podcast, any(), useCache = false, context = any())
         }
     }
 
@@ -655,5 +655,32 @@ class BriefingComposerTest {
 
         assertTrue(prompt.contains(PromptVarietyDescriptors.describe(expected.openingStyle)))
         assertTrue(prompt.contains(PromptVarietyDescriptors.describe(expected.signOffShape)))
+    }
+
+    @Test
+    fun `focus episode prompt names the focus and offers webSearch at the raised budget without deep dive`() {
+        val prompt = composer.buildPrompt(sampleArticles, Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech"), ComposeContext(focus = "Claude Opus 5.5 release"))
+
+        assertTrue(prompt.contains("Claude Opus 5.5 release"))
+        assertTrue(prompt.contains("`webSearch`"))
+        assertTrue(prompt.contains("budget of 5 calls"))
+    }
+
+    @Test
+    fun `reviewer feedback is carried into the prompt`() {
+        val prompt = composer.buildPrompt(sampleArticles, Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech"), ComposeContext(focus = "x", extraInstruction = "make it shorter and focus on benchmarks"))
+
+        assertTrue(prompt.contains("make it shorter and focus on benchmarks"))
+    }
+
+    @Test
+    fun `regular prompt names recent focus episodes and treats a focus match as a continuation`() {
+        val prompt = composer.buildPrompt(
+            sampleArticles, Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech"),
+            ComposeContext(recentFocusEpisodes = listOf(RecentFocusEpisode("Claude Opus 5.5 release", "2026-09-21T12:00:00Z")))
+        )
+
+        assertTrue(prompt.contains("\"Claude Opus 5.5 release\" (2026-09-21)"))
+        assertTrue(prompt.contains("isFocusEpisode = true"))
     }
 }

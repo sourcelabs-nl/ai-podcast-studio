@@ -271,4 +271,31 @@ class DialogueComposerTest {
         assertTrue(prompt.contains("Summary 1."))
         assertFalse(prompt.contains("Body 1."))
     }
+
+    @Test
+    fun `focus episode prompt names the focus and offers webSearch at the raised budget without deep dive`() {
+        val prompt = composer.buildPrompt(articles, podcast.copy(deepDiveEnabled = false), ComposeContext(focus = "Claude Opus 5.5 release"))
+
+        assertTrue(prompt.contains("Claude Opus 5.5 release"))
+        assertTrue(prompt.contains("`webSearch`"))
+        assertTrue(prompt.contains("budget of 5 calls"))
+    }
+
+    @Test
+    fun `reviewer feedback is carried into the prompt`() {
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(focus = "x", extraInstruction = "make it shorter and focus on benchmarks"))
+
+        assertTrue(prompt.contains("make it shorter and focus on benchmarks"))
+    }
+
+    @Test
+    fun `regular prompt names recent focus episodes and treats a focus match as a continuation`() {
+        val prompt = composer.buildPrompt(
+            articles, podcast,
+            ComposeContext(recentFocusEpisodes = listOf(RecentFocusEpisode("Claude Opus 5.5 release", "2026-09-21T12:00:00Z")))
+        )
+
+        assertTrue(prompt.contains("\"Claude Opus 5.5 release\" (2026-09-21)"))
+        assertTrue(prompt.contains("isFocusEpisode = true"))
+    }
 }

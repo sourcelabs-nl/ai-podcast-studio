@@ -470,4 +470,37 @@ class PodcastControllerTest {
             .andExpect(jsonPath("$.customInstructions").value("Some instructions"))
             .andExpect(jsonPath("$.sponsor.name").value("Acme"))
     }
+
+    private fun stubGenerate() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns
+            Podcast(id = podcastId, userId = userId, name = "P", topic = "tech")
+        every { podcastService.generateBriefingAsync(any(), any()) } returns
+            com.aisummarypodcast.store.Episode(id = 9L, podcastId = podcastId, generatedAt = "now", scriptText = "")
+    }
+
+    @Test
+    fun `generate with a focus starts a focus episode`() {
+        stubGenerate()
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts/$podcastId/generate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"focus": "Claude Opus 5.5 release"}""")
+        )
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.episodeId").value(9))
+
+        io.mockk.verify { podcastService.generateBriefingAsync(any(), "Claude Opus 5.5 release") }
+    }
+
+    @Test
+    fun `generate without a body starts a regular episode`() {
+        stubGenerate()
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/generate"))
+            .andExpect(status().isAccepted)
+
+        io.mockk.verify { podcastService.generateBriefingAsync(any(), null) }
+    }
 }

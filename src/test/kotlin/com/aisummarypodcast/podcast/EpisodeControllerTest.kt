@@ -522,4 +522,81 @@ class EpisodeControllerTest {
         mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/3/rerun"))
             .andExpect(status().isNotFound)
     }
+
+    private val focusEpisode = pendingEpisode.copy(id = 3L, focus = "Claude Opus 5.5 release", reviewFeedback = "shorter")
+
+    private fun stubFocusEpisode() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(3L) } returns focusEpisode
+    }
+
+    @Test
+    fun `get episode exposes the focus and the latest review feedback`() {
+        stubFocusEpisode()
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes/3"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.focus").value("Claude Opus 5.5 release"))
+            .andExpect(jsonPath("$.reviewFeedback").value("shorter"))
+    }
+
+    @Test
+    fun `research sources of an episode are listed`() {
+        stubFocusEpisode()
+        every { episodeService.findResearchSources(3L) } returns listOf(
+            com.aisummarypodcast.store.EpisodeResearchSource(episodeId = 3L, query = "opus benchmarks", title = "Bench", url = "https://b", ordinal = 0)
+        )
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/episodes/3/research-sources"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$[0].query").value("opus benchmarks"))
+            .andExpect(jsonPath("$[0].url").value("https://b"))
+    }
+
+    @Test
+    fun `regenerate-script recomposes the focus episode with the feedback`() {
+        stubFocusEpisode()
+        every { podcastService.recomposeFocusEpisodeAsync(focusEpisode, podcast, "more benchmarks") } returns
+            focusEpisode.copy(pipelineStage = "composing")
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts/$podcastId/episodes/3/regenerate-script")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"feedback": " more benchmarks "}""")
+        )
+            .andExpect(status().isAccepted)
+            .andExpect(jsonPath("$.id").value(3))
+
+        verify { podcastService.recomposeFocusEpisodeAsync(focusEpisode, podcast, "more benchmarks") }
+    }
+
+    @Test
+    fun `regenerate-script is a conflict for an episode that is not a focus episode in review`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(1L) } returns pendingEpisode
+        every { podcastService.recomposeFocusEpisodeAsync(pendingEpisode, podcast, any()) } throws
+            EpisodeNotRecomposableException("Episode 1 is not a focus episode awaiting review")
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts/$podcastId/episodes/1/regenerate-script")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"feedback": "shorter"}""")
+        )
+            .andExpect(status().isConflict)
+            .andExpect(jsonPath("$.code").value("episode_not_recomposable"))
+    }
+
+    @Test
+    fun `regenerate-script rejects blank feedback`() {
+        stubFocusEpisode()
+
+        mockMvc.perform(
+            post("/users/$userId/podcasts/$podcastId/episodes/3/regenerate-script")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"feedback": "  "}""")
+        )
+            .andExpect(status().isBadRequest)
+    }
 }

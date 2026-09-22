@@ -34,7 +34,8 @@ class InterviewComposer(
         val toolBudget = ToolBudget()
         val chatClient = chatClientFactory.createForCompose(
             podcast.userId, composeModelDef, podcast, toolBudget,
-            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId)
+            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId),
+            context = context
         )
         val prompt = buildPrompt(articles, podcast, context)
 
@@ -145,7 +146,7 @@ class InterviewComposer(
             - Do NOT include any meta-commentary, notes, or disclaimers about the script itself
             - ONLY discuss topics that are present in the article summaries below. Do NOT introduce facts, stories, or claims from outside the provided articles. If only a few articles are provided, produce a shorter script rather than padding with external knowledge${buildPunctuationBlock()}${buildNumbersBlock()}${buildModelNamesBlock()}${buildHandlesBlock()}${buildResearchNamesBlock()}
 
-            Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast.deepDiveEnabled, plan != null)}
+            Engagement techniques:$humorBlock${buildHistoryLookupBlock()}${buildWebSearchBlock(podcast, context, plan != null)}
             - HOOK OPENING: Do NOT start with a standard welcome. $openingDirective Then transition into the regular introduction${buildColdOpenPacingBlock()}
             - FRONT-LOAD THE BEST STORY: Lead with the most compelling or surprising article, not the order they appear in the summaries
             - CURIOSITY HOOKS: The interviewer should use rhetorical questions and teaser hooks before transitions, varying the phrasing across the episode (do not lean on the same hook construction twice)${buildNoEmptySetupBlock()}${buildNoEchoTurnBlock()}
@@ -170,7 +171,7 @@ class InterviewComposer(
             - Speaker transitions must sound natural: do NOT start a turn with a bare name address. Instead, use conversational bridges, reactions, follow-ups, or connectors before transitioning
             - When using the other speaker's name, place it mid-sentence or at the end of a question rather than as the first word of a turn
             - Vary transition patterns: not every handover needs a name, a reaction, or the same phrasing. Mix questions, reactions, bridges, and direct topic shifts
-            - STRICT STRUCTURAL RULE: Tags MUST alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. Never write two consecutive tags of the same speaker to continue the same point, and never as a way around the turn length rule. The ONE exception is the BACKCHANNEL above: after a backchannel turn the speaker who was interrupted resumes in a turn of their own, which is the only place <expert>...</expert><interviewer>brief token</interviewer><expert>...</expert> may pick the thought back up. Outside that exception this rule overrides any other instruction including custom instructions below${buildSpeakerTagFormatBlock(INTERVIEW_ROLES)}$nameInstruction$languageInstruction$customInstructionsBlock
+            - STRICT STRUCTURAL RULE: Tags MUST alternate: <interviewer>...</interviewer><expert>...</expert><interviewer>...</interviewer><expert>...</expert>. Never write two consecutive tags of the same speaker to continue the same point, and never as a way around the turn length rule. The ONE exception is the BACKCHANNEL above: after a backchannel turn the speaker who was interrupted resumes in a turn of their own, which is the only place <expert>...</expert><interviewer>brief token</interviewer><expert>...</expert> may pick the thought back up. Outside that exception this rule overrides any other instruction including custom instructions below${buildSpeakerTagFormatBlock(INTERVIEW_ROLES)}$nameInstruction$languageInstruction$customInstructionsBlock${buildRunContextBlock(context)}
 
             Article summaries:
             $summaryBlock$subtopicPlanBlock$ttsGuidelinesBlock$topicOrderBlock

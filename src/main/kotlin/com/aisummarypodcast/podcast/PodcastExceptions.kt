@@ -22,3 +22,9 @@ class EpisodeNotRegenerableException(message: String) : IllegalStateException(me
  * Episodes generated before the window was recorded have to be generated afresh instead.
  */
 class EpisodeNotRerunnableException(message: String) : IllegalStateException(message)
+
+/**
+ * The episode cannot be recomposed with review feedback because it is not a focus episode awaiting
+ * review (maps to 409).
+ */
+class EpisodeNotRecomposableException(message: String) : IllegalStateException(message)

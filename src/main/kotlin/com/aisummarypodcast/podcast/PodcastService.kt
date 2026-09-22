@@ -5,6 +5,7 @@ import com.aisummarypodcast.eval.EpisodeScoringService
 import com.aisummarypodcast.llm.ComposeContext
 import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.llm.FilteredArticle
+import com.aisummarypodcast.llm.FocusSelection
 import com.aisummarypodcast.llm.LlmCallCost
 import com.aisummarypodcast.llm.LlmPipeline
 import com.aisummarypodcast.llm.ModelResolver
@@ -104,6 +105,22 @@ class PodcastService(
                 PodcastEvent(this, podcast.id, "episode", episodeId, "episode.stage",
                     detail + ("stage" to stage))
             )
+        }
+
+        if (episode.focus != null && resumePoint != ResumePoint.POST_COMPOSE) {
+            // A focus episode reselects (or rescores its linked set) against its focus, never
+            // through the topic-scored regular path.
+            val window = episodeWindowResolver.windowOf(episode) ?: episodeWindowResolver.resolveForNow(podcast)
+            val selection = if (resumePoint == ResumePoint.FULL_PIPELINE) {
+                llmPipeline.selectForFocus(podcast, window, episode.focus, episodeId, onProgress)
+                    .also { episodeService.saveFocusSelection(episode, it) }
+            } else {
+                llmPipeline.scoreForFocus(
+                    podcast, episodeService.findLinkedArticlesAndTopics(episodeId).articles, episode.focus, episodeId, onProgress
+                )
+            }
+            composeAndFinalizeFocusEpisode(podcast, episode, window, selection, onProgress)
+            return
         }
 
         when (resumePoint) {
@@ -287,15 +304,148 @@ class PodcastService(
      * a Spring MVC async-request timeout cannot cancel the in-flight generation; progress and
      * completion are delivered to the UI via SSE events.
      */
-    fun generateBriefingAsync(podcast: Podcast): Episode? {
-        if (episodeService.hasActiveEpisode(podcast.id)) {
-            log.info("Podcast '{}' ({}) has an active episode — skipping manual generation", podcast.name, podcast.id)
+    fun generateBriefingAsync(podcast: Podcast, focus: String? = null): Episode? {
+        val focusText = focus?.trim()?.takeIf { it.isNotEmpty() }
+        if (episodeService.hasActiveEpisode(podcast.id, focusEpisodes = focusText != null)) {
+            log.info("Podcast '{}' ({}) has an active {} episode — skipping manual generation",
+                podcast.name, podcast.id, if (focusText != null) "focus" else "regular")
             return null
         }
         val window = episodeWindowResolver.resolveForNow(podcast)
+        if (focusText != null) {
+            val generatingEpisode = episodeService.createGeneratingEpisode(
+                podcast, window, updateLastGenerated = false, focus = focusText
+            )
+            pipelineScope.launch { runFocusGenerationPipeline(podcast, generatingEpisode, window, focusText) }
+            return generatingEpisode
+        }
         val generatingEpisode = episodeService.createGeneratingEpisode(podcast, window)
         pipelineScope.launch { runGenerationPipeline(podcast, generatingEpisode, window) }
         return generatingEpisode
+    }
+
+    /**
+     * Generates a focus episode: the current window's unused articles are scored against [focus]
+     * rather than the podcast's topic, only the relevant ones are kept, and the script is composed
+     * with research forced on. The episode always stops at review (see [EpisodeService.finalizeEpisode]).
+     * A run with no relevant article fails with a message naming the focus.
+     */
+    private suspend fun runFocusGenerationPipeline(
+        podcast: Podcast,
+        generatingEpisode: Episode,
+        window: EpisodeWindow,
+        focus: String
+    ) {
+        try {
+            val onProgress = progressReporter(podcast, generatingEpisode.id!!)
+            val selection = llmPipeline.selectForFocus(podcast, window, focus, generatingEpisode.id, onProgress)
+            episodeService.saveFocusSelection(generatingEpisode, selection)
+            composeAndFinalizeFocusEpisode(podcast, generatingEpisode, window, selection, onProgress)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("[Pipeline] Focus episode generation failed for podcast '{}' ({}): {}", podcast.name, podcast.id, e.message, e)
+            episodeService.failEpisode(podcast, e.message ?: "Unknown error", generatingEpisode)
+        }
+    }
+
+    private suspend fun composeAndFinalizeFocusEpisode(
+        podcast: Podcast,
+        episode: Episode,
+        window: EpisodeWindow,
+        selection: FocusSelection,
+        onProgress: (stage: String, detail: Map<String, Any>) -> Unit
+    ): Episode {
+        val composeResult = llmPipeline.compose(
+            selection.articles, podcast,
+            ComposeContext(
+                episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
+                episodeId = episode.id,
+                focus = episode.focus
+            ),
+            onProgress
+        )
+        episodeService.saveComposeResult(episode, composeResult)
+        return episodeService.finalizeEpisode(episode, podcast, composeResult.topicOrder)
+    }
+
+    /**
+     * Recomposes a focus episode under review with a reviewer's [feedback], in the background: the
+     * same locked article set, research rerun, and the result written onto the same episode, which
+     * stays in review. Repeatable; the episode keeps only the latest feedback.
+     */
+    fun recomposeFocusEpisodeAsync(episode: Episode, podcast: Podcast, feedback: String): Episode {
+        if (episode.focus == null || episode.status != EpisodeStatus.PENDING_REVIEW) {
+            throw EpisodeNotRecomposableException(
+                "Episode ${episode.id} is not a focus episode awaiting review, so it cannot be recomposed with feedback"
+            )
+        }
+        val marked = episodeService.markRecomposing(episode)
+        pipelineScope.launch {
+            try {
+                runFeedbackRecompose(marked, podcast, feedback)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The previous script is still a valid one to review, so a failed recompose leaves
+                // the episode as it was rather than failing it.
+                log.error("[Pipeline] Feedback recompose failed for episode {} (podcast '{}' ({})): {}", episode.id, podcast.name, podcast.id, e.message, e)
+                episodeService.clearPipelineStage(episode.id!!)
+                eventPublisher.publishEvent(
+                    PodcastEvent(this, podcast.id, "episode", episode.id, "episode.recompose_failed",
+                        mapOf("episodeNumber" to episode.id, "error" to (e.message ?: "Unknown error")))
+                )
+            }
+        }
+        return marked
+    }
+
+    private suspend fun runFeedbackRecompose(episode: Episode, podcast: Podcast, feedback: String) {
+        val episodeId = episode.id!!
+        val focus = episode.focus!!
+        val onProgress = progressReporter(podcast, episodeId)
+        val linked = episodeService.findLinkedArticlesAndTopics(episodeId)
+        // The focus summaries were never persisted; rescoring the locked set recovers them, and the
+        // LLM cache replays the calls the first run already paid for.
+        val selection = llmPipeline.scoreForFocus(podcast, linked.articles, focus, episodeId, onProgress)
+        episodeService.clearResearchSources(episodeId)
+
+        val window = episodeWindowResolver.windowOf(episode) ?: episodeWindowResolver.resolveForNow(podcast)
+        val composeResult = llmPipeline.compose(
+            selection.articles, podcast,
+            ComposeContext(
+                episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
+                episodeId = episodeId,
+                focus = focus,
+                extraInstruction = feedback
+            ),
+            onProgress
+        )
+        val updated = episodeService.saveFeedbackRecompose(episode, composeResult, feedback)
+        episodeService.regenerateRecap(updated, podcast)
+        eventPublisher.publishEvent(
+            PodcastEvent(this, podcast.id, "episode", episodeId, "episode.created",
+                mapOf("episodeNumber" to episodeId))
+        )
+        log.info("[Pipeline] Recomposed focus episode {} with feedback for podcast '{}' ({})", episodeId, podcast.name, podcast.id)
+    }
+
+    /**
+     * Progress callback for a pipeline run: persists the stage on each transition only (per-article
+     * scoring reports "scoring" repeatedly) and always emits the event so the frontend shows live
+     * progress.
+     */
+    private fun progressReporter(podcast: Podcast, episodeId: Long): (String, Map<String, Any>) -> Unit {
+        var lastStage: String? = null
+        return { stage, detail ->
+            if (stage != lastStage) {
+                episodeService.updatePipelineStage(episodeId, stage)
+                lastStage = stage
+            }
+            eventPublisher.publishEvent(
+                PodcastEvent(this, podcast.id, "episode", episodeId, "episode.stage", detail + ("stage" to stage))
+            )
+        }
     }
 
     private suspend fun runGenerationPipeline(
@@ -344,7 +494,8 @@ class PodcastService(
                     followUpAnnotations = dedupResult.followUpAnnotations,
                     topicLabels = dedupResult.topicLabels,
                     episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
-                    episodeId = generatingEpisode.id
+                    episodeId = generatingEpisode.id,
+                    recentFocusEpisodes = episodeService.findRecentFocusEpisodes(podcast.id)
                 ),
                 onProgress
             )

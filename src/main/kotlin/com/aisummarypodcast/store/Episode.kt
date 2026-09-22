@@ -86,6 +86,14 @@ data class Episode(
     val dedupGateReportedCostCents: Double? = null,
     val composeReportedCostCents: Double? = null,
     val recapReportedCostCents: Double? = null,
+    /**
+     * The free-text focus of a focus episode, null for a regular episode. A focus episode is scored
+     * against this text instead of the podcast's topic, always stops for review, and neither consumes
+     * its articles nor advances the podcast's schedule.
+     */
+    val focus: String? = null,
+    /** The most recent feedback a reviewer submitted to recompose a focus episode's script. */
+    val reviewFeedback: String? = null,
     @Version val version: Long? = null
 ) {
     /**

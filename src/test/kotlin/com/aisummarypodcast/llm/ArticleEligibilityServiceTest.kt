@@ -295,4 +295,24 @@ class ArticleEligibilityServiceTest {
 
         assertTrue(service.findHistory(podcast).coveredTopics.isEmpty())
     }
+
+    @Test
+    fun `findEligibleArticlesForFocus keeps an article below the podcast's relevance threshold`() {
+        val offTopic = article(1).copy(relevanceScore = 1)
+        every { articleRepository.findUnprocessedSince(listOf("src-1"), window.startIso) } returns listOf(offTopic)
+
+        val result = service.findEligibleArticlesForFocus(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(offTopic), result)
+    }
+
+    @Test
+    fun `findEligibleArticlesForFocus still applies the window`() {
+        val after = article(2, publishedAt = "2026-03-19T10:00:00Z")
+        every { articleRepository.findUnprocessedSince(any(), any()) } returns listOf(article(1), after)
+
+        val result = service.findEligibleArticlesForFocus(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L), result.map { it.id })
+    }
 }

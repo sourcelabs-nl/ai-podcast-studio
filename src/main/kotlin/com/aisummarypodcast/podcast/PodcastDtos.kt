@@ -123,6 +123,10 @@ data class EpisodeResponse(
     val researchCalls: Int,
     val researchCostCents: Int?,
     val costs: EpisodeCostsResponse,
+    /** The focus text of a focus episode; null for a regular episode. */
+    val focus: String? = null,
+    /** The latest feedback a reviewer submitted to recompose a focus episode. */
+    val reviewFeedback: String? = null,
     /** Why this episode matched a search. Null when the request carried no search query. */
     val matches: EpisodeMatchesResponse? = null
 )
@@ -198,6 +202,23 @@ data class EpisodeCostsResponse(
 
 data class UpdateScriptRequest(
     val scriptText: String
+)
+
+/** Optional body of `POST /generate`; a non-blank [focus] starts a focus episode. */
+data class GenerateEpisodeRequest(
+    val focus: String? = null
+)
+
+/** Body of `POST /episodes/{id}/regenerate-script`: the reviewer's feedback on a focus episode. */
+data class RegenerateScriptRequest(
+    val feedback: String
+)
+
+/** One recorded `webSearch` result of a focus episode, with the query that found it. */
+data class ResearchSourceResponse(
+    val query: String,
+    val title: String,
+    val url: String
 )
 
 /**

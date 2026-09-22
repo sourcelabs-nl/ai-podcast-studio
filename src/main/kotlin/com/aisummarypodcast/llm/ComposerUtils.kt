@@ -2,6 +2,7 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.SupportedLanguage
+import com.aisummarypodcast.research.RESEARCH_TOOL_CAP
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
 import org.slf4j.LoggerFactory
@@ -166,20 +167,67 @@ fun buildTopicOrderBlock(topicLabels: List<String>): String {
  */
 fun buildHistoryLookupBlock(): String = """
             - WHAT COUNTS AS NEW: The `[FOLLOW-UP: ...]` headers above the article groups are authoritative. An article group carrying such a header continues a story from an earlier episode, and you may reference that prior coverage. An article group with NO header is new: cover it as news, and keep it eligible to lead the episode
-            - HISTORY CHECK: You may call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}) to see how a recurring subject was framed before, so you can reference it accurately and avoid reusing the same phrasing, examples or statistics. Use it for wording, not for the running order. A keyword match is NOT evidence that today's development was already covered: do NOT skip a story, demote it out of the lead, or claim the audience already heard it, unless it carries a `[FOLLOW-UP: ...]` header saying so. Never assert when a topic was previously covered unless the header states it. You have a small budget for these lookups"""
+            - HISTORY CHECK: You may call the `searchPastEpisodes` tool with one or two keywords (e.g. ${'"'}speckit${'"'}, ${'"'}OpenAI o3${'"'}) to see how a recurring subject was framed before, so you can reference it accurately and avoid reusing the same phrasing, examples or statistics. Use it for wording, not for the running order. A keyword match is NOT evidence that today's development was already covered: do NOT skip a story, demote it out of the lead, or claim the audience already heard it, unless it carries a `[FOLLOW-UP: ...]` header saying so. Never assert when a topic was previously covered unless the header states it. You have a small budget for these lookups
+            - FOCUS EPISODE MATCHES: A match with `isFocusEpisode = true` is a special episode that covered one subject in depth. Do NOT skip that subject because of it: treat it as a continuation, lead with what is new since that episode, and you may reuse a few of the same articles where they support the new developments rather than avoiding them entirely"""
 
 /**
-d * Prompt block instructing the LLM to use the `webSearch` Tavily tool to enrich the 2-3 most
+ * Prompt block instructing the LLM to use the `webSearch` Tavily tool to enrich the 2-3 most
  * newsworthy stories with outside context, within the episode-wide call budget. Empty when
- * [deepDiveEnabled] is false; in that case the tool is not registered at all and the LLM must
- * not be hinted to call it.
+ * [researchEnabled] is false; in that case the tool is not registered at all and the LLM must
+ * not be hinted to call it. [budget] is the episode-wide call cap the tool was registered with.
+ * A focus episode ([focusEpisode]) spends its budget on the one subject the episode is about.
  */
-fun buildWebSearchBlock(deepDiveEnabled: Boolean, hasSubtopics: Boolean = false): String {
-    if (!deepDiveEnabled) return ""
+fun buildWebSearchBlock(
+    researchEnabled: Boolean,
+    hasSubtopics: Boolean = false,
+    budget: Int = RESEARCH_TOOL_CAP,
+    focusEpisode: Boolean = false
+): String {
+    if (!researchEnabled) return ""
+    if (focusEpisode) return """
+            - DEEP DIVE: This episode is about a single subject, so research it properly: call the `webSearch` tool with distinct queries (for example the announcement itself, reactions, benchmarks or numbers, and what it means for the field) to pull context the articles lack. Weave what you find into the script with proper attribution. You have an episode-wide budget of $budget calls; spend most of it, each on a different angle"""
     if (!hasSubtopics) return """
-            - DEEP DIVE: Identify the 2-3 most newsworthy stories in this episode and call the `webSearch` tool roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of 3 calls total; aim to spend 2-3 of them across the standout stories rather than all on one"""
+            - DEEP DIVE: Identify the 2-3 most newsworthy stories in this episode and call the `webSearch` tool roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of $budget calls total; aim to spend 2-3 of them across the standout stories rather than all on one"""
     return """
-            - DEEP DIVE: Use the `webSearch` tool ONLY for stories you will cover in a full segment, never for rapid-fire stories (a one-sentence mention cannot absorb fetched context). Pick the 2-3 most newsworthy full-segment stories, preferring higher-weight subtopics when stories are comparable, and call `webSearch` roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of 3 calls total; aim to spend 2-3 of them across the standout stories rather than all on one, and never multiply it by the number of subtopics"""
+            - DEEP DIVE: Use the `webSearch` tool ONLY for stories you will cover in a full segment, never for rapid-fire stories (a one-sentence mention cannot absorb fetched context). Pick the 2-3 most newsworthy full-segment stories, preferring higher-weight subtopics when stories are comparable, and call `webSearch` roughly once each to pull outside context (background, related developments, dissenting takes). Weave the snippets into those segments with proper attribution. You have an episode-wide budget of $budget calls total; aim to spend 2-3 of them across the standout stories rather than all on one, and never multiply it by the number of subtopics"""
+}
+
+/**
+ * The web-search block for a compose run, derived from the podcast and the run's [context] so all
+ * three composers mention `webSearch` exactly when [ChatClientFactory.buildComposeTools] registers it.
+ */
+fun buildWebSearchBlock(podcast: Podcast, context: ComposeContext, hasSubtopics: Boolean): String =
+    buildWebSearchBlock(
+        researchEnabled = podcast.deepDiveEnabled || context.focusResearchEnabled,
+        hasSubtopics = hasSubtopics,
+        budget = researchCapFor(context),
+        focusEpisode = context.focusResearchEnabled
+    )
+
+/**
+ * The run-specific instructions a compose prompt carries beyond the podcast's own settings: the
+ * subject of a focus episode, the focus episodes a regular episode should follow up on, and a
+ * reviewer's feedback on the previous script. Empty for an ordinary regular episode.
+ */
+fun buildRunContextBlock(context: ComposeContext): String = buildString {
+    context.focus?.let { focus ->
+        append("\n\n            Focus episode: this is a special episode about one subject only: \"$focus\". ")
+        append("Every article below was selected for its relevance to that subject. Build the whole episode around it, ")
+        append("In the introduction say clearly that this is an extra, special episode on top of the regular episodes, about this one subject. ")
+        append("In the closing, say again that this was a special episode and that the regular episode follows as usual.")
+    }
+    if (context.recentFocusEpisodes.isNotEmpty()) {
+        append("\n\n            Recent focus episodes: since the previous regular episode, this podcast aired special episodes on:")
+        for (episode in context.recentFocusEpisodes) {
+            append("\n            - \"${episode.focus}\" (${episode.generatedAt.take(10)})")
+        }
+        append("\n            If today's articles touch one of these subjects, look it up with `searchPastEpisodes` and treat it as a follow-up: ")
+        append("lead with what is new since that episode instead of repeating it, and do not drop the subject just because it was covered.")
+    }
+    context.extraInstruction?.takeIf { it.isNotBlank() }?.let { feedback ->
+        append("\n\n            Reviewer feedback on the previous version of this script, which this version MUST address: $feedback")
+        append("\n            If this feedback asks for a different length, it overrides the target word count above.")
+    }
 }
 
 /**

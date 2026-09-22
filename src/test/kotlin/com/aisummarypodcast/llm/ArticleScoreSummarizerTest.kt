@@ -661,4 +661,25 @@ class ArticleScoreSummarizerTest {
         assertNull(NewsType.parse("null"))
         assertNull(NewsType.parse("BREAKING"))
     }
+
+    @Test
+    fun `focus scoring judges against the focus text and persists nothing`() = runTest {
+        val article = Article(
+            id = 1, sourceId = "s1", title = "Opus 5.5", body = "Anthropic released Claude Opus 5.5.",
+            url = "https://example.com/1", contentHash = "hash1", relevanceScore = 3, summary = "Stored summary."
+        )
+        val prompts = mutableListOf<String>()
+        mockLlmResponse(ScoreSummarizeResult(relevanceScore = 9, summary = "Focus summary."))
+        val spec = chatClient.prompt()
+        every { spec.user(capture(prompts)) } returns spec
+
+        val result = scoreSummarizer.scoreForFocus(listOf(article), "Claude Opus 5.5 release", podcast, filterModelDef)
+
+        assertEquals(9, result.single().article.relevanceScore)
+        assertEquals("Focus summary.", result.single().article.summary)
+        assertEquals(500, result.single().usage.inputTokens)
+        assertTrue(prompts.single().contains("Topic of interest: Claude Opus 5.5 release"))
+        assertFalse(prompts.single().contains("Topic of interest: ${podcast.topic}"))
+        verify(exactly = 0) { articleRepository.save(any()) }
+    }
 }

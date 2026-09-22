@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { AudioLines, ChevronDown, ChevronRight, ExternalLink, Loader2, Volume2, X } from "lucide-react";
+import { AudioLines, ChevronDown, ChevronRight, ExternalLink, Loader2, Sparkles, Volume2, X } from "lucide-react";
 import { CronExpressionParser } from "cron-parser";
 import { useUser } from "@/lib/user-context";
 import { ArticleCard, getSourceDisplayName } from "@/components/article-card";
@@ -11,6 +11,7 @@ import type { EpisodeArticle, LlmStageCost, Podcast, PreviewAudioEstimate, Previ
 import { UpcomingCostsTab } from "@/components/upcoming-costs-tab";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -48,6 +49,8 @@ export default function UpcomingPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewStage, setPreviewStage] = useState<string | null>(null);
   const [generateLoading, setGenerateLoading] = useState(false);
+  const [focus, setFocus] = useState("");
+  const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [sampleLoading, setSampleLoading] = useState(false);
   const [fullAudioLoading, setFullAudioLoading] = useState(false);
   const [fullAudioProgress, setFullAudioProgress] = useState<string | null>(null);
@@ -293,9 +296,13 @@ export default function UpcomingPage() {
     setGenerateLoading(true);
     setError(null);
     try {
+      // Without a focus the request is sent exactly as before, with no body.
+      const trimmedFocus = focus.trim();
       const res = await fetch(
         `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/generate`,
-        { method: "POST" }
+        trimmedFocus
+          ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ focus: trimmedFocus }) }
+          : { method: "POST" }
       );
       const data = await res.json();
       if (data.episodeId) {
@@ -385,12 +392,19 @@ export default function UpcomingPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Input
+            aria-label="Focus"
+            placeholder="Focus (optional), e.g. Claude Opus 5.5 release"
+            value={focus}
+            onChange={(e) => setFocus(e.target.value)}
+            className="h-8 w-72"
+          />
           <Button
             size="sm"
-            onClick={handleGenerate}
+            onClick={() => setConfirmGenerate(true)}
             disabled={previewLoading || generateLoading || articles.length === 0}
           >
-            {generateLoading && <Loader2 className="size-4 animate-spin" />}
+            {generateLoading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
             Generate Episode
           </Button>
         </div>
@@ -511,6 +525,45 @@ export default function UpcomingPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={confirmGenerate} onOpenChange={setConfirmGenerate}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {focus.trim() ? "Generate a focus episode?" : "Generate a regular episode?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {focus.trim() ? (
+                <>
+                  A focus episode about &ldquo;{focus.trim()}&rdquo;, selected from the {articles.length} upcoming
+                  article{articles.length !== 1 ? "s" : ""}. It stops for review before audio, and does not use up
+                  those articles or change the regular schedule.
+                </>
+              ) : (
+                <>
+                  A regular episode from the {articles.length} upcoming article{articles.length !== 1 ? "s" : ""}.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel size="sm">
+              <X className="size-4" />
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              size="sm"
+              onClick={() => {
+                setConfirmGenerate(false);
+                handleGenerate();
+              }}
+            >
+              <Sparkles className="size-4" />
+              Generate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={audioEstimate !== null} onOpenChange={(open) => { if (!open) setAudioEstimate(null); }}>
         <AlertDialogContent>

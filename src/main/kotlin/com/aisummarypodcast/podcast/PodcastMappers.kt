@@ -7,6 +7,7 @@ import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.store.CostStage
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.EpisodeResearchSource
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.Subtopics
 
@@ -113,8 +114,12 @@ internal fun Episode.toResponse(
     pipelineStage = pipelineStage,
     researchCalls = researchCalls,
     researchCostCents = researchCostCents,
-    costs = buildCosts(costContext)
+    costs = buildCosts(costContext),
+    focus = focus,
+    reviewFeedback = reviewFeedback
 )
+
+internal fun EpisodeResearchSource.toResponse() = ResearchSourceResponse(query = query, title = title, url = url)
 
 /**
  * Some sources store a whole post as the article title, so a match label can run to thousands of

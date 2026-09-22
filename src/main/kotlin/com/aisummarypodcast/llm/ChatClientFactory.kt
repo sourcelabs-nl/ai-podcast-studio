@@ -1,11 +1,13 @@
 package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.research.FOCUS_RESEARCH_TOOL_CAP
 import com.aisummarypodcast.research.RESEARCH_TOOL_CAP
 import com.aisummarypodcast.research.RESEARCH_TOOL_NAME
 import com.aisummarypodcast.research.ResearchService
 import com.aisummarypodcast.research.ResearchTool
 import com.aisummarypodcast.store.ApiKeyCategory
+import com.aisummarypodcast.store.EpisodeResearchSourceRepository
 import com.aisummarypodcast.store.LlmCacheRepository
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.user.UserProviderConfigService
@@ -21,7 +23,8 @@ class ChatClientFactory(
     private val episodeHistoryRepository: EpisodeHistoryRepository,
     private val researchService: ResearchService,
     private val llmCallLogService: LlmCallLogService,
-    private val appProperties: AppProperties
+    private val appProperties: AppProperties,
+    private val researchSourceRepository: EpisodeResearchSourceRepository
 ) {
 
     /**
@@ -48,6 +51,8 @@ class ChatClientFactory(
      *
      * A fresh [HistoryLookupTool] is bound to the supplied [toolBudget] and the podcast, so
      * concurrent compose calls each get their own counters and never query across podcasts.
+     *
+     * [context] carries whether this is a focus episode, which forces research on.
      */
     fun createForCompose(
         userId: String,
@@ -55,9 +60,10 @@ class ChatClientFactory(
         podcast: Podcast,
         toolBudget: ToolBudget,
         useCache: Boolean = true,
-        attribution: LlmCallAttribution = LlmCallAttribution.NONE
+        attribution: LlmCallAttribution = LlmCallAttribution.NONE,
+        context: ComposeContext = ComposeContext()
     ): ChatClient {
-        val tools = buildComposeTools(userId, podcast, toolBudget)
+        val tools = buildComposeTools(userId, podcast, toolBudget, context)
         return ChatClient.builder(buildCachingModel(userId, resolvedModel, useCache, attribution))
             .defaultTools(*tools.toTypedArray())
             .build()
@@ -66,9 +72,15 @@ class ChatClientFactory(
     /**
      * Visible for testing: builds the list of compose-stage tools for [podcast] and registers
      * the corresponding caps with [toolBudget]. `searchPastEpisodes` is always present;
-     * `webSearch` is added only when [Podcast.deepDiveEnabled] is true.
+     * `webSearch` is added when [Podcast.deepDiveEnabled] is true, and always for a focus episode,
+     * which gets the larger [FOCUS_RESEARCH_TOOL_CAP] and records its sources against the episode.
      */
-    internal fun buildComposeTools(userId: String, podcast: Podcast, toolBudget: ToolBudget): List<Any> {
+    internal fun buildComposeTools(
+        userId: String,
+        podcast: Podcast,
+        toolBudget: ToolBudget,
+        context: ComposeContext = ComposeContext()
+    ): List<Any> {
         toolBudget.register(HISTORY_LOOKUP_TOOL_NAME, HISTORY_LOOKUP_TOOL_CAP)
         val tools = mutableListOf<Any>(
             HistoryLookupTool(
@@ -78,13 +90,15 @@ class ChatClientFactory(
                 podcastName = podcast.name
             )
         )
-        if (podcast.deepDiveEnabled) {
-            toolBudget.register(RESEARCH_TOOL_NAME, RESEARCH_TOOL_CAP)
+        if (podcast.deepDiveEnabled || context.focusResearchEnabled) {
+            toolBudget.register(RESEARCH_TOOL_NAME, researchCapFor(context))
             tools += ResearchTool(
                 researchService = researchService,
                 toolBudget = toolBudget,
                 userId = userId,
-                podcastId = podcast.id
+                podcastId = podcast.id,
+                researchSourceRepository = researchSourceRepository,
+                recordForEpisodeId = context.episodeId.takeIf { context.focusResearchEnabled }
             )
         }
         return tools
@@ -117,3 +131,7 @@ class ChatClientFactory(
         return CachingChatModel(chatModel, llmCacheRepository, resolvedModel, llmCallLogService, useCache, attribution)
     }
 }
+
+/** The `webSearch` budget of one compose run: raised for a focus episode. */
+internal fun researchCapFor(context: ComposeContext): Int =
+    if (context.focusResearchEnabled) FOCUS_RESEARCH_TOOL_CAP else RESEARCH_TOOL_CAP

@@ -12,6 +12,7 @@ import com.aisummarypodcast.store.CandidateOutcome
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.PostRepository
+import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.tts.TtsProviderFactory
 import org.slf4j.LoggerFactory
@@ -152,19 +153,7 @@ class LlmPipeline(
         val sourceLabels = sources.associate { it.id to extractDomainAndPath(it.url) }
 
         // Step 1: Aggregate unlinked posts into articles
-        val effectiveMaxArticleAgeDays = podcast.maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
-        val cutoff = Instant.now().minus(effectiveMaxArticleAgeDays.toLong(), ChronoUnit.DAYS).toString()
-        val unlinkedPosts = postRepository.findUnlinkedBySourceIds(sourceIds, cutoff)
-
-        if (unlinkedPosts.isNotEmpty()) {
-            onProgress("aggregating", mapOf("postCount" to unlinkedPosts.size))
-            log.info("[LLM] Aggregating {} unlinked posts for podcast '{}' ({})", unlinkedPosts.size, podcast.name, podcast.id)
-            val postsBySource = unlinkedPosts.groupBy { it.sourceId }
-            for ((sourceId, posts) in postsBySource) {
-                val source = sources.first { it.id == sourceId }
-                sourceAggregator.aggregateAndPersist(posts, source)
-            }
-        }
+        aggregateUnlinkedPosts(podcast, sources, onProgress)
 
         // Cost gate: estimate cost before any LLM calls
         val allUnscored = articleRepository.findUnscoredBySourceIds(sourceIds)
@@ -210,6 +199,103 @@ class LlmPipeline(
         }
 
         return eligible
+    }
+
+    private fun aggregateUnlinkedPosts(
+        podcast: Podcast,
+        sources: List<Source>,
+        onProgress: (stage: String, detail: Map<String, Any>) -> Unit
+    ) {
+        val sourceIds = sources.map { it.id }
+        val effectiveMaxArticleAgeDays = podcast.maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
+        val cutoff = Instant.now().minus(effectiveMaxArticleAgeDays.toLong(), ChronoUnit.DAYS).toString()
+        val unlinkedPosts = postRepository.findUnlinkedBySourceIds(sourceIds, cutoff)
+        if (unlinkedPosts.isEmpty()) return
+
+        onProgress("aggregating", mapOf("postCount" to unlinkedPosts.size))
+        log.info("[LLM] Aggregating {} unlinked posts for podcast '{}' ({})", unlinkedPosts.size, podcast.name, podcast.id)
+        for ((sourceId, posts) in unlinkedPosts.groupBy { it.sourceId }) {
+            sourceAggregator.aggregateAndPersist(posts, sources.first { it.id == sourceId })
+        }
+    }
+
+    /**
+     * Selects the articles for a focus episode inside [window]: every unused article of the window is
+     * scored against [focus] (not the podcast's topic, and without persisting that score), and only
+     * those clearing the podcast's relevance threshold are kept, capped like any compose input. No
+     * dedup stage runs: the focus is the selection.
+     *
+     * @throws NoFocusRelevantArticlesException when nothing clears the threshold.
+     */
+    suspend fun selectForFocus(
+        podcast: Podcast,
+        window: EpisodeWindow,
+        focus: String,
+        episodeId: Long? = null,
+        onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
+    ): FocusSelection {
+        val sources = sourceRepository.findByPodcastId(podcast.id)
+        val sourceIds = sources.map { it.id }
+        if (sourceIds.isEmpty()) throw NoFocusRelevantArticlesException(focus)
+
+        aggregateUnlinkedPosts(podcast, sources, onProgress)
+        val candidates = articleEligibilityService.findEligibleArticlesForFocus(sourceIds, podcast, window)
+        if (candidates.isEmpty()) throw NoFocusRelevantArticlesException(focus)
+
+        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        val estimatedCostCents = CostEstimator.estimateScoringCostCents(candidates, filterModelDef)
+        val costThreshold = podcast.maxLlmCostCents ?: appProperties.llm.maxCostCents
+        if (estimatedCostCents != null && estimatedCostCents > costThreshold) {
+            throw IllegalStateException(
+                "Scoring ${candidates.size} articles for focus \"$focus\" is estimated at ${estimatedCostCents}¢, " +
+                    "above the podcast's ${costThreshold}¢ cost threshold"
+            )
+        }
+
+        val scored = scoreForFocus(podcast, candidates, focus, episodeId, onProgress)
+        val relevant = scored.articles.filter { (it.article.relevanceScore ?: 0) >= podcast.relevanceThreshold }
+        log.info("[LLM] Focus \"{}\" for podcast '{}' ({}): {} of {} candidates relevant",
+            focus, podcast.name, podcast.id, relevant.size, candidates.size)
+        if (relevant.isEmpty()) throw NoFocusRelevantArticlesException(focus)
+
+        return scored.copy(articles = capForCompose(distinctForCompose(relevant, podcast)))
+    }
+
+    /**
+     * Scores [articles] against [focus] and returns them as compose input with their focus relevance
+     * and summary, without filtering. A feedback recompose of a focus episode calls this on its
+     * locked article set to recover the focus summaries, which are never persisted; the LLM cache
+     * makes that repeat pass a replay rather than a second charge.
+     */
+    suspend fun scoreForFocus(
+        podcast: Podcast,
+        articles: List<Article>,
+        focus: String,
+        episodeId: Long? = null,
+        onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
+    ): FocusSelection {
+        val sources = sourceRepository.findByPodcastId(podcast.id)
+        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        onProgress("scoring", mapOf("articleCount" to articles.size))
+        val scored = articleScoreSummarizer.scoreForFocus(
+            articles, focus, podcast, filterModelDef,
+            ScoringContext(sources.associate { it.id to extractDomainAndPath(it.url) }, episodeId)
+        ) { done, total ->
+            onProgress("scoring", mapOf("articleCount" to total, "scoredCount" to done))
+        }
+        val cost = CostEstimator.aggregateStageCost(
+            scored.map { LlmCallCost(it.usage.inputTokens, it.usage.outputTokens, it.usage.reportedCostUsd) },
+            filterModelDef.cost
+        )
+        return FocusSelection(
+            articles = scored.map { FilteredArticle(it.article) },
+            filterModel = filterModelDef.model,
+            scoreInputTokens = scored.sumOf { it.usage.inputTokens },
+            scoreOutputTokens = scored.sumOf { it.usage.outputTokens },
+            scoreCostCents = cost.costCents?.roundToInt() ?: 0,
+            scoreCostSource = cost.source,
+            scoreReportedCostCents = cost.reportedCostCents
+        )
     }
 
     /**

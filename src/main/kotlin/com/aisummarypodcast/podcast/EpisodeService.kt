@@ -9,10 +9,12 @@ import com.aisummarypodcast.llm.DedupStageResult
 import com.aisummarypodcast.llm.LlmCallCost
 import com.aisummarypodcast.llm.EpisodeCandidate
 import com.aisummarypodcast.llm.EpisodeRecapGenerator
+import com.aisummarypodcast.llm.FocusSelection
 import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineResult
 import com.aisummarypodcast.llm.PipelineStage
+import com.aisummarypodcast.llm.RecentFocusEpisode
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.CostStage
@@ -23,6 +25,8 @@ import com.aisummarypodcast.store.EpisodeArticleRepository
 import com.aisummarypodcast.store.CandidateOutcome
 import com.aisummarypodcast.store.EpisodeCandidateArticleRepository
 import com.aisummarypodcast.store.EpisodeRepository
+import com.aisummarypodcast.store.EpisodeResearchSource
+import com.aisummarypodcast.store.EpisodeResearchSourceRepository
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastRepository
@@ -56,7 +60,8 @@ class EpisodeService(
     private val audioGenerationService: AudioGenerationService,
     private val evaluationRunRecorder: EvaluationRunRecorder,
     private val llmCallRepository: LlmCallRepository,
-    private val appProperties: AppProperties
+    private val appProperties: AppProperties,
+    private val researchSourceRepository: EpisodeResearchSourceRepository
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -83,7 +88,8 @@ class EpisodeService(
     fun createGeneratingEpisode(
         podcast: Podcast,
         window: EpisodeWindow,
-        updateLastGenerated: Boolean = true
+        updateLastGenerated: Boolean = true,
+        focus: String? = null
     ): Episode {
         val now = Instant.now().toString()
         val episode = episodeRepository.save(
@@ -93,12 +99,14 @@ class EpisodeService(
                 windowStart = window.startIso,
                 windowEnd = window.endIso,
                 scriptText = "",
-                status = EpisodeStatus.GENERATING
+                status = EpisodeStatus.GENERATING,
+                focus = focus
             )
         )
         // Regeneration of an existing episode must not bump lastGeneratedAt, or the scheduler would
-        // treat the cron slot as already satisfied and skip the next scheduled generation.
-        if (updateLastGenerated) {
+        // treat the cron slot as already satisfied and skip the next scheduled generation. A focus
+        // episode never advances the regular schedule either.
+        if (updateLastGenerated && focus == null) {
             podcastRepository.save(podcast.copy(lastGeneratedAt = now))
         }
         log.info("[Pipeline] Created GENERATING episode {} for podcast '{}' ({}) covering window {}",
@@ -150,6 +158,11 @@ class EpisodeService(
             scriptText = ""
         )
 
+        // A focus episode always stops for review, and neither consumes its articles nor advances the
+        // regular schedule: the next regular episode may still select them.
+        val isFocusEpisode = baseEpisode.focus != null
+        val requireReview = podcast.requireReview || isFocusEpisode
+
         val withScript = episodeRepository.save(
             baseEpisode.copy(
                 generatedAt = generatedAt,
@@ -175,15 +188,15 @@ class EpisodeService(
                 composeOutputTokens = result.composeOutputTokens,
                 composeCostCents = result.composeCostCents,
                 composeReportedCostCents = result.composeReportedCostCents,
-                pipelineStage = if (podcast.requireReview) null else "tts",
-                status = if (podcast.requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING,
+                pipelineStage = if (requireReview) null else "tts",
+                status = if (requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING,
                 publishApproved = !podcast.requirePublishApproval
             )
         )
 
         evaluationRunRecorder.record(withScript, result.provenance)
 
-        val episode = if (podcast.requireReview) {
+        val episode = if (requireReview) {
             withScript
         } else {
             ttsPipeline.generateForExistingEpisode(withScript, podcast).let {
@@ -192,16 +205,16 @@ class EpisodeService(
         }
 
         saveEpisodeArticleLinks(episode, result)
-        markArticlesAsProcessed(result.processedArticleIds)
+        if (!isFocusEpisode) markArticlesAsProcessed(result.processedArticleIds)
         val recapEpisode = generateAndStoreRecap(episode, podcast, result.topicOrder)
         val finalEpisode = generateAndStoreShowNotes(recapEpisode)
         generateSourcesFile(finalEpisode, podcast)
-        if (updateLastGenerated) {
+        if (updateLastGenerated && !isFocusEpisode) {
             val freshPodcast = podcastRepository.findByIdOrNull(podcast.id)!!
             podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
         }
 
-        val eventName = if (podcast.requireReview) "episode.created" else "episode.generated"
+        val eventName = if (requireReview) "episode.created" else "episode.generated"
         eventPublisher.publishEvent(
             PodcastEvent(this, podcast.id, "episode", finalEpisode.id!!, eventName,
                 mapOf("episodeNumber" to finalEpisode.id))
@@ -234,10 +247,16 @@ class EpisodeService(
     }
 
     private fun generateAndStoreShowNotes(episode: Episode): Episode {
-        val showNotes = episode.recap ?: return episode
+        val showNotes = showNotesFor(episode) ?: return episode
         val updated = episodeRepository.save(episode.copy(showNotes = showNotes))
         log.info("[Pipeline] Show notes generated for episode {}", episode.id)
         return updated
+    }
+
+    /** A focus episode's show notes open by saying it is a special episode, so listeners can tell it from the regular one. */
+    private fun showNotesFor(episode: Episode): String? {
+        val recap = episode.recap ?: return null
+        return episode.focus?.let { "Special episode: $it. $recap" } ?: recap
     }
 
     private fun generateSourcesFile(episode: Episode, podcast: Podcast) {
@@ -364,6 +383,82 @@ class EpisodeService(
         }
     }
 
+    /**
+     * Persists a focus episode's selection: the article links (no dedup topics, since no dedup ran)
+     * and what scoring the candidates against the focus cost.
+     */
+    @Transactional
+    fun saveFocusSelection(episode: Episode, selection: FocusSelection) {
+        for (fa in selection.articles) {
+            episodeArticleRepository.insertIgnore(
+                episodeId = episode.id!!,
+                articleId = fa.article.id!!,
+                topic = null,
+                topicOrder = null,
+                followUpContext = null
+            )
+        }
+        val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
+        val withStages = fresh.copy(
+            filterModel = selection.filterModel,
+            scoreInputTokens = selection.scoreInputTokens,
+            scoreOutputTokens = selection.scoreOutputTokens,
+            scoreCostCents = selection.scoreCostCents,
+            scoreReportedCostCents = selection.scoreReportedCostCents,
+            llmCostSource = selection.scoreCostSource
+        )
+        episodeRepository.save(withStages.copy(
+            llmInputTokens = withStages.sumStageInputTokens(),
+            llmOutputTokens = withStages.sumStageOutputTokens(),
+            llmCostCents = withStages.sumStageCostCents()
+        ))
+        log.info("[Pipeline] Saved focus selection for episode {} ({} articles)", episode.id, selection.articles.size)
+    }
+
+    /**
+     * Stores the outcome of a feedback recompose on the same focus episode: the new script and its
+     * compose cost, and [feedback] as the latest review feedback. The episode stays in review.
+     */
+    @Transactional
+    fun saveFeedbackRecompose(episode: Episode, composeResult: ComposeStageResult, feedback: String): Episode {
+        saveComposeResult(episode, composeResult)
+        val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
+        return episodeRepository.save(
+            fresh.copy(reviewFeedback = feedback, status = EpisodeStatus.PENDING_REVIEW, pipelineStage = null)
+        )
+    }
+
+    /** Marks a focus episode as recomposing, so the review screen shows progress and hides actions. */
+    fun markRecomposing(episode: Episode): Episode {
+        val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
+        return episodeRepository.save(fresh.copy(pipelineStage = "composing"))
+    }
+
+    /** Clears the pipeline stage a failed feedback recompose left behind; the previous script stands. */
+    fun clearPipelineStage(episodeId: Long) {
+        val episode = episodeRepository.findByIdOrNull(episodeId) ?: return
+        episodeRepository.save(episode.copy(pipelineStage = null))
+    }
+
+    /** Drops the research sources of a focus episode before a recompose records new ones. */
+    fun clearResearchSources(episodeId: Long) = researchSourceRepository.deleteByEpisodeId(episodeId)
+
+    fun findResearchSources(episodeId: Long): List<EpisodeResearchSource> =
+        researchSourceRepository.findByEpisodeIdOrderByOrdinal(episodeId)
+
+    /**
+     * The focus episodes generated since the podcast's most recent regular episode, oldest first, so
+     * the next regular episode can pick their topics up as a follow-up.
+     */
+    fun findRecentFocusEpisodes(podcastId: String): List<RecentFocusEpisode> {
+        val generated = episodeRepository.findByPodcastIdAndStatus(podcastId, EpisodeStatus.GENERATED)
+        val lastRegular = generated.filter { it.focus == null }.maxOfOrNull { it.generatedAt }
+        return generated
+            .filter { it.focus != null && (lastRegular == null || it.generatedAt > lastRegular) }
+            .sortedBy { it.generatedAt }
+            .map { RecentFocusEpisode(focus = it.focus!!, generatedAt = it.generatedAt) }
+    }
+
     @Transactional
     fun saveComposeResult(episode: Episode, composeResult: ComposeStageResult) {
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
@@ -406,8 +501,13 @@ class EpisodeService(
         // created un-approved and must be approved before it can be published.
         val publishApproved = !podcast.requirePublishApproval
 
+        // A focus episode always stops for review, and neither consumes its articles nor advances the
+        // regular schedule: the next regular episode may still select them.
+        val isFocusEpisode = fresh.focus != null
+        val requireReview = podcast.requireReview || isFocusEpisode
+
         // Set status: PENDING_REVIEW or trigger TTS
-        val withStatus = if (podcast.requireReview) {
+        val withStatus = if (requireReview) {
             episodeRepository.save(fresh.copy(status = EpisodeStatus.PENDING_REVIEW, pipelineStage = null, publishApproved = publishApproved))
         } else {
             val generating = episodeRepository.save(fresh.copy(status = EpisodeStatus.GENERATING, pipelineStage = "tts", publishApproved = publishApproved))
@@ -417,7 +517,7 @@ class EpisodeService(
         }
 
         // Mark articles as processed (idempotent: skip already-processed)
-        val linkedArticles = episodeArticleRepository.findByEpisodeId(episode.id)
+        val linkedArticles = if (isFocusEpisode) emptyList() else episodeArticleRepository.findByEpisodeId(episode.id)
         val articleIds = linkedArticles.map { it.articleId }
         for (articleId in articleIds) {
             articleRepository.findByIdOrNull(articleId)?.let { article ->
@@ -437,12 +537,12 @@ class EpisodeService(
         val finalEpisode = generateAndStoreShowNotes(recapEpisode)
         generateSourcesFile(finalEpisode, podcast)
 
-        if (updateLastGenerated) {
+        if (updateLastGenerated && !isFocusEpisode) {
             val freshPodcast = podcastRepository.findByIdOrNull(podcast.id)!!
             podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
         }
 
-        val eventName = if (podcast.requireReview) "episode.created" else "episode.generated"
+        val eventName = if (requireReview) "episode.created" else "episode.generated"
         eventPublisher.publishEvent(
             PodcastEvent(this, podcast.id, "episode", finalEpisode.id!!, eventName,
                 mapOf("episodeNumber" to finalEpisode.id))
@@ -515,8 +615,7 @@ class EpisodeService(
         if (resetCount > 0) {
             val podcast = podcastRepository.findByIdOrNull(podcastId)
             if (podcast != null) {
-                val lastPublished = episodeRepository.findLatestPublishedByPodcastId(podcastId)
-                val rollbackTo = lastPublished?.generatedAt
+                val rollbackTo = episodeRepository.findLatestCoveringByPodcastId(podcastId)?.generatedAt
                 podcastRepository.save(podcast.copy(lastGeneratedAt = rollbackTo))
                 log.info("Episode {} discard: rolled back lastGeneratedAt to {} for podcast '{}'", episode.id, rollbackTo ?: "null", podcast.name)
             }
@@ -577,8 +676,11 @@ class EpisodeService(
                 )
             )
         }
-        val freshPodcast = podcastRepository.findByIdOrNull(podcast.id)!!
-        podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
+        // A failed focus episode was never part of the regular schedule, so it must not satisfy a slot.
+        if (episode.focus == null) {
+            val freshPodcast = podcastRepository.findByIdOrNull(podcast.id)!!
+            podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
+        }
         eventPublisher.publishEvent(
             PodcastEvent(this, podcast.id, "episode", episode.id!!, "episode.failed",
                 mapOf("episodeNumber" to episode.id, "error" to errorMessage))
@@ -665,8 +767,9 @@ class EpisodeService(
         var generatedSources = 0
 
         for (episode in episodes) {
-            if (episode.recap != null && episode.showNotes != episode.recap) {
-                episodeRepository.save(episode.copy(showNotes = episode.recap))
+            val showNotes = showNotesFor(episode)
+            if (showNotes != null && episode.showNotes != showNotes) {
+                episodeRepository.save(episode.copy(showNotes = showNotes))
                 updatedShowNotes++
             }
 
@@ -757,11 +860,17 @@ class EpisodeService(
         if (statuses.isEmpty()) episodeRepository.findByPodcastId(podcastId, pageable)
         else episodeRepository.findByPodcastIdAndStatusIn(podcastId, statuses, pageable)
 
-    fun hasActiveEpisode(podcastId: String): Boolean {
+    /**
+     * Whether an episode of the given kind is in flight for the podcast. Regular and focus episodes
+     * are counted apart: a focus episode sits outside the regular schedule and consumes nothing, so
+     * one waiting for review must not hold up the scheduled episode, and the other way around. Only
+     * one of each kind runs at a time.
+     */
+    fun hasActiveEpisode(podcastId: String, focusEpisodes: Boolean = false): Boolean {
         return episodeRepository.findByPodcastIdAndStatusIn(
             podcastId,
             listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)
-        ).isNotEmpty()
+        ).any { (it.focus != null) == focusEpisodes }
     }
 
     /**

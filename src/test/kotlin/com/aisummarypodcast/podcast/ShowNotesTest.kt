@@ -45,7 +45,8 @@ class ShowNotesTest {
         episodeSourcesGenerator, articleEligibilityService, eventPublisher,
         audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true),
         mockk<com.aisummarypodcast.store.LlmCallRepository>(relaxed = true),
-        mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true)
+        mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true),
+        mockk<com.aisummarypodcast.store.EpisodeResearchSourceRepository>(relaxed = true)
     )
 
     private val generateAndStoreShowNotes: Method = EpisodeService::class.java
@@ -65,6 +66,19 @@ class ShowNotesTest {
         val result = generateAndStoreShowNotes.invoke(service, episode) as Episode
         assertEquals("Today's recap summary.", result.showNotes)
         verify { episodeRepository.save(match { it.showNotes == "Today's recap summary." }) }
+    }
+
+    @Test
+    fun `focus episode show notes open by naming the special episode`() {
+        val episode = Episode(
+            id = 1L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z",
+            scriptText = "Script", status = EpisodeStatus.GENERATED,
+            recap = "Recap.", focus = "Claude Opus 5.5 release"
+        )
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        val result = generateAndStoreShowNotes.invoke(service, episode) as Episode
+        assertEquals("Special episode: Claude Opus 5.5 release. Recap.", result.showNotes)
     }
 
     @Test

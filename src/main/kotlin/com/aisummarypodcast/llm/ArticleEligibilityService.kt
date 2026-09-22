@@ -36,6 +36,21 @@ class ArticleEligibilityService(
         val threshold = podcast.relevanceThreshold
         val candidates = articleRepository.findRelevantUnprocessedBySourceIds(sourceIds, threshold)
 
+        return filterToWindow(candidates, podcast, window)
+    }
+
+    /**
+     * The candidate articles for a focus episode: not yet used and published inside the run's
+     * window, whatever their relevance to the podcast's own topic. A focus can be about something
+     * the podcast's topic scores low, so starting from the topic-relevant set would silently lose
+     * exactly the articles the focus is after; the focus scoring pass judges relevance instead.
+     */
+    fun findEligibleArticlesForFocus(sourceIds: List<String>, podcast: Podcast, window: EpisodeWindow): List<Article> {
+        val candidates = articleRepository.findUnprocessedSince(sourceIds, window.startIso)
+        return filterToWindow(candidates, podcast, window)
+    }
+
+    private fun filterToWindow(candidates: List<Article>, podcast: Podcast, window: EpisodeWindow): List<Article> {
         val datable = dropEvergreen(candidates)
 
         val filtered = datable.filter { article ->

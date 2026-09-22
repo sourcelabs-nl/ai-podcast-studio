@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import org.junit.jupiter.api.Assertions.assertFalse
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Episode
@@ -118,5 +119,17 @@ class EpisodeHistoryRepositoryTest {
         val matches = episodeHistoryRepository.search("pA", "speckit")
 
         assertEquals(1, matches.size)
+    }
+
+    @Test
+    fun `a focus episode match is flagged, a regular one is not`() {
+        val regularId = seedEpisode("pA", "sA", "Regular coverage of speckit.", "speckit", "speckit")
+        val focusId = seedEpisode("pA", "sA", "Focus coverage of speckit.", "speckit", "speckit")
+        episodeRepository.save(episodeRepository.findById(focusId).get().copy(focus = "speckit launch"))
+
+        val matches = episodeHistoryRepository.search("pA", "speckit").associateBy { it.episodeId }
+
+        assertTrue(matches.getValue(focusId).isFocusEpisode)
+        assertFalse(matches.getValue(regularId).isFocusEpisode)
     }
 }

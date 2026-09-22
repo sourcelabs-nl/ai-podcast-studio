@@ -29,6 +29,16 @@ import java.time.LocalDate
  * [episodeId] is the episode being composed, used to attribute the recorded request telemetry. It
  * travels here rather than as a parameter on every composer because every compose path already
  * carries this object, and a preview has no episode to name, so it stays null.
+ *
+ * [focus] is the focus text of a focus episode, null for a regular episode. A focus episode always
+ * has the `webSearch` tool at the raised budget ([focusResearchEnabled]), records the sources it
+ * returns against [episodeId], and tells the model what the episode is about.
+ *
+ * [extraInstruction] is a reviewer's feedback on the previous script of a focus episode, appended to
+ * the prompt like the TTS guidelines are.
+ *
+ * [recentFocusEpisodes] are the focus episodes aired since the previous regular episode, so a regular
+ * episode picks their topics up as a follow-up rather than repeating or ignoring them.
  */
 data class ComposeContext(
     val ttsScriptGuidelines: String = "",
@@ -37,5 +47,16 @@ data class ComposeContext(
     val episodeDate: LocalDate = LocalDate.now(),
     val nextEpisodeDate: LocalDate? = null,
     val bypassLlmCache: Boolean = false,
-    val episodeId: Long? = null
+    val episodeId: Long? = null,
+    val focus: String? = null,
+    val extraInstruction: String? = null,
+    val recentFocusEpisodes: List<RecentFocusEpisode> = emptyList()
+) {
+    val focusResearchEnabled: Boolean get() = focus != null
+}
+
+/** A focus episode that aired since the previous regular episode, as the compose prompt names it. */
+data class RecentFocusEpisode(
+    val focus: String,
+    val generatedAt: String
 )
