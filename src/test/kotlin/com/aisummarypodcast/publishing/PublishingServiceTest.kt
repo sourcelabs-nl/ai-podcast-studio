@@ -51,6 +51,16 @@ class PublishingServiceTest {
     private val enabledTarget = PodcastPublicationTarget(id = 1, podcastId = "pod1", target = "soundcloud", config = "{}", enabled = true)
 
     @Test
+    fun `liveTargets returns only targets with a published publication`() {
+        every { publicationRepository.findByEpisodeId(1L) } returns listOf(
+            EpisodePublication(id = 1L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, createdAt = "now"),
+            EpisodePublication(id = 2L, episodeId = 1L, target = "ftp", status = PublicationStatus.UNPUBLISHED, createdAt = "now")
+        )
+
+        assertEquals(listOf("soundcloud"), service.liveTargets(1L))
+    }
+
+    @Test
     fun `publish succeeds for valid episode`() {
         every { targetService.get("pod1", "soundcloud") } returns enabledTarget
         every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns null

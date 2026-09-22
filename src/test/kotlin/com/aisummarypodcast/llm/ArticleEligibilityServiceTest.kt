@@ -299,7 +299,7 @@ class ArticleEligibilityServiceTest {
     @Test
     fun `findEligibleArticlesForFocus keeps an article below the podcast's relevance threshold`() {
         val offTopic = article(1).copy(relevanceScore = 1)
-        every { articleRepository.findUnprocessedSince(listOf("src-1"), window.startIso) } returns listOf(offTopic)
+        every { articleRepository.findAllSince(listOf("src-1"), window.startIso) } returns listOf(offTopic)
 
         val result = service.findEligibleArticlesForFocus(listOf("src-1"), podcast, window)
 
@@ -309,10 +309,31 @@ class ArticleEligibilityServiceTest {
     @Test
     fun `findEligibleArticlesForFocus still applies the window`() {
         val after = article(2, publishedAt = "2026-03-19T10:00:00Z")
-        every { articleRepository.findUnprocessedSince(any(), any()) } returns listOf(article(1), after)
+        every { articleRepository.findAllSince(any(), any()) } returns listOf(article(1), after)
 
         val result = service.findEligibleArticlesForFocus(listOf("src-1"), podcast, window)
 
         assertEquals(listOf(1L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticlesForFocus keeps an article another episode already used`() {
+        val used = article(1).copy(isProcessed = true)
+        every { articleRepository.findAllSince(listOf("src-1"), window.startIso) } returns listOf(used)
+
+        val result = service.findEligibleArticlesForFocus(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(used), result)
+    }
+
+    @Test
+    fun `findEligibleArticlesForFocus drops a pure retweet but keeps a reply with its own content`() {
+        val retweet = article(1).copy(body = "RT @claudeai Introducing Claude Opus 5.5, the first model in our new family.")
+        val reply = article(2).copy(body = "@RLanceMartin Opus 5.5 is out! excellent at coding, great at writing.")
+        every { articleRepository.findAllSince(listOf("src-1"), window.startIso) } returns listOf(retweet, reply)
+
+        val result = service.findEligibleArticlesForFocus(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(2L), result.map { it.id })
     }
 }

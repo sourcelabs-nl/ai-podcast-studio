@@ -28,4 +28,9 @@ class PodcastExceptionHandler {
     fun handleNotRecomposable(e: EpisodeNotRecomposableException): ResponseEntity<Any> =
         ResponseEntity.status(HttpStatus.CONFLICT)
             .body(mapOf("error" to e.message, "code" to "episode_not_recomposable"))
+
+    @ExceptionHandler(EpisodePublishedException::class)
+    fun handlePublished(e: EpisodePublishedException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(mapOf("error" to e.message, "code" to "episode_published"))
 }

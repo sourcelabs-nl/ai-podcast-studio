@@ -21,6 +21,7 @@ class EpisodeController(
     private val userService: UserService,
     private val episodeService: EpisodeService,
     private val episodeSearchService: EpisodeSearchService,
+    private val episodeDiscardService: EpisodeDiscardService,
     private val appProperties: AppProperties
 ) {
 
@@ -216,11 +217,7 @@ class EpisodeController(
             return ResponseEntity.status(409).body(mapOf("error" to message))
         }
 
-        if (episode.status == EpisodeStatus.FAILED) {
-            episodeService.discardOnly(episode, podcastId)
-        } else {
-            episodeService.discardAndResetArticles(episode, podcastId)
-        }
+        episodeDiscardService.discard(episode, podcastId)
         return ResponseEntity.ok(mapOf("message" to "Episode discarded"))
     }
 

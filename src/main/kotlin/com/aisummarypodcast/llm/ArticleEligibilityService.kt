@@ -40,15 +40,29 @@ class ArticleEligibilityService(
     }
 
     /**
-     * The candidate articles for a focus episode: not yet used and published inside the run's
-     * window, whatever their relevance to the podcast's own topic. A focus can be about something
-     * the podcast's topic scores low, so starting from the topic-relevant set would silently lose
-     * exactly the articles the focus is after; the focus scoring pass judges relevance instead.
+     * The candidate articles for a focus episode: every article published inside the run's window,
+     * whatever its relevance to the podcast's own topic and whether or not another episode already
+     * used it. A focus can be about something the podcast's topic scores low, and the articles that
+     * report a story best are the ones a regular episode of the same window has usually taken, so
+     * starting from either the topic-relevant or the unused set would silently lose exactly the
+     * articles the focus is after. Episode 228 ("Claude Opus 5.5 release") lost the Anthropic
+     * announcement and the news coverage that way and was left with X posts. The focus scoring pass
+     * judges relevance instead.
+     *
+     * Pure retweets are dropped: they carry no content of their own, only a copy of another post,
+     * and a focus episode has no dedup stage that would fold them into the original.
      */
     fun findEligibleArticlesForFocus(sourceIds: List<String>, podcast: Podcast, window: EpisodeWindow): List<Article> {
-        val candidates = articleRepository.findUnprocessedSince(sourceIds, window.startIso)
-        return filterToWindow(candidates, podcast, window)
+        val candidates = articleRepository.findAllSince(sourceIds, window.startIso)
+        val ownContent = candidates.filterNot { isPureRetweet(it) }
+        if (ownContent.size < candidates.size) {
+            log.info("[Eligibility] Dropped {} pure retweet(s) from focus candidates for podcast '{}'",
+                candidates.size - ownContent.size, podcast.name)
+        }
+        return filterToWindow(ownContent, podcast, window)
     }
+
+    private fun isPureRetweet(article: Article): Boolean = article.body.trimStart().startsWith(RETWEET_PREFIX)
 
     private fun filterToWindow(candidates: List<Article>, podcast: Podcast, window: EpisodeWindow): List<Article> {
         val datable = dropEvergreen(candidates)
@@ -145,3 +159,5 @@ class ArticleEligibilityService(
         )
     }
 }
+
+private const val RETWEET_PREFIX = "RT @"

@@ -28,3 +28,9 @@ class EpisodeNotRerunnableException(message: String) : IllegalStateException(mes
  * review (maps to 409).
  */
 class EpisodeNotRecomposableException(message: String) : IllegalStateException(message)
+
+/**
+ * The episode cannot be discarded because it still has a publication in PUBLISHED status
+ * (maps to 409). It has to be unpublished from every target first.
+ */
+class EpisodePublishedException(message: String) : IllegalStateException(message)

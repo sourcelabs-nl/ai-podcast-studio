@@ -285,6 +285,12 @@ class PublishingService(
     fun getPublications(episodeId: Long): List<EpisodePublication> =
         publicationRepository.findByEpisodeId(episodeId)
 
+    /** Targets [episodeId] is still live on, i.e. published and not yet unpublished. */
+    fun liveTargets(episodeId: Long): List<String> =
+        publicationRepository.findByEpisodeId(episodeId)
+            .filter { it.status == PublicationStatus.PUBLISHED }
+            .map { it.target }
+
     fun rebuildSoundCloudPlaylist(podcast: Podcast, userId: String): List<Long> {
         val publications = publicationRepository.findPublishedByPodcastIdAndTarget(podcast.id, SoundCloudPublisher.TARGET_NAME)
         require(publications.isNotEmpty()) { "No published SoundCloud tracks found for this podcast" }

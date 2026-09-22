@@ -11,6 +11,7 @@ import { useEventStream } from "@/lib/event-context";
 import type { Podcast, Episode, EpisodePublication, PagedResponse } from "@/lib/types";
 import { Paginator } from "@/components/paginator";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -309,10 +310,14 @@ export default function EpisodesPage() {
 
   async function doAction(episodeId: number, action: string) {
     if (!selectedUser) return;
-    await fetch(
+    const res = await fetch(
       `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/episodes/${episodeId}/${action}`,
       { method: "POST" }
     );
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      toast.error(body?.error ?? `Action failed (${res.status}).`);
+    }
     await new Promise((r) => setTimeout(r, 500));
     fetchEpisodes();
   }

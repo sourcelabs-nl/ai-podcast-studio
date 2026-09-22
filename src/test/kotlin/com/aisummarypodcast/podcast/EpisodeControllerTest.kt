@@ -42,6 +42,9 @@ class EpisodeControllerTest {
     private lateinit var episodeSearchService: EpisodeSearchService
 
     @MockkBean(relaxed = true)
+    private lateinit var episodeDiscardService: EpisodeDiscardService
+
+    @MockkBean(relaxed = true)
     private lateinit var appProperties: AppProperties
 
     private val userId = "user-1"
@@ -332,12 +335,12 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(1L) } returns pendingEpisode
-        justRun { episodeService.discardAndResetArticles(pendingEpisode, podcastId) }
+        justRun { episodeDiscardService.discard(pendingEpisode, podcastId) }
 
         mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/1/discard"))
             .andExpect(status().isOk)
 
-        verify { episodeService.discardAndResetArticles(pendingEpisode, podcastId) }
+        verify { episodeDiscardService.discard(pendingEpisode, podcastId) }
     }
 
     @Test
@@ -349,13 +352,12 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(5L) } returns failedEpisode
-        justRun { episodeService.discardOnly(failedEpisode, podcastId) }
+        justRun { episodeDiscardService.discard(failedEpisode, podcastId) }
 
         mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/5/discard"))
             .andExpect(status().isOk)
 
-        verify { episodeService.discardOnly(failedEpisode, podcastId) }
-        verify(exactly = 0) { episodeService.discardAndResetArticles(any(), any()) }
+        verify { episodeDiscardService.discard(failedEpisode, podcastId) }
     }
 
     @Test

@@ -9,6 +9,7 @@ import { useEventStream } from "@/lib/event-context";
 import type { Podcast, Episode, EpisodePublication } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -153,10 +154,14 @@ export default function EpisodeDetailPage() {
 
   async function doAction(action: string) {
     if (!selectedUser || !episode) return;
-    await fetch(
+    const res = await fetch(
       `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/episodes/${episode.id}/${action}`,
       { method: "POST" }
     );
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      toast.error(body?.error ?? `Action failed (${res.status}).`);
+    }
     fetchEpisode();
   }
 
