@@ -117,11 +117,8 @@ function RequestOutcome({ request }: { request: LlmCall }) {
 }
 
 function RequestList({ requests }: { requests: LlmCall[] }) {
-  // Slowest first, so the request worth explaining is the first one read. A cache hit performed no
-  // request, so its duration does not rank it.
-  const sorted = [...requests].sort(
-    (a, b) => (b.cacheHit ? -1 : b.durationMs) - (a.cacheHit ? -1 : a.durationMs)
-  );
+  // Newest first, so the requests read in the order a run made them, most recent on top.
+  const sorted = [...requests].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   return (
     <Table>
       <TableHeader>
