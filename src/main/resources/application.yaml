@@ -194,9 +194,10 @@ app:
         model: deepseek/deepseek-v4.1-flash
     max-cost-cents: 200
     # Request timeout per stage. One blanket value cannot serve them all: scoring returns in seconds
-    # and dedup in 21s-1m44s, while a single compose request runs 1-4 minutes. Compose once needed
-    # 20 minutes because the model issued its own web_search tool calls mid-request; research now
-    # runs before compose, so 5 minutes covers a compose request. A single compose-sized ceiling let
+    # and dedup in 21s-1m44s, while a single compose request runs 1-5 minutes (281s measured at
+    # medium effort on a 40-article set). Compose once needed 20 minutes because the model issued
+    # its own web_search tool calls mid-request; research now runs before compose, so 10 minutes
+    # covers a compose request with room to spare. A single compose-sized ceiling let
     # one hung scoring call stall a whole generation for 13 minutes; a scoring-sized one would fail
     # a real compose run. Recap resolves the filter model and so takes the filter timeout.
     #
@@ -205,7 +206,7 @@ app:
     timeouts:
       filter: 3m
       dedup: 5m
-      compose: 5m
+      compose: 10m
       eval: 5m
     # Per-request latency is recorded for every LLM call and read back as percentiles per stage,
     # which is what the timeouts above are sized against. Kept for a window: the rows answer what
@@ -228,7 +229,7 @@ app:
       # $0.00354 for the clustering call, catching 20/20 planted and flagging the same 4 of 40 fresh
       # candidates the clustering call flags. Asking per candidate instead of batching costs
       # $0.00605, nearly twice the call it relieves, because each request re-sends the covered
-      # topics. See knowledge/references/jev-decisions-endpoint.md for every figure.
+      # topics. See knowledge/models-and-apis/jev-decisions-endpoint.md for every figure.
       #
       # The endpoint is alpha, single-provider, with no OpenRouter routing fallback behind it, so a
       # provider outage has nothing to route to: one OpenRouter incident produced both "503 no

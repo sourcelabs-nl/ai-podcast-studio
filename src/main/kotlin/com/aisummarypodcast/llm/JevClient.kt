@@ -38,7 +38,7 @@ data class JevCaller(val stage: String, val episodeId: Long? = null)
  *
  * Only `noul` is modelled because only `noul` is used. Jev also answers `score` and `choice`, both
  * of which additionally require a `criteria` field whose shape differs between them, and neither
- * would be exercised by anything here. See `knowledge/references/jev-decisions-endpoint.md`.
+ * would be exercised by anything here. See `knowledge/models-and-apis/jev-decisions-endpoint.md`.
  */
 data class JevNoulQuestion(val instructions: String) {
     val type: String = "noul"

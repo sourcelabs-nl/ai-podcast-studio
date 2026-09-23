@@ -143,7 +143,7 @@ data class LlmCallLogProperties(
 data class StageTimeouts(
     val filter: Duration = Duration.ofMinutes(3),
     val dedup: Duration = Duration.ofMinutes(5),
-    val compose: Duration = Duration.ofMinutes(5),
+    val compose: Duration = Duration.ofMinutes(10),
     /**
      * The judge reads one whole script and answers with a short list of turn indices, so it sits
      * between a single article and a dedup batch in size. It gets dedup's allowance rather than
@@ -169,7 +169,7 @@ data class DedupProperties(
 /**
  * The Jev already-covered gate that runs ahead of the dedup clustering call.
  *
- * Every default here was measured; see `knowledge/references/jev-decisions-endpoint.md`.
+ * Every default here was measured; see `knowledge/models-and-apis/jev-decisions-endpoint.md`.
  * [threshold] sits in the gap between the two answer distributions rather than on a slope
  * (already-covered candidates averaged 0.95, fresh ones 0.39), and errs high on purpose: a false
  * exclusion silently drops a story from the episode, where a false inclusion only leaves the

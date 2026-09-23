@@ -63,7 +63,7 @@ data class CoveredTopicGateResult(
  * Measured over 60 candidates, 20 of them drawn from the previous episode and so provably already
  * covered: 857ms and $0.00074 against the clustering call's 22.9s and $0.00354, catching all 20
  * and flagging the same 4 of 40 fresh candidates the clustering call flags. Every figure is in
- * `knowledge/references/jev-decisions-endpoint.md`.
+ * `knowledge/models-and-apis/jev-decisions-endpoint.md`.
  */
 @Component
 class CoveredTopicGate(
