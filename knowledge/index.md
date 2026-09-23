@@ -25,6 +25,7 @@ Nothing in the application reads this directory.
 - [`tts/`](tts/index.md): measured behaviour of the TTS engine
 - [`prompt-rules/`](prompt-rules/index.md): why a composition rule exists
 - [`evals/`](evals/index.md): experiments and their conditions
+- [`models-and-apis/`](models-and-apis/index.md): measured behaviour of the models, SDKs and APIs we depend on
 - [`references/`](references/index.md): external material we learn from
 
 [`log.md`](log.md) records what changed here and when, newest first. Past months

@@ -1,7 +1,7 @@
 ---
 okf_version: "0.2"
 type: finding
-title: Compose spends most of its output budget on reasoning, and default routing serves it from a slower DeepInfra endpoint
+title: Compose spends most of its output budget on reasoning, and default routing served it from a slower DeepInfra endpoint on episodes 220-228
 answers: deciding whether to lower compose reasoning effort, add throughput-based OpenRouter provider routing, or diagnosing why a compose call ran long or cost more than expected
 status: stable
 model_version: deepseek/deepseek-v4.1-flash via OpenRouter, reasoning effort medium, exclude:true
@@ -30,20 +30,19 @@ output tokens against a script of 1,819 words. This is with reasoning effort set
 to medium and `exclude: true`, so none of that reasoning is visible or usable,
 only billed and waited on.
 
-**Default routing served compose from the slower endpoint.** With price-weighted
-routing and this project's fp8 quantization floor, cost matched DeepInfra's
+**Default routing served compose from the slower endpoint on episodes 220-228.**
+With price-weighted routing and this project's fp8 quantization floor, cost matched DeepInfra's
 $0.14/$0.42 per M, which is the cheapest endpoint that passes the floor.
 DeepInfra's own p50 throughput is 46 tok/s; measured compose throughput was
 26-51 tok/s. Endpoints that pass the same quantization floor and are faster,
 per the OpenRouter endpoints API: CoreWeave fp8 at 162 tok/s p50 ($0.65/M out),
 Parasail at 147, AtlasCloud at 136, Novita at 124. BaseTen was ruled out on a
 hard limit, not price: its 32k max completion tokens is below this project's
-configured max-output-tokens of 96000. OpenRouter's `provider.sort: "throughput"`
+configured max-output-tokens of 96000. The endpoint the price order lands on moves
+with the provider mix: on 2026-09-23 every DeepSeek compose run, sorted by
+throughput or not, was served by Novita. See [[openrouter-routing]]. OpenRouter's `provider.sort: "throughput"`
 and `preferred_min_throughput` combine with `quantizations` and
-`require_parameters` to express a throughput-first route (see the OpenRouter
-provider routing docs). This has not been A/B tested against script quality:
-switching provider or lowering reasoning effort could change compose's output,
-not just its speed.
+`require_parameters` to express a throughput-first route.
 
 **Tool calls added a second full-price round trip.** Under the old flow,
 episode 227's first round (searchPastEpisodes x2, webSearch x2) took 126
@@ -56,7 +55,7 @@ that took 106.5 seconds with 2,994 reasoning tokens (provider DeepInfra), plus a
 1.8-second research-plan call, for a 121-second total recompose.
 
 **The compose timeout is a wall-clock ceiling, not an idle timeout.** callTimeout
-is 20 minutes. Because a non-streamed response sends no bytes until it
+is 10 minutes; it was 20 while compose ran its own tool calls. Because a non-streamed response sends no bytes until it
 completes, an okhttp readTimeout on that connection would not behave as an idle
 timeout unless compose were switched to streaming.
 
@@ -64,6 +63,9 @@ timeout unless compose were switched to streaming.
 warning seen around this period was not a real defect: the advisor step already
 cleaned the text before topic-order extraction ran. Fixed in commit cb9e14b.
 
-**Not yet established.** Whether throughput-first routing or a lower reasoning
-effort changes script quality; both need an A/B before either is adopted as a
-default.
+**Effect on script quality.** Measured in [[pipeline-experiments-2026-09]]:
+reasoning effort none to high and throughput sort all scored within run-to-run
+spread on the judge. That is one article set of one podcast, so it does not yet
+justify changing the compose default.
+
+Related: [[pipeline-experiments-2026-09]], [[spring-ai-2-0-1-per-request-timeout]]

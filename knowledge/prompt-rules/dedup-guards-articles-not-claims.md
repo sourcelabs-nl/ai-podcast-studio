@@ -1,9 +1,10 @@
 ---
 okf_version: "0.2"
-type: finding
+type: rule-rationale
 title: Dedup guards the article boundary, not the claim boundary
 answers: a listener reports the same fact twice across episodes, or considering claim-level dedup
 status: stable
+source: src/main/kotlin/com/aisummarypodcast/llm/TopicDedupFilter.kt, TopicDedupFilter
 method: >
   A listener reported hearing content twice. Both scripts were read directly and
   the shared passage quoted from each, then the articles linked to both episodes

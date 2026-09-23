@@ -141,7 +141,7 @@ app:
 
 Jev is not a chat model and is absent from OpenRouter's `/api/v1/models` listing, so it is not a stage model and cannot be set through `llmModels`. Its `url` is configured rather than derived from the stored OpenRouter base URL, which points at the chat API. The credential is the existing OpenRouter one: without it the gate asks nothing and the stage runs ungated.
 
-`threshold` is the probability at or above which a candidate counts as already covered. It errs high on purpose, because a false exclusion silently removes a story from the episode while a false inclusion only leaves the clustering call the work it already does. `summary-max-chars` and `max-request-chars` bound the request: the endpoint rejects on size rather than on question count, and every measurement behind these defaults is recorded in `knowledge/references/jev-decisions-endpoint.md`.
+`threshold` is the probability at or above which a candidate counts as already covered. It errs high on purpose, because a false exclusion silently removes a story from the episode while a false inclusion only leaves the clustering call the work it already does. `summary-max-chars` and `max-request-chars` bound the request: the endpoint rejects on size rather than on question count, and every measurement behind these defaults is recorded in `knowledge/models-and-apis/jev-decisions-endpoint.md`.
 
 Setting `enabled: false` restores the stage's behaviour from before the gate existed, which is also what happens by itself whenever the endpoint is unavailable.
 

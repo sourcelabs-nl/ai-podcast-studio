@@ -7,6 +7,7 @@ status: stable
 method: >
   Read from the cache key itself rather than observed in a wrong result, then
   pinned by a test that two identical evaluation calls reach the model twice.
+model_version: none, this is the project's own LLM cache (CachingChatModel), not third-party behaviour
 stale_after: 2027-09-15T00:00:00Z
 generated:
   by: claude-opus-5

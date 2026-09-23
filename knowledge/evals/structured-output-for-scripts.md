@@ -72,8 +72,8 @@ characters would be about 98 cents of speech and around forty minutes of audio,
 against episode 222's 50 cents and twenty-one minutes. A response-format change
 that doubles script length costs more than the whole LLM budget it sits in.
 
-Latency is not a blocker: the worst structured run took 449s against a 20-minute
-compose timeout, inside the 1m03s-18m11s range compose already spans.
+Latency is not a blocker: the worst structured run took 449s against the 20-minute
+compose timeout then in force, inside the 1m03s-18m11s range compose already spans.
 
 **What follows.** Structured output is worth adopting on correctness grounds, and
 the objection recorded against it does not survive measurement. It is not a

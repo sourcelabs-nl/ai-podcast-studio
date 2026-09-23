@@ -265,4 +265,4 @@ model's own output, not a human judgement, so "agreement" measures
 reproducibility of the current gate and not correctness. The first cost and
 latency run was discarded: it omitted the `OpenRouterRouting` extra body, which
 routed to a different endpoint mix and made the combined call look ten times
-slower than it is.
+slower than it is. The routing body itself is described in [[openrouter-routing]].

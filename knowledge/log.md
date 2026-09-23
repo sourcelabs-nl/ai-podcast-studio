@@ -7,6 +7,35 @@ screen.
 
 ## [2026-09-23] Record
 
+Added the episode 226 confirmation to `evals/pipeline-experiments-2026-09.md`: on a
+second article set compose effort none scored below medium (0.61 against 0.74), so
+the pooled evidence does not support moving the compose default off medium.
+
+## [2026-09-23] Lint
+
+Full pass over all 34 entries (35 with the routing entry). No em-dashes, no dangling wikilinks, no expired
+`stale_after`. Fixed: the evals index had a stray paragraph splitting its list;
+the Spring AI timeout index line did not match its `answers`; this file carried a
+leftover header fragment; `compose-reasoning-and-routing-2026-09` did not link the
+experiment and timeout entries that supersede parts of it. The log is one month
+long, so nothing was archived.
+
+Applied on approval: `compose-reasoning-and-routing-2026-09` now states the 10m
+compose timeout, scopes DeepInfra to episodes 220-228 against Novita on
+2026-09-23, and points its quality question at `pipeline-experiments-2026-09`;
+`structured-output-for-scripts` dates its 20-minute timeout; `evaluation-run-cache-bypass`
+gained `model_version`, `dedup-guards-articles-not-claims` became a
+`rule-rationale` with `source`, `turn-length-in-the-reference-shows` a `reference`.
+Added `models-and-apis/openrouter-routing.md` and the new `models-and-apis/`
+section, moving six entries there from `references/` (Spring AI timeout, OpenAI
+temperature, both Jev entries, SQLite generated keys, Narro feed format) and
+repointing the code comments, docs and skill that cited their old paths.
+
+Left open: `PromptVarietyPicker` and the `ScriptJudge`/`AttentionScoring` split
+still have no entry.
+
+## [2026-09-23] Record
+
 Added `evals/pipeline-experiments-2026-09.md`: on episode 230's article set, compose
 reasoning effort none/low/medium/high scored within run-to-run spread while cost
 and time rose with effort; throughput sort still landed on Novita and was not
@@ -108,9 +137,6 @@ failure rate is unmeasured and the earlier "weakest property by far" reading
 described the incident. What the incident does establish is unchanged: a
 single-provider model has no routing fallback, so callers need a defined
 behaviour for having no answer.
-
-## [YYYY-MM-DD] <operation>` so recent
-activity can be read with `grep "^## \[" knowledge/log.md | head -10`.
 
 ## [2026-09-21] Record
 

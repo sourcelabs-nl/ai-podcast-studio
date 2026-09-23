@@ -28,7 +28,7 @@ request without the temperature routes to OpenAI and completes.
 The error names routing, not the parameter, and the same 404 is what the
 quantization floor produced for vendor-served models, so the two causes look
 identical from the response. Checking a model's `supported_parameters` on
-`/api/v1/models` tells them apart.
+`/api/v1/models` tells them apart; see [[openrouter-routing]].
 
 Every stage here sets a temperature (0.3 for extraction, the podcast's own for
 compose), so the fix is applied where the request options are finished rather than

@@ -1,6 +1,6 @@
 ---
 okf_version: "0.2"
-type: finding
+type: reference
 title: The reference shows have long turns, not short ones
 answers: considering shorter turns to get closer to the reference shows
 status: stable
