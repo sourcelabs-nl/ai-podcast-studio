@@ -619,7 +619,15 @@ class LlmPipeline(
         )
     }
 
-    suspend fun preview(podcast: Podcast, onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }): PreviewResult? {
+    /**
+     * The stages of a transient run (see [PipelineRunner]): aggregate, score, dedup and compose from
+     * [window] without persisting an episode, and without marking any article processed.
+     */
+    suspend fun preview(
+        podcast: Podcast,
+        window: EpisodeWindow,
+        onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
+    ): PreviewResult? {
         val sources = sourceRepository.findByPodcastId(podcast.id)
         val sourceIds = sources.map { it.id }
         if (sourceIds.isEmpty()) return null
@@ -656,7 +664,6 @@ class LlmPipeline(
         }
 
         // Step 3: Find eligible articles and run dedup filter
-        val window = episodeWindowResolver.resolveForNow(podcast)
         val episodeDate = episodeWindowResolver.episodeDateOf(podcast, window)
         val eligible = articleEligibilityService.findEligibleArticles(sourceIds, podcast, window)
         if (eligible.isEmpty()) {

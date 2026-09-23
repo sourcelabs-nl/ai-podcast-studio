@@ -75,7 +75,8 @@ class PodcastServiceTest {
     private val podcastService = PodcastService(
         podcastRepository, sourceRepository, articleRepository, postRepository,
         postArticleRepository, episodeArticleRepository, episodeRepository, appProperties, llmPipeline, episodeService,
-        eventPublisher, sourceAggregator, episodeWindowResolver, modelResolver
+        eventPublisher, sourceAggregator, episodeWindowResolver, modelResolver,
+        PipelineRunner(llmPipeline, episodeService, episodeWindowResolver, eventPublisher)
     )
 
     private val podcast = Podcast(

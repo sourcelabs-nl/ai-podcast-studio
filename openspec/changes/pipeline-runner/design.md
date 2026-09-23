@@ -24,13 +24,17 @@ Today, configuration flows one way only: `ModelResolver.resolve(podcast, stage)`
 
 ## Decisions
 
-**1. `RunSpec` is a sealed-friendly data class, not a sealed class, for `input`.** `RunInput` is the sealed type (`Window`, `ArticleSet`, `Focus`), while `RunSpec` itself stays a plain data class with `purpose: RunPurpose`, `input: RunInput`, `resumePoint: ResumePoint`, `overrides: RunOverrides?`, `outcome: RunOutcome`. This mirrors the project's existing style of a small sealed hierarchy for a "kind of thing" field rather than sealing the entire container (compare `ComposeContext`, a plain data class, vs. e.g. a hypothetical sealed pipeline-result type).
+**1. `RunSpec` is a plain data class; `RunInput`, `RunOutcome` and `RunResult` are small sealed types (`podcast/RunSpecTypes.kt`).** `RunSpec` carries `podcast`, the target `episode` (null only for a `Transient` run), `purpose: RunPurpose`, `input: RunInput` (`Window`, `ArticleSet` carrying the source episode's `LinkedArticlesResult`, `Focus(text, window)`), `resumePoint` (the existing `ResumePoint` enum), `outcome: RunOutcome` and `bypassLlmCache`. `RunOutcome` is `Deliver(updateLastGenerated, generatedAt)` (finalize per podcast settings, which stops a focus episode or a review-requiring podcast at `PENDING_REVIEW`), `Review(feedback)` (a feedback recompose rewriting an episode that stays in review) and `Transient(onProgress)`. `RunResult` is `Completed`, `NothingToCompose`, `Failed` or `Previewed`. Phase B adds `overrides: RunOverrides?` and the `Sandbox` outcome together with the code that reads them, and moves `bypassLlmCache` into `RunConfig`; they do not exist as unused placeholders before then.
 
-**2. `PipelineRunner` is a new `@Service` in the `llm` package that depends on the same collaborators `PodcastService`/`LlmPipeline` already depend on (`ModelResolver`, research, the composers) plus `EpisodeService`'s epilogue.** It does not replace `LlmPipeline`; `LlmPipeline` keeps owning the actual stage implementations (aggregate/score/filter, dedup, compose), and `PipelineRunner` owns sequencing them per `RunSpec` and applying the outcome. This keeps the stage logic itself, which `unify-episode-epilogue` does not touch, stable across both changes.
+**2. `PipelineRunner` is a new `@Service` in the `podcast` package (`podcast/PipelineRunner.kt`) that depends on `LlmPipeline`, `EpisodeService`, `EpisodeWindowResolver` and the event publisher.** It lives in `podcast`, not `llm`, because it depends on `EpisodeService`, `PodcastEvent` and `ResumePoint`, all `podcast` types; putting it in `llm` would make `llm` import from `podcast`, inverting the dependency direction the rest of the codebase keeps (`podcast` depends on `llm`, never the reverse). `llm` still exposes the few data types `podcast` needs (`EpisodeWindow`, `EpisodeWindowResolver`, `SupportedLanguage`), which is the same import surface `llm` had before this change. It does not replace `LlmPipeline`; `LlmPipeline` keeps owning the stage implementations (aggregate/score/filter, dedup, compose, recompose, and the preview stages), and `PipelineRunner` owns sequencing them per `RunSpec`, progress reporting, failure handling, and applying the outcome. The outcome is where the shared epilogue runs: `Deliver` through `EpisodeService.finalizeEpisode`/`createEpisodeFromPipelineResult`, `Review` through `EpisodeService.runEpilogueForRewrite`; `Transient` never reaches it. `PodcastService` keeps each route's validation, placeholder-episode creation and the background `pipelineScope` launch, and builds the `RunSpec`.
 
-**3. Phase A migrates routes in this order, each behind its own task/test/live-check:** regeneration first (already the most self-contained: composition-only, no dedup/scoring re-run), then retry, then focus generation + feedback recompose, then scheduled/manual generation (the most complex, most-used path, migrated last so the runner has already proven itself on lower-traffic routes), then preview. This order minimizes the blast radius of an early mistake: a runner bug hit through regeneration affects a rarely-used admin action, while the same bug hit through scheduled generation affects every podcast's daily episode.
+  Route-specific behavior that predates the runner is preserved as purpose-based rules inside it: a `RETRY` from the full pipeline passes no recent focus episodes to the prompt, emits no `dedup_saved`/`script_saved`/`marking_processed`/`generating_recap` events, and fails (rather than deletes) its episode when nothing is eligible; a `REGENERATE` emits stage events without persisting the stage; a failed `Review` run clears the stage and emits `episode.recompose_failed` instead of failing the episode; a `Transient` run lets its failure propagate to the preview endpoint, which reports it. Every `Deliver` path honours `outcome.updateLastGenerated` at finalize, including the resume-at-compose and focus paths, not only regeneration's `createEpisodeFromPipelineResult`; a `RERUN` builds `Deliver(updateLastGenerated = false)`, so re-running a past window no longer advances the podcast's schedule (a pre-existing bug, since `RERUN` already created its placeholder episode with `updateLastGenerated = false` but the runner ignored the outcome's flag at finalize).
+
+**3. Phase A migrates routes lowest-risk first, each pinned by tests before and after the move:** preview (`Transient`, persists no episode), then re-run, regeneration, feedback recompose, focus generation, retry, and finally scheduled/manual generation (the most complex, most-used path, migrated last so the runner has already proven itself on lower-traffic routes). A runner bug hit through an early route affects a rarely-used action, while the same bug hit through scheduled generation affects every podcast's daily episode.
 
   *Alternative considered*: migrate scheduled generation first, since it is "the main path" and de-risking it early seems attractive. Rejected: it is also the path with the most existing behavior to preserve exactly (SSE progress events, schedule advancement, article consumption, auto-publish), so it is the worst candidate for finding runner bugs against.
+
+  The preview's `Transient` outcome persists no episode, episode-article link or episode score. Its stages still aggregate unlinked posts and relevance-score unscored articles, which are shared article state every run produces the same way, exactly as the preview did before the runner. The preview's window is resolved by the route before the run starts and passed to `LlmPipeline.preview`.
 
 **4. `RunConfig` is resolved by a single new function `RunConfig.resolve(appDefaults, podcast, overrides)` that produces one immutable value per run, computed once at the top of `PipelineRunner.run` and threaded through every call it makes into `ModelResolver`, the composers, and the research stage.** `ModelResolver.resolve` gains a `runConfig: RunConfig` parameter (replacing its `podcast: Podcast` parameter, since every field it reads from `Podcast` today is now available, already-layered, on `RunConfig`). Composers and the research stage receive `RunConfig` the same way they receive `ComposeContext` today (as an explicit parameter), rather than looking it up from a shared/thread-local run identity, keeping with this project's preference for explicit parameters over implicit context.
 
@@ -52,19 +56,16 @@ Today, configuration flows one way only: `ModelResolver.resolve(podcast, stage)`
 ## Migration Plan
 
 **Phase A:**
-1. Add `RunSpec`/`RunInput`/`RunOverrides`/`RunOutcome` types and a `PipelineRunner` skeleton that only supports `REGENERATE` (delegating everything else back to the old `PodcastService` code paths).
-2. Migrate regeneration onto it; test + live-check.
-3. Migrate retry; test + live-check.
-4. Migrate focus generation + feedback recompose; test + live-check.
-5. Migrate scheduled/manual generation; test + live-check.
-6. Migrate preview (`Transient` outcome); test + live-check.
-7. Delete the now-dead `PodcastService` private methods this replaced.
+1. Add `RunSpec`/`RunInput`/`RunOutcome`/`RunResult` types and `PipelineRunner`.
+2. Migrate the routes onto it in the Decision 3 order, each with tests pinning its behavior and a full `mvn clean test` before the next.
+3. Delete the `PodcastService` private methods the runner replaced.
+4. Live-check the preview endpoint; the other routes are covered by tests and the next scheduled run.
 
 **Phase B:**
 1. Add migration for `episodes.purpose` and `episodes.run_config_json`, with the `LEGACY`/`FOCUS` backfill from Decision 6.
 2. Implement `RunConfig.resolve` and thread it through `ModelResolver`, `OpenRouterRouting`, composers, research.
 3. Persist the resolved `RunConfig` snapshot on the episode.
-4. Implement `Sandbox` outcome.
+4. Add `overrides: RunOverrides?` to `RunSpec` and implement the `Sandbox` outcome.
 5. Add `purpose`-based filtering at every enforcement point listed in the Risks section, each with its own test.
 
 **Phase C:**
