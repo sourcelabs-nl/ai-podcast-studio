@@ -55,6 +55,27 @@ class PodcastService(
 - `@Transactional` on a repository interface method
 - `@Transactional` on a controller method
 
+**Violation:**
+```kotlin
+interface EpisodeRepository : CrudRepository<EpisodeEntity, Long> {
+    @Transactional  // Wrong: don't put @Transactional on repositories
+    @Modifying
+    @Query("DELETE FROM episode WHERE id = :id")
+    fun deleteById(@Param("id") id: Long)
+}
+```
+
+**Correct:**
+```kotlin
+@Service
+class EpisodeService(private val repository: EpisodeRepository) {
+    @Transactional
+    fun deleteEpisode(id: Long) {
+        repository.deleteById(id)
+    }
+}
+```
+
 ---
 
 ## Rule SB3: No Unnecessary `@Transactional`

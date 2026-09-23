@@ -8,7 +8,7 @@ user-invocable: false
 
 ## Overview
 
-Jackson 3.x (released October 2025) introduced breaking changes in package names, class names, and configuration patterns. Spring Boot 4.x uses Jackson 3.x by default. This skill provides a quick reference for the most common migration issues.
+Jackson 3.x (released October 2025) introduced breaking changes in package names, class names, and configuration patterns. Spring Boot 4.x uses Jackson 3.x by default. This project is on Spring Boot 4.x and already uses the `tools.jackson.*` (Jackson 3.x) packages; this skill is the quick reference for keeping new code correct and for spotting stray Jackson 2.x usage.
 
 ## When This Applies
 

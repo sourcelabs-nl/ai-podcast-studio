@@ -92,6 +92,15 @@ Entity IDs loaded from the database are always non-null. Filtering or null-check
 - Null checks on IDs of newly created entities that have not been persisted yet (ID is genuinely nullable before save)
 - Null checks in mapper methods that handle both persisted and unpersisted entities
 
+**Correct pattern:**
+```kotlin
+// Bad: defensive filter before associateBy
+repository.findAll().filter { it.id != null }.associateBy { it.id!! }
+
+// Good: trust the persistence layer
+repository.findAll().associateBy { it.id!! }
+```
+
 ---
 
 ## Rule DB5: Migration Conventions
@@ -99,7 +108,9 @@ Entity IDs loaded from the database are always non-null. Filtering or null-check
 Flyway migrations must follow strict naming and content rules. See also the `flyway-migration` skill for detailed guidance.
 
 **Violations to flag:**
+- Any change (even a seed value, comment, or whitespace) to a migration that already exists on `main` — migrations are append-only once committed; new behavior goes in a new forward migration. See the `flyway-migration` skill.
 - Migration files not matching `V{number}__{description}.sql` naming convention
 - Non-sequential version numbers (gaps in the sequence)
 - Missing `ON DELETE CASCADE` on foreign keys for child entities managed via `@MappedCollection`
+- Using ALTER TABLE operations not supported by SQLite (only ADD COLUMN and RENAME COLUMN are supported)
 - Using ALTER TABLE operations not supported by SQLite (only ADD COLUMN and RENAME COLUMN are supported)

@@ -74,9 +74,22 @@ This project uses SQLite. Keep these SQLite-specific rules in mind:
 
 ### Never modify an applied migration
 
-Once a migration has been applied (exists in `flyway_schema_history`), never change its content. Flyway validates checksums on startup and will fail if they don't match.
+A migration file is immutable once it has been committed and pushed: never edit, rename, or delete an existing `V<n>__*.sql`. This includes changes that look harmless, such as a seed value, a comment, or whitespace: Flyway's checksum covers the entire file, so any byte change counts. The only exception is a migration that has never been merged to `main` and was never applied anywhere shared; that one can still be edited freely.
 
-If you need to fix a mistake in an applied migration, create a **new** migration with the corrective DDL.
+When Flyway applies a migration it records the file's checksum in `flyway_schema_history`. On every later startup it re-validates each applied migration against the current file. If the file changed, the checksums differ and Flyway fails to start:
+
+```
+Migration checksum mismatch for migration version <n>
+Validate failed: Migrations have failed validation
+```
+
+This failure hits every database that already applied the old version: local, staging, and production alike. If you need to fix a mistake in an applied migration, create a **new** migration with the corrective DDL, never edit the old one.
+
+**Recovery, if an applied migration was edited by mistake:**
+
+1. Restore the file to its committed content so the checksum matches what the databases already applied (`git show <good-sha>:<path>`).
+2. If the change was actually wanted, re-express it as a new forward migration.
+3. Any database that already booted with the bad file and recorded the new checksum needs a one-time realignment: run `./mvnw flyway:repair`, or locally where data is disposable, null the row (`UPDATE flyway_schema_history SET checksum = NULL WHERE version = '<n>';`) and let the next startup recompute it, or recreate the DB.
 
 ## Stale `target/` Copies
 

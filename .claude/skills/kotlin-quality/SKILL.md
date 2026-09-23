@@ -6,7 +6,7 @@ user_invocable: false
 
 # Kotlin Quality Rules
 
-9 rules covering code quality, idioms, and maintainability. Applied to all `.kt` files.
+11 rules covering code quality, idioms, and maintainability. Applied to all `.kt` files.
 
 ---
 
@@ -96,6 +96,26 @@ Functions should do one thing and be small enough to understand at a glance. Fun
 - Data access methods whose length comes from a large SQL query (single responsibility: data retrieval)
 - Functions that are long but cohesive (all lines serve the same concern)
 
+**Correct pattern:**
+```kotlin
+// Bad: one large function doing everything
+fun processEpisode(request: EpisodeRequest): Episode {
+    // 20 lines of validation
+    // 15 lines of mapping
+    // 10 lines of persistence
+    // 10 lines of notification
+}
+
+// Good: small focused functions
+fun processEpisode(request: EpisodeRequest): Episode {
+    val validated = validate(request)
+    val episode = mapToDomain(validated)
+    val saved = persist(episode)
+    notify(saved)
+    return saved
+}
+```
+
 ---
 
 ## Rule K7: No Raw Concurrency Primitives
@@ -136,6 +156,17 @@ When an interface requires implementing a method that does not apply to the conc
 - Overrides that delegate to a more specific method
 - Overrides that genuinely return valid default values by design
 
+**Correct pattern:**
+```kotlin
+// Bad: returns silently incorrect result
+override fun toDomain(from: FormDto): Domain =
+    Domain(id = null, userId = UUID.randomUUID()) // "Will be set in service"
+
+// Good: fails explicitly, points to the correct alternative
+override fun toDomain(from: FormDto): Domain =
+    throw UnsupportedOperationException("Use toDomain(form, userId) instead")
+```
+
 ---
 
 ## Rule K9: Multi-Dollar String Interpolation
@@ -157,6 +188,13 @@ private val appName: String
 // Good: multi-dollar string, $ is literal
 @Value($$"${app.name}")
 private val appName: String
+
+// Good: nested placeholders are also clean
+@Value($$"${app.base-dir:${java.io.tmpdir}/uploads}")
+private val baseDir: String
+
+// Good: Kotlin interpolation uses $$ when needed
+val json = $$"""{"price": "$${price}", "currency": "$"}"""
 ```
 ---
 
@@ -176,3 +214,29 @@ Catch `CancellationException` explicitly before the general catch and rethrow it
 - A `catch (e: Exception)` that only logs and rethrows
 - A non-`suspend` function with no coroutine in its call path
 - Catching `CancellationException` to run cleanup, provided it is rethrown
+
+---
+
+## Rule K11: The Third Copy Becomes a Shared Component
+
+[Rule K3](#rule-k3-code-reuse-and-consistency) says not to copy-paste. This rule says what to do once it has already happened, because "avoid duplication" on its own has never stopped a second copy: the second one is always cheap and always defensible.
+
+**The trigger is mechanical: at the third occurrence of the same shape, extract it.** Not "consider extracting", not "when it gets painful". Two copies can be a coincidence; three is a pattern that will keep growing, and every later copy inherits whatever was wrong with the first.
+
+**A deferral comment is a debt marker with a due date, and the due date is binding.** A file that says *"the copy is deliberate at this size; should another case appear, extract a generic version instead of copying this file again"* has pre-authorised the refactor. Copying that file, comment and all, is not following the note, it is overruling it. When you find such a comment on a file you are about to duplicate, the extraction **is** the task.
+
+**How to split it: share the mechanism, keep the vocabulary.**
+- **Shared:** the plumbing nobody's feature owns: registries, lifecycle, fan-out, retry, eviction, locking. This is where drift does real damage, because each copy fixes a different subset of the bugs.
+- **Per feature:** what the thing *is*: its domain names, its result payload, its wire contract. Forcing those into one type produces a shared component with a boolean parameter for every caller, which is worse than the duplication.
+- Identical constants across every copy (the same three enum values, the same three stage codes) are mechanism, not vocabulary. Share them.
+- Keep each feature's public method names and parameter names where callers already use named arguments, or absorb the rename deliberately: the compiler will find every call site, so a rename is safe, but it must be a decision rather than a side effect.
+
+**Violations to flag:**
+- A third file with the same structural shape as two existing ones (same fields, same method set, differing only in domain names and payload types)
+- Copying a file that carries a comment instructing the next duplication to be extracted instead
+- Duplicated identical enums or constant sets across feature packages
+- Two copies of the same mechanism that have drifted in their bug fixes or edge-case handling: flag even at two copies, because the drift is the bug
+
+**Not a violation:**
+- Two similar-looking classes whose behaviour genuinely differs beyond names (an accumulating stream and a snapshot poller share a registry, not a lifecycle)
+- Per-feature domain records, DTO mappers, or wire payload shapes that happen to have similar fields but are separate API contracts
