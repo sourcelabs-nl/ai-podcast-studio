@@ -10,7 +10,12 @@ slow model or a degrading provider becomes visible before it fails an episode.
 ### Requirement: One record per LLM request
 The system SHALL record one row for every LLM request it issues, capturing the stage, the provider,
 the model, the elapsed wall-clock time of the request, the input and output token counts, the time
-the request started, and the episode the request was issued for where there is one.
+the request started, the resolved cost of the request and the source that cost came from, and the
+episode the request was issued for where there is one.
+
+The cost SHALL be resolved and written with the record itself, at the moment the request completes,
+and SHALL NOT depend on the stage that issued it reaching its end. A request that was answered was
+paid for, so its cost SHALL survive the failure of anything that happens after it.
 
 A single stage MAY issue several requests, and each SHALL be recorded separately, so that the
 recorded duration is the latency of one request and never the sum of a stage's requests or the time
@@ -24,6 +29,11 @@ is invisible wherever the log is read.
 Where a request is retried, each attempt SHALL be recorded separately. A retried attempt really
 reached the provider and really consumed time, and collapsing the attempts would hide both the
 failure and how often it repeats.
+
+#### Scenario: A request whose stage later fails
+- **WHEN** a stage issues a request, receives a response, and the stage then fails before persisting
+  its results
+- **THEN** the record and its resolved cost remain, naming the episode the request was issued for
 
 #### Scenario: A request without tool calls
 - **WHEN** a stage issues one LLM request and receives a final response
@@ -52,6 +62,80 @@ failure and how often it repeats.
 - **WHEN** a request fails with a transient status and is retried
 - **THEN** each attempt is recorded, the failed ones marked as failures and the successful one as a
   success, and the interval waited between attempts appears in no record's duration
+
+#### Scenario: A request issued outside the shared chat client
+- **WHEN** a stage issues a request against a provider API that is not a chat completion
+- **THEN** a record is written for it carrying the same fields as any other request, including the
+  cost the provider reported for it
+
+### Requirement: A record states whether its cost was reported or estimated
+Each record SHALL carry the source of its cost with the same values the episode already uses: a
+provider-reported cost, a cache replay of one, a cost computed from the configured rates, or none
+determinable. A record whose cost could not be determined SHALL say so rather than carrying a zero,
+because a zero is indistinguishable from a call that genuinely cost nothing.
+
+#### Scenario: A provider that reports its cost
+- **WHEN** a request is answered by a provider that reports the cost of the call
+- **THEN** the record carries that value and names it as reported
+
+#### Scenario: A provider that reports nothing
+- **WHEN** a request is answered by a provider that reports no cost and the model has configured
+  rates
+- **THEN** the record carries the cost computed from those rates and names it as estimated
+
+#### Scenario: A model with neither
+- **WHEN** a request is answered by a provider that reports no cost and the model has no configured
+  rates
+- **THEN** the record carries no cost and names its source as undetermined
+
+### Requirement: A scoring request names the article it scored
+A request issued to score one article SHALL name that article, so the cost of scoring can be
+attributed to the episode that the article stood as a candidate for. Scoring happens when an article
+is polled rather than while an episode runs, so the request cannot be attributed to an episode at the
+time it is made; the article is the only link back.
+
+Records written before requests named an article SHALL be backfilled where the article they scored
+is identifiable, and left unattributed where it is not.
+
+#### Scenario: An article is scored
+- **WHEN** the scoring stage issues a request for one article
+- **THEN** the record names that article
+
+#### Scenario: The episode that paid for the scoring
+- **WHEN** an episode's recorded candidates are read together with the scoring requests naming those
+  articles
+- **THEN** every article the episode was charged for has its scoring request attributed to it
+
+#### Scenario: A historical record whose article cannot be identified
+- **WHEN** a record written before requests named an article cannot be matched to one
+- **THEN** it stays unattributed rather than being assigned to an arbitrary article
+
+### Requirement: Each request records the served provider and its reasoning tokens
+
+Each recorded LLM request SHALL store the name of the upstream provider that served it, as reported
+in the response's `provider` field, and the number of reasoning tokens, as reported in
+`usage.completion_tokens_details.reasoning_tokens`. Either value SHALL be null when the response does
+not report it, including a cache hit and a failed request. The per-episode request list
+(`GET /llm/calls/episodes/{id}`) SHALL include both values for every request.
+
+#### Scenario: OpenRouter request
+- **WHEN** a compose request is answered by OpenRouter with `provider` "Google" and 21,000 reasoning
+  tokens
+- **THEN** the recorded request holds served provider "Google" and 21,000 reasoning tokens, and the
+  episode's request list shows both
+
+#### Scenario: Cache hit
+- **WHEN** a request is served from the LLM cache
+- **THEN** its served provider and reasoning tokens are null
+
+### Requirement: The research-plan stage is reported
+
+The latency report SHALL include the `research-plan` stage, against the request timeout of the
+filter stage whose model it runs on.
+
+#### Scenario: Plan requests in the report
+- **WHEN** latency is requested for an episode whose research stage made a plan call
+- **THEN** the response reports the `research-plan` stage with one sample
 
 ### Requirement: Cache hits are recorded and distinguishable
 A response served from the LLM cache performs no network request. The system SHALL record such a

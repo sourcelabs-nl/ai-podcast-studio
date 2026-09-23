@@ -46,8 +46,8 @@
 
 - [x] 8.1 Run `mvn test` and confirm all tests pass, including any existing tests whose constructors/signatures changed because of `ComposeContext`, `ChatClientFactory.buildComposeTools`, or `EpisodeService.createEpisodeFromPipelineResult` changes.
 - [x] 8.2 Restart the app (`./stop.sh` then `./start.sh`).
-- [ ] 8.3 Live check: generate a focus episode for focus "Claude Opus 5.5 release" via the API (or the upcoming-page Focus field), confirm it reaches `PENDING_REVIEW` with selected articles and recorded research sources visible on review, submit one feedback-driven "Regenerate script" and confirm the script changes while the same episode id and articles are retained, then approve and confirm TTS starts.
-- [ ] 8.4 Confirm the podcast's `lastGeneratedAt` and the next regular episode's window were unaffected by the focus episode generated in 8.3.
+- [x] 8.3 Live check: generate a focus episode for focus "Claude Opus 5.5 release" via the API (or the upcoming-page Focus field), confirm it reaches `PENDING_REVIEW` with selected articles and recorded research sources visible on review, submit one feedback-driven "Regenerate script" and confirm the script changes while the same episode id and articles are retained, then approve and confirm TTS starts.
+- [x] 8.4 Confirm the podcast's `lastGeneratedAt` and the next regular episode's window were unaffected by the focus episode generated in 8.3.
 
 ## 9. Discard rollback
 

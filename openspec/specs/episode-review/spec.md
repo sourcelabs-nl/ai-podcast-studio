@@ -7,13 +7,19 @@ Review workflow for episode scripts — status lifecycle, script editing, approv
 ### Requirement: Episode status lifecycle
 Each episode SHALL have a `status` field with one of the following values: `PENDING_REVIEW`, `APPROVED`, `GENERATING_AUDIO`, `GENERATED`, `FAILED`, `DISCARDED`. The status determines where the episode is in the review-to-audio pipeline. `GENERATING_AUDIO` indicates that TTS audio generation is actively in progress. An episode can enter `FAILED` status either from a TTS generation failure (after approval) or from a pipeline generation error (e.g., invalid model configuration). In the pipeline error case, a FAILED episode is created with an empty `scriptText`, the error stored in `errorMessage`, and `lastGeneratedAt` updated to prevent scheduler retries. After each status transition, the service SHALL publish a `PodcastEvent` via `ApplicationEventPublisher` to notify connected clients.
 
+A focus episode (one with a non-null `focus`) SHALL always be created with status `PENDING_REVIEW`, regardless of the podcast's `requireReview` setting.
+
 #### Scenario: New episode created with review enabled
 - **WHEN** the pipeline generates a script for a podcast with `requireReview = true`
 - **THEN** an episode is created with status `PENDING_REVIEW`, the `scriptText` populated, `audioFilePath` and `durationSeconds` set to null, and an `episode.created` event is published
 
 #### Scenario: New episode created without review
-- **WHEN** the pipeline generates a script for a podcast with `requireReview = false`
+- **WHEN** the pipeline generates a script for a regular (non-focus) episode of a podcast with `requireReview = false`
 - **THEN** the episode is created with status `GENERATED` after TTS completes, with all fields populated, and an `episode.generated` event is published
+
+#### Scenario: Focus episode always requires review
+- **WHEN** the pipeline generates a focus episode for a podcast with `requireReview = false`
+- **THEN** the episode is created with status `PENDING_REVIEW`, exactly as it would be if `requireReview` were `true`
 
 ### Requirement: List episodes for a podcast
 The system SHALL provide an endpoint to list episodes for a podcast, with optional status filtering.
@@ -83,12 +89,12 @@ The system SHALL allow re-triggering TTS for a `FAILED` episode by approving it 
 - **THEN** the system updates the episode status to `APPROVED`, publishes an `episode.approved` event, triggers TTS generation asynchronously, and returns HTTP 202
 
 ### Requirement: Discard episode script
-The system SHALL allow discarding an episode script that is in `PENDING_REVIEW` or `GENERATED` status. Episodes in `GENERATING_AUDIO` status SHALL NOT be discardable. Episodes that are published to any target SHALL NOT be discardable. When an episode is discarded, the service SHALL publish an `episode.discarded` event. The system SHALL handle linked articles differently based on whether they are aggregated:
+The system SHALL allow discarding an episode that is in `PENDING_REVIEW`, `GENERATED` or `FAILED` status. Episodes in `GENERATING_AUDIO` status SHALL NOT be discardable. Episodes with any publication in `PUBLISHED` status SHALL NOT be discardable, whatever their status: the system SHALL return HTTP 409 with the message "Episode is published to <targets>; unpublish it first", naming each published target, and SHALL leave the episode and its articles unchanged. The check SHALL live in the service layer, so every discard path enforces it. When an episode is discarded, the service SHALL publish an `episode.discarded` event. The system SHALL handle linked articles differently based on whether they are aggregated:
 
 - **Non-aggregated articles** (0 or 1 linked posts in `post_articles`): The system SHALL reset the article's `is_processed` flag to `false`, preserving the article's score and summary for reuse.
 - **Aggregated articles** (2+ linked posts in `post_articles`): The system SHALL delete all `post_articles` entries for the article, then delete the article itself. This makes the original posts unlinked and eligible for re-aggregation on the next pipeline run.
 
-The system SHALL look up linked articles via the `episode_articles` table. If no episode-article links exist (for episodes created before the tracking feature was added), the system SHALL log a warning indicating that no articles could be reset.
+The system SHALL look up linked articles via the `episode_articles` table. If no episode-article links exist (for episodes created before the tracking feature was added), the system SHALL log a warning indicating that no articles could be reset. A `FAILED` episode is discarded without resetting its articles.
 
 #### Scenario: Discard pending episode with non-aggregated articles
 - **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received, the episode status is `PENDING_REVIEW`, and the episode has 3 linked articles that each have 0 or 1 `post_articles` entries
@@ -111,16 +117,50 @@ The system SHALL look up linked articles via the `episode_articles` table. If no
 - **THEN** the system updates the episode status to `DISCARDED`, handles linked articles as above, and returns HTTP 200
 
 #### Scenario: Discard non-discardable episode
-- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received and the episode status is not `PENDING_REVIEW` or `GENERATED`
+- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received and the episode status is not `PENDING_REVIEW`, `GENERATED` or `FAILED`
 - **THEN** the system returns HTTP 409 (Conflict) with an error message
-
-#### Scenario: Discard published episode blocked
-- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received and the episode has a PUBLISHED publication to any target
-- **THEN** the system returns HTTP 409 (Conflict) indicating the episode must be unpublished first
 
 #### Scenario: Discard GENERATING_AUDIO episode blocked
 - **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received and the episode status is `GENERATING_AUDIO`
 - **THEN** the system returns HTTP 409 (Conflict) with an error message indicating audio generation is in progress
+
+#### Scenario: Discard published episode blocked
+- **WHEN** a `POST /users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/discard` request is received and the episode has a PUBLISHED publication to `ftp`
+- **THEN** the system returns HTTP 409 (Conflict) with the error "Episode is published to ftp; unpublish it first", and the episode keeps its status and its publication
+
+#### Scenario: Unpublished or failed publications do not block discard
+- **WHEN** a discard request is received for an episode whose publications are all `UNPUBLISHED` or `FAILED`
+- **THEN** the episode is discarded as usual
+
+### Requirement: Focus episode review shows selection and research context
+The review screen for a focus episode SHALL show: the articles selected for it, the research sources (query and results) recorded for it, and an estimated spoken length. The estimated length SHALL be computed from the script's word count using the same words-per-minute figure already used elsewhere in the product for this estimate.
+
+#### Scenario: Review screen shows selected articles and sources
+- **WHEN** a focus episode in `PENDING_REVIEW` is opened for review
+- **THEN** the screen lists the articles linked to the episode and the research sources recorded for it
+
+#### Scenario: Review screen shows an estimated length
+- **WHEN** a focus episode's script contains 1500 words
+- **THEN** the review screen shows an estimated spoken length derived from that word count using the product's existing words-per-minute figure
+
+### Requirement: Feedback-driven recompose of a focus episode
+A focus episode in `PENDING_REVIEW` SHALL support a feedback-driven recompose action: given a feedback text, the system recomposes the script (rerunning research) using the episode's already-selected articles, without re-running article selection. The action SHALL be repeatable. The feedback text SHALL be stored on the episode as `review_feedback`, holding the most recently submitted feedback. The episode SHALL remain in `PENDING_REVIEW` after a feedback-driven recompose. When the feedback text asks for a different script length, it overrides the podcast's configured target word count for that recompose.
+
+#### Scenario: Recompose with feedback keeps the same articles
+- **WHEN** a focus episode in `PENDING_REVIEW` receives a "make it more technical" feedback recompose request
+- **THEN** the script is regenerated using the same set of linked articles, `review_feedback` is updated to "make it more technical", and the episode stays in `PENDING_REVIEW`
+
+#### Scenario: Feedback recompose is repeatable
+- **WHEN** a focus episode has already been recomposed once with feedback and receives a second, different feedback recompose request
+- **THEN** the script is regenerated again against the same articles, and `review_feedback` is updated to the latest feedback text
+
+#### Scenario: Feedback overrides the target word count
+- **WHEN** a focus episode's feedback recompose asks for "twice as long"
+- **THEN** the recomposed script targets that requested length instead of the podcast's configured target word count
+
+#### Scenario: Approving after feedback recompose starts TTS as usual
+- **WHEN** a focus episode that has gone through one or more feedback recomposes is approved
+- **THEN** TTS generation starts through the existing approval flow, exactly as for any other `PENDING_REVIEW` episode
 
 ### Requirement: Shared episode creation logic in EpisodeService
 The system SHALL provide a method in `EpisodeService` that encapsulates the post-pipeline episode creation logic: saving the episode, saving episode-article links, marking articles as processed, generating a recap, and updating `lastGeneratedAt` on the podcast. Both `BriefingGenerationScheduler` and `PodcastController.generate()` SHALL delegate to this shared method instead of reimplementing the logic independently.

@@ -54,6 +54,8 @@ Articles SHALL only be marked as `is_processed = true` AFTER being successfully 
 
 The system SHALL NOT advance `lastGeneratedAt` when the pipeline returns no results (null). Only the successful creation of an episode SHALL update this timestamp. This ensures that articles published before the timestamp remain visible in the upcoming view even when a pipeline run finds no relevant content to compose.
 
+A focus episode SHALL still have its articles linked via `episode_articles` (for traceability and review), but SHALL NOT mark them as `is_processed = true` and SHALL NOT update the podcast's `lastGeneratedAt`. This keeps a focus episode's articles eligible for a subsequent regular episode's own selection.
+
 #### Scenario: Scheduler delegates to shared creation logic
 - **WHEN** `BriefingGenerationScheduler` completes a pipeline run with a non-null result
 - **THEN** it calls the shared `EpisodeService` method which saves the episode, links articles, marks articles as processed, generates recap, and updates `lastGeneratedAt`
@@ -81,6 +83,14 @@ The system SHALL NOT advance `lastGeneratedAt` when the pipeline returns no resu
 #### Scenario: Pipeline does not mark articles as processed
 - **WHEN** `LlmPipeline.run()` completes composition
 - **THEN** the pipeline SHALL NOT set `is_processed = true` on any article; it returns the article IDs in `PipelineResult` for the caller to handle
+
+#### Scenario: Focus episode links articles without marking them processed
+- **WHEN** a focus episode is created from 3 selected articles
+- **THEN** all 3 articles are linked to the episode via `episode_articles`, but none of them has `is_processed` set to `true` by that creation, and the podcast's `lastGeneratedAt` is unchanged
+
+#### Scenario: Focus-episode articles remain eligible for the next regular episode
+- **WHEN** a regular episode is generated after a focus episode used some of the same articles
+- **THEN** those articles are still candidates for the regular episode's own selection, since the focus episode never marked them processed
 
 ### Requirement: Pipeline returns topic ordering
 The `LlmPipeline` SHALL return the ordered list of topic labels in `PipelineResult` as `topicOrder: List<String>`. The topic ordering SHALL be extracted from the composer's output (appended as a delimited JSON block after the script text). `EpisodeService` SHALL use this list to assign `topic_order` values when saving episode-article links by matching each article's topic label to its index in the `topicOrder` list.
