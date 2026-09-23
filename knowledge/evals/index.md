@@ -37,3 +37,5 @@ Negative results are recorded on the same terms as positive ones.
 
 The [[curiosity-hooks-conflict]] ablation has been run: see
 [[curiosity-hooks-ablation]].
+- [Compose reasoning effort, throughput routing and GPT-6 Luna on one article set](pipeline-experiments-2026-09.md)  
+  Read when choosing compose's reasoning effort, provider sort or model, or reading an experiment comparison.

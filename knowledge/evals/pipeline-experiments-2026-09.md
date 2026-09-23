@@ -1,0 +1,67 @@
+---
+okf_version: "0.2"
+type: experiment
+title: Compose reasoning effort, throughput routing and GPT-6 Luna on one article set
+answers: choosing compose's reasoning effort, provider sort or model, or reading an experiment comparison
+status: stable
+generated:
+  by: claude-opus-5-5
+  at: 2026-09-23T00:00:00Z
+method: >
+  Three rounds of the pipeline-runner experiments API against source episode 230
+  (The Daily Agentic AI Podcast, 40 articles, interview style), each round one run
+  per variant, runs within a round sequential. Sandbox outcome: same article set,
+  research included, recap and ScriptJudge run on every script. LLM cache
+  bypassed on every run, so all runs reached the model. Compose timeout 5m with
+  the per-request timeout fix in place; an earlier set of 18 runs made under the
+  Spring AI 2.0.1 60-second cap is discarded. Figures read from the comparison
+  endpoint GET .../episodes/230/experiments on 2026-09-23.
+model_version: deepseek/deepseek-v4.1-flash (served by Novita), openai/gpt-6-luna (served by OpenAI), 2026-09-23
+stale_after: 2026-12-23T00:00:00Z
+---
+
+# Compose reasoning effort, throughput routing and GPT-6 Luna on one article set
+
+**Varied:** compose reasoning effort (none, low, medium as the baseline, high),
+OpenRouter `provider.sort = throughput`, and the compose model (GPT-6 Luna at
+medium). **Held fixed:** the article set of episode 230, the podcast's prompt and
+settings, every stage other than compose, the judge. Three runs per variant; the
+baseline has two completed runs at the time of writing.
+
+| Variant | Judge per run | Mean | Compose cost | Episode cost | Compose time | Reasoning tokens | Words |
+|---|---|---|---|---|---|---|---|
+| baseline, medium | 0.69, 0.88 | 0.79 | 1.91¢ | 5.00¢ | 65s | 11.7k | 2,152 |
+| effort none | 0.94, 0.77, 0.69 | 0.80 | 1.09¢ | 4.19¢ | 17s | 0 | 1,955 |
+| effort low | 0.77, 0.94, 0.79 | 0.84 | 2.50¢ | 5.60¢ | 76s | 13.7k | 2,145 |
+| effort high | 0.69, 0.79, 0.86 | 0.78 | 4.74¢ | 7.83¢ | 161s | 35.6k | 1,991 |
+| throughput sort | 0.61, 0.78, 0.70 | 0.70 | 2.22¢ | 5.34¢ | 78s | 14.8k | 2,005 |
+| GPT-6 Luna, medium | 0.50, 0.67, 0.50 | 0.56 | 0.46¢ | 3.54¢ | 47s | 1.4k | 2,245 |
+
+## What the result supports
+
+- **Reasoning does not buy judged quality in compose.** None, low, medium and high
+  overlap completely: every DeepSeek variant spans roughly 0.69 to 0.94 across its
+  own runs, wider than any gap between variant means. Reasoning does buy cost and
+  time, monotonically: effort none composes in about a quarter of medium's time at
+  57% of its compose cost, and high costs 2.5x medium.
+- **Throughput sort changed nothing it was meant to change.** Every DeepSeek run,
+  sorted or not, was served by Novita, because the quantization floor leaves few
+  eligible endpoints and the sort reorders only those. It was not faster (78s
+  against 65s).
+- **GPT-6 Luna scores lower.** All three runs (0.50 to 0.67) sit at or below the
+  lowest DeepSeek run, the one gap in this table larger than the run-to-run spread.
+  It is four times cheaper in compose, but compose is under half of an episode's
+  cost, so the episode saves about 1.5¢.
+
+## What it does not support
+
+Three runs on one article set of one interview-style podcast. The judge measures
+the attention devices ScriptJudge counts, not prose quality or factual accuracy, so
+"reasoning does not help" means it does not move that score. Effort none's scripts
+ran about 200 words shorter on average, within the run-to-run spread. Moving the
+compose default to none on this evidence would want a second article set first.
+
+Related: [[compose-reasoning-and-routing-2026-09]] measured the reasoning share and
+routing on episodes 220-228; [[evaluation-run-cache-bypass]] explains why every run
+bypassed the cache; [[spring-ai-2-0-1-per-request-timeout]] why the first 18 runs
+were discarded; [[judged-baseline-2026-09]] gives the archive's score spread.

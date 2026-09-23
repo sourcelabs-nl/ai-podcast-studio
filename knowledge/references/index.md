@@ -32,3 +32,9 @@ to inference.
   Read when considering Jev in place of, or alongside, ScriptJudge.
 - [The SQLite driver returns no generated keys from a batch](generated-keys-from-a-batch.md)  
   Read when a save of several new rows fails with "After saving the identifier must not be null".
+- [Mutation testing for AI-written tests, and what it would take on this Kotlin codebase](mutation-testing-ai-written-tests.md)  
+  Read when considering whether this project's tests catch real defects, or adding mutation testing.
+- [OpenAI reasoning models reject temperature, and OpenRouter reports it as a routing failure](openai-reasoning-models-reject-temperature.md)  
+  Read when an openai/ model returns 404 "No endpoints found that can handle the requested parameters".
+- [Spring AI 2.0.1 caps every OpenAI request at 60 seconds unless the call options carry a timeout](spring-ai-2-0-1-per-request-timeout.md)  
+  Read when LLM requests fail at exactly 60s with "Error reading response", or when upgrading Spring AI.

@@ -5,6 +5,32 @@ so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
 months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
 screen.
 
+## [2026-09-23] Record
+
+Added `evals/pipeline-experiments-2026-09.md`: on episode 230's article set, compose
+reasoning effort none/low/medium/high scored within run-to-run spread while cost
+and time rose with effort; throughput sort still landed on Novita and was not
+faster; GPT-6 Luna scored below every DeepSeek run.
+
+## [2026-09-23] Record
+
+Added `references/spring-ai-2-0-1-per-request-timeout.md`: the 2.0.1 upgrade sends
+the chat options' timeout per request, defaulting to 60s over the client's stage
+timeout, which cut every long compose request off after a minute.
+
+## [2026-09-23] Record
+
+Added `references/openai-reasoning-models-reject-temperature.md`: gpt-6-luna does
+not accept `temperature`, and with `require_parameters` OpenRouter reports that as
+a 404 "No endpoints found", indistinguishable from the quantization floor's 404.
+
+## [2026-09-23] Record
+
+Added `references/mutation-testing-ai-written-tests.md` as a draft: what the Augment
+Code guide on mutation testing AI-generated code claims, and what applying PIT here
+would take (Kotlin compiler-generated mutants, the Kotlin tool landscape, a scoped
+first trial on PIT 1.30.0, which supports Java 25). No trial has run.
+
 ## [2026-09-22] Record
 
 Added `evals/compose-reasoning-and-routing-2026-09.md`: on episodes 220-228,

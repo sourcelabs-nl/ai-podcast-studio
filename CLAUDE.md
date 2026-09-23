@@ -80,15 +80,17 @@ be routed to.
 1. **Record**, within the task that produced the knowledge, before reporting it
    complete: the entry, the index that lists it, and `knowledge/log.md`. A result
    showing no difference is recorded on the same terms as one showing a
-   difference.
+   difference. Procedure: `/kb-add`.
 2. **File back** an answer with standing value that was produced while answering
-   a question, instead of leaving it in the conversation.
+   a question, instead of leaving it in the conversation. Answering from the
+   bundle: `/kb-ask`.
 3. **Lint** the whole bundle at the end of any session that touched `knowledge/`,
    and whenever asked: contradictions, expired `stale_after`, orphans, concepts
    referenced with no entry, missing cross-references. The pass covers every entry,
    not just the ones the session changed, because a new entry is the most common way
    an old one becomes wrong. Lint removes and merges as well as adds, and rewrites
-   any entry whose body has started narrating its own edit history.
+   any entry whose body has started narrating its own edit history. Procedure:
+   `/kb-tidy`.
 
 **Boundary with the machine-local memory store**: what belongs to the repository
 goes in `knowledge/`; what belongs to this machine and to how we work together
