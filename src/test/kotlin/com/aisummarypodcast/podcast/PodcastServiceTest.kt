@@ -28,7 +28,6 @@ import com.aisummarypodcast.source.SourceAggregator
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
-import com.aisummarypodcast.eval.EpisodeScoringService
 import io.mockk.mockk
 import io.mockk.verify
 import org.springframework.data.repository.findByIdOrNull
@@ -71,13 +70,12 @@ class PodcastServiceTest {
         source = SourceProperties(maxArticleAgeDays = 7)
     )
 
-    private val episodeScoringService = mockk<EpisodeScoringService>(relaxed = true)
     private val modelResolver = mockk<com.aisummarypodcast.llm.ModelResolver>(relaxed = true)
 
     private val podcastService = PodcastService(
         podcastRepository, sourceRepository, articleRepository, postRepository,
         postArticleRepository, episodeArticleRepository, episodeRepository, appProperties, llmPipeline, episodeService,
-        eventPublisher, sourceAggregator, episodeWindowResolver, episodeScoringService, modelResolver
+        eventPublisher, sourceAggregator, episodeWindowResolver, modelResolver
     )
 
     private val podcast = Podcast(
@@ -499,12 +497,14 @@ class PodcastServiceTest {
         every { episodeService.saveFeedbackRecompose(any(), composeResult, "shorter") } answers {
             firstArg<Episode>().copy(scriptText = "new", reviewFeedback = "shorter", pipelineStage = null)
         }
-        coEvery { episodeService.regenerateRecap(any(), podcast) } answers { firstArg() }
+        coEvery { episodeService.runEpilogueForRewrite(any(), podcast) } answers { firstArg() }
 
         val returned = podcastService.recomposeFocusEpisodeAsync(focusEpisode, podcast, "shorter")
 
         org.junit.jupiter.api.Assertions.assertEquals(30L, returned.id)
         coVerify(timeout = 5000) { episodeService.saveFeedbackRecompose(match { it.id == 30L }, composeResult, "shorter") }
+        coVerify(timeout = 5000) { episodeService.runEpilogueForRewrite(match { it.scriptText == "new" }, podcast) }
+        coVerify(exactly = 0) { episodeService.regenerateRecap(any(), any()) }
         coVerify {
             llmPipeline.compose(selection.articles, podcast, match {
                 it.focus == "Claude Opus 5.5 release" && it.extraInstruction == "shorter" && it.episodeId == 30L

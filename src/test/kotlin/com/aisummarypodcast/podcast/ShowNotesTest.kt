@@ -38,6 +38,13 @@ class ShowNotesTest {
     private val episodeCandidateArticleRepository =
         mockk<com.aisummarypodcast.store.EpisodeCandidateArticleRepository>(relaxed = true)
 
+    // Judge mode is OFF: scoring is not under test here, and background judging must not fire.
+    private val appProperties = mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true) {
+        every { eval } returns com.aisummarypodcast.config.EvalProperties(
+            com.aisummarypodcast.config.JudgeProperties(com.aisummarypodcast.config.JudgeMode.OFF, null)
+        )
+    }
+
     private val service = EpisodeService(
         episodeRepository, podcastRepository, ttsPipeline,
         episodeArticleRepository, episodeCandidateArticleRepository, articleRepository,
@@ -45,8 +52,9 @@ class ShowNotesTest {
         episodeSourcesGenerator, articleEligibilityService, eventPublisher,
         audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true),
         mockk<com.aisummarypodcast.store.LlmCallRepository>(relaxed = true),
-        mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true),
-        mockk<com.aisummarypodcast.store.EpisodeResearchSourceRepository>(relaxed = true)
+        appProperties,
+        mockk<com.aisummarypodcast.store.EpisodeResearchSourceRepository>(relaxed = true),
+        mockk(relaxed = true)
     )
 
     private val generateAndStoreShowNotes: Method = EpisodeService::class.java

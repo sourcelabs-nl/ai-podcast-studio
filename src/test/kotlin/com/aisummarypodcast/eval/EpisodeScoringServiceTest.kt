@@ -8,8 +8,8 @@ import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineStage
 import com.aisummarypodcast.llm.ResolvedModel
 import com.aisummarypodcast.llm.TokenUsage
-import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeScore
 import com.aisummarypodcast.store.EpisodeScoreRepository
 import com.aisummarypodcast.store.Podcast
@@ -19,9 +19,12 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
+import org.springframework.jdbc.UncategorizedSQLException
 import tools.jackson.databind.json.JsonMapper
+import java.sql.SQLException
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -30,7 +33,7 @@ import kotlin.test.assertTrue
 class EpisodeScoringServiceTest {
 
     private val scriptJudge = mockk<ScriptJudge>()
-    private val episodeService = mockk<EpisodeService>()
+    private val episodeRepository = mockk<EpisodeRepository>()
     private val podcastRepository = mockk<PodcastRepository>()
     private val repository = mockk<EpisodeScoreRepository>()
     private val modelResolver = mockk<ModelResolver>()
@@ -47,7 +50,7 @@ class EpisodeScoringServiceTest {
     private fun serviceWith(mode: JudgeMode, norm: Double? = null): EpisodeScoringService {
         every { appProperties.eval } returns EvalProperties(JudgeProperties(mode, norm))
         return EpisodeScoringService(
-            scriptJudge, episodeService, podcastRepository, repository,
+            scriptJudge, episodeRepository, podcastRepository, repository,
             modelResolver, JsonMapper.builder().build(), appProperties
         )
     }
@@ -134,9 +137,10 @@ class EpisodeScoringServiceTest {
     }
 
     @Test
-    fun `an episode already scored at this version is not judged again`() = runTest {
+    fun `an episode already scored at this version for its current script is not judged again`() = runTest {
         val existing = mockk<EpisodeScore>(relaxed = true)
         every { existing.overall } returns 0.9
+        every { existing.scriptHash } returns scriptHashOf(episode.scriptText)
         every { podcastRepository.findById(any()) } returns java.util.Optional.of(podcast)
         every { repository.findByEpisodeIdAndScorerVersion(7L, EpisodeScoringService.SCORER_VERSION) } returns existing
         val service = serviceWith(JudgeMode.ADVISE)
@@ -187,5 +191,62 @@ class EpisodeScoringServiceTest {
         assertNull(service.scoreEpisode(episode.copy(scriptText = "")))
 
         coVerify(exactly = 0) { scriptJudge.judge(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a stored score carries the hash of the script it judged`() = runTest {
+        stubJudgeReturning(strongAnchors)
+        val saved = slot<EpisodeScore>()
+        every { repository.save(capture(saved)) } answers { firstArg() }
+
+        serviceWith(JudgeMode.ADVISE).scoreEpisode(episode)
+
+        assertEquals(scriptHashOf(episode.scriptText), saved.captured.scriptHash)
+    }
+
+    @Test
+    fun `a score for a rewritten script is deleted and the new script judged`() = runTest {
+        stubJudgeReturning(strongAnchors)
+        val stale = mockk<EpisodeScore>(relaxed = true)
+        every { stale.scriptHash } returns scriptHashOf("an older script")
+        every { repository.findByEpisodeIdAndScorerVersion(7L, EpisodeScoringService.SCORER_VERSION) } returns stale
+        every { repository.delete(stale) } returns Unit
+
+        val outcome = serviceWith(JudgeMode.ADVISE).scoreEpisode(episode)!!
+
+        verify { repository.delete(stale) }
+        coVerify(exactly = 1) { scriptJudge.judge(episode.scriptText, "user-1", any(), 7L) }
+        assertEquals(scriptHashOf(episode.scriptText), outcome.score.scriptHash)
+    }
+
+    @Test
+    fun `a score recorded before hashing is kept without a judge call`() = runTest {
+        val legacy = mockk<EpisodeScore>(relaxed = true)
+        every { legacy.overall } returns 0.5
+        every { legacy.scriptHash } returns null
+        every { repository.findByEpisodeIdAndScorerVersion(7L, EpisodeScoringService.SCORER_VERSION) } returns legacy
+
+        val outcome = serviceWith(JudgeMode.ADVISE).scoreEpisode(episode)!!
+
+        assertEquals(legacy, outcome.score)
+        verify(exactly = 0) { repository.delete(any()) }
+        coVerify(exactly = 0) { scriptJudge.judge(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a concurrent write hitting the unique index keeps the winning row instead of failing`() = runTest {
+        stubJudgeReturning(strongAnchors)
+        val winner = mockk<EpisodeScore>(relaxed = true)
+        every { winner.overall } returns 0.42
+        val constraintViolation = UncategorizedSQLException(
+            "insert", null, SQLException("UNIQUE constraint failed", "23000", 19)
+        )
+        every { repository.save(any<EpisodeScore>()) } throws constraintViolation
+        every { repository.findByEpisodeIdAndScorerVersion(7L, EpisodeScoringService.SCORER_VERSION) } returnsMany
+            listOf(null, winner)
+
+        val outcome = serviceWith(JudgeMode.ADVISE).scoreEpisode(episode)!!
+
+        assertEquals(winner, outcome.score)
     }
 }

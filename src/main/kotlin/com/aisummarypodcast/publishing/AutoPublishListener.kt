@@ -1,6 +1,7 @@
 package com.aisummarypodcast.publishing
 
 import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.eval.EvaluationRunRecorder
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.podcast.PodcastService
@@ -24,6 +25,9 @@ import org.springframework.stereotype.Component
  * the last gate before listeners see it. The floor is deliberately here and not in
  * [PublishingService]: a manual publish of the same episode must still succeed, because deciding to
  * ship a thin episode is the user's call to make.
+ *
+ * An episode with a recorded evaluation run (its script came from a cache-bypassed compose that
+ * samples a prompt variant) is never auto-published: it is an experiment, not a release.
  */
 @Component
 class AutoPublishListener(
@@ -31,7 +35,8 @@ class AutoPublishListener(
     private val episodeService: EpisodeService,
     private val targetService: PodcastPublicationTargetService,
     private val publishingService: PublishingService,
-    private val appProperties: AppProperties
+    private val appProperties: AppProperties,
+    private val evaluationRunRecorder: EvaluationRunRecorder
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -47,6 +52,11 @@ class AutoPublishListener(
         scope.launch {
             val autoTargets = targetService.list(podcastId).filter { it.enabled && it.autoPublish }
             if (autoTargets.isEmpty()) return@launch
+
+            if (evaluationRunRecorder.runsForEpisode(episodeId).isNotEmpty()) {
+                log.info("Auto-publish skipped: episode {} is an evaluation run", episodeId)
+                return@launch
+            }
 
             val podcast = podcastService.findById(podcastId)
             if (podcast == null) {

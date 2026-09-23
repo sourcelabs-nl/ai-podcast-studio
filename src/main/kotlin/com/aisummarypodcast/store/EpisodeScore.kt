@@ -13,6 +13,9 @@ import org.springframework.data.relational.core.mapping.Table
  *
  * [anchorsJson] keeps the judge's raw answer so a stored score can still be checked against the
  * script it describes, which is the whole point of asking for positions instead of a rating.
+ *
+ * [scriptHash] identifies the script text that was judged, so a score left behind by a rewrite is
+ * recognised as stale. Null on rows written before the hash was recorded.
  */
 @Table("episode_scores")
 data class EpisodeScore(
@@ -37,5 +40,6 @@ data class EpisodeScore(
     val inputTokens: Int,
     val outputTokens: Int,
     val costCents: Int?,
+    val scriptHash: String? = null,
     @Version val version: Long? = null
 )

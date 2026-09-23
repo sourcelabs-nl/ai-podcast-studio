@@ -4,12 +4,13 @@ import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.JudgeMode
 import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineStage
-import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeScore
 import com.aisummarypodcast.store.EpisodeScoreRepository
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastRepository
+import com.aisummarypodcast.util.isConstraintViolation
 import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
@@ -29,7 +30,9 @@ import java.time.Instant
 @Service
 class EpisodeScoringService(
     private val scriptJudge: ScriptJudge,
-    private val episodeService: EpisodeService,
+    // The repository rather than EpisodeService: EpisodeService injects this service, so depending
+    // on it here would close a bean cycle.
+    private val episodeRepository: EpisodeRepository,
     private val podcastRepository: PodcastRepository,
     private val episodeScoreRepository: EpisodeScoreRepository,
     private val modelResolver: ModelResolver,
@@ -63,13 +66,15 @@ class EpisodeScoringService(
         }
         warnIfEnforcingWithoutNorm()
         val pageable = PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "generatedAt", "id"))
-        val episodes = episodeService.findByPodcastIdPaged(podcastId, emptyList(), pageable).content
+        val episodes = episodeRepository.findByPodcastId(podcastId, pageable).content
         return episodes.mapNotNull { scoreIfNeeded(it) }
     }
 
     /**
      * Scores one episode, or returns its existing score at the current version without a model
-     * call. Null in [JudgeMode.OFF], and null for a script with no speaker turns.
+     * call while that score still describes the episode's current script.
+     *
+     * Returns null in [JudgeMode.OFF], and null for a script with no speaker turns.
      */
     suspend fun scoreEpisode(episode: Episode): ScoringOutcome? {
         if (judgeProperties.mode == JudgeMode.OFF) return null
@@ -82,8 +87,15 @@ class EpisodeScoringService(
 
     private suspend fun scoreIfNeeded(episode: Episode): ScoringOutcome? {
         val episodeId = requireNotNull(episode.id) { "Episode read from the store has no id" }
-        episodeScoreRepository.findByEpisodeIdAndScorerVersion(episodeId, SCORER_VERSION)?.let {
-            return ScoringOutcome(it, decide(it.overall))
+        val existing = episodeScoreRepository.findByEpisodeIdAndScorerVersion(episodeId, SCORER_VERSION)
+        if (existing != null) {
+            // A null hash predates hash recording and is taken to describe the current script, so the
+            // archive is not re-judged wholesale.
+            if (existing.scriptHash == null || existing.scriptHash == scriptHashOf(episode.scriptText)) {
+                return ScoringOutcome(existing, decide(existing.overall))
+            }
+            log.info("[EVAL] Episode {} was rewritten since it was scored; replacing its score", episodeId)
+            episodeScoreRepository.delete(existing)
         }
         if (episode.scriptText.isBlank()) {
             log.warn("[EVAL] Episode {} has no script to judge", episodeId)
@@ -113,30 +125,46 @@ class EpisodeScoringService(
             return null
         }
         val score = AttentionScoring.of(judgement.anchors)
-        val stored = episodeScoreRepository.save(
-            EpisodeScore(
-                episodeId = episodeId,
-                scorerVersion = SCORER_VERSION,
-                judgeModel = evalModel.model,
-                scoredAt = Instant.now().toString(),
-                overall = score.overall,
-                cliffhangerScore = score.cliffhangers.score,
-                humorScore = score.humor.score,
-                teaserScore = score.teaser.score,
-                promises = score.cliffhangers.promises,
-                deferredPromises = score.cliffhangers.deferredPromises,
-                unpaidPromises = score.cliffhangers.unpaidPromises,
-                medianDeferralTurns = score.cliffhangers.medianDeferralTurns,
-                humorBeats = score.humor.beats,
-                humorSpeakerBalance = score.humor.speakerBalance,
-                humorReactionRatio = score.humor.reactionRatio,
-                teaserTopics = score.teaser.distinctTopics,
-                anchorsJson = jsonMapper.writeValueAsString(judgement.anchors),
-                inputTokens = judgement.usage.inputTokens,
-                outputTokens = judgement.usage.outputTokens,
-                costCents = judgement.costCents
+        val stored = try {
+            episodeScoreRepository.save(
+                EpisodeScore(
+                    episodeId = episodeId,
+                    scorerVersion = SCORER_VERSION,
+                    judgeModel = evalModel.model,
+                    scoredAt = Instant.now().toString(),
+                    overall = score.overall,
+                    cliffhangerScore = score.cliffhangers.score,
+                    humorScore = score.humor.score,
+                    teaserScore = score.teaser.score,
+                    promises = score.cliffhangers.promises,
+                    deferredPromises = score.cliffhangers.deferredPromises,
+                    unpaidPromises = score.cliffhangers.unpaidPromises,
+                    medianDeferralTurns = score.cliffhangers.medianDeferralTurns,
+                    humorBeats = score.humor.beats,
+                    humorSpeakerBalance = score.humor.speakerBalance,
+                    humorReactionRatio = score.humor.reactionRatio,
+                    teaserTopics = score.teaser.distinctTopics,
+                    anchorsJson = jsonMapper.writeValueAsString(judgement.anchors),
+                    inputTokens = judgement.usage.inputTokens,
+                    outputTokens = judgement.usage.outputTokens,
+                    costCents = judgement.costCents,
+                    scriptHash = scriptHashOf(episode.scriptText)
+                )
             )
-        )
+        } catch (e: RuntimeException) {
+            // The (episode_id, scorer_version) unique index can be hit by two concurrent judging
+            // runs for the same episode. The loser keeps whichever row won the race rather than
+            // failing the episode: scores are advisory, and one score per episode is all that
+            // matters.
+            if (!isConstraintViolation(e)) throw e
+            val winner = episodeScoreRepository.findByEpisodeIdAndScorerVersion(episodeId, SCORER_VERSION)
+            if (winner == null) {
+                log.warn("[EVAL] Episode {} hit the score unique constraint but no row was found", episodeId)
+                return null
+            }
+            log.info("[EVAL] Episode {} was scored concurrently; keeping the existing row", episodeId)
+            return ScoringOutcome(winner, decide(winner.overall))
+        }
         val decision = decide(score.overall)
         log.info("[EVAL] Episode {} scored {} ({})", episodeId, "%.2f".format(score.overall), decision.reason)
         return ScoringOutcome(stored, decision)

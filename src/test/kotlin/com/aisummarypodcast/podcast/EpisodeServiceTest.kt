@@ -79,14 +79,22 @@ class EpisodeServiceTest {
 
     private val researchSourceRepository = mockk<com.aisummarypodcast.store.EpisodeResearchSourceRepository>(relaxed = true)
 
+    // Judge mode is OFF: scoring is not under test here, and background judging must not fire.
+    private val appProperties = mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true) {
+        every { eval } returns com.aisummarypodcast.config.EvalProperties(
+            com.aisummarypodcast.config.JudgeProperties(com.aisummarypodcast.config.JudgeMode.OFF, null)
+        )
+    }
+
     private val episodeService = EpisodeService(
         episodeRepository, podcastRepository, ttsPipeline,
         episodeArticleRepository, episodeCandidateArticleRepository, articleRepository, episodeRecapGenerator, modelResolver,
         postArticleRepository, episodeSourcesGenerator, articleEligibilityService, eventPublisher,
         audioGenerationService, mockk<com.aisummarypodcast.eval.EvaluationRunRecorder>(relaxed = true),
         llmCallRepository,
-        mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true),
-        researchSourceRepository
+        appProperties,
+        researchSourceRepository,
+        mockk(relaxed = true)
     )
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")

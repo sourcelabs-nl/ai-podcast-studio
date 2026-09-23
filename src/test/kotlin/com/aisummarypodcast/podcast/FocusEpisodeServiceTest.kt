@@ -66,6 +66,13 @@ class FocusEpisodeServiceTest {
     }
     private val researchSourceRepository = mockk<EpisodeResearchSourceRepository>(relaxed = true)
 
+    // Judge mode is OFF: scoring is not under test here, and background judging must not fire.
+    private val appProperties = mockk<com.aisummarypodcast.config.AppProperties>(relaxed = true) {
+        every { eval } returns com.aisummarypodcast.config.EvalProperties(
+            com.aisummarypodcast.config.JudgeProperties(com.aisummarypodcast.config.JudgeMode.OFF, null)
+        )
+    }
+
     private val service = EpisodeService(
         episodeRepository, podcastRepository, ttsPipeline,
         episodeArticleRepository, mockk(relaxed = true), articleRepository,
@@ -73,8 +80,9 @@ class FocusEpisodeServiceTest {
         mockk(relaxed = true), mockk<ArticleEligibilityService>(relaxed = true), mockk(relaxed = true),
         mockk(relaxed = true), mockk(relaxed = true),
         mockk(relaxed = true),
-        mockk(relaxed = true),
-        researchSourceRepository
+        appProperties,
+        researchSourceRepository,
+        mockk(relaxed = true)
     )
 
     private fun focusEpisode(status: EpisodeStatus = EpisodeStatus.GENERATING) = Episode(

@@ -1,7 +1,6 @@
 package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.config.AppProperties
-import com.aisummarypodcast.eval.EpisodeScoringService
 import com.aisummarypodcast.llm.ComposeContext
 import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.llm.FilteredArticle
@@ -46,7 +45,6 @@ class PodcastService(
     private val eventPublisher: ApplicationEventPublisher,
     private val sourceAggregator: SourceAggregator,
     private val episodeWindowResolver: EpisodeWindowResolver,
-    private val episodeScoringService: EpisodeScoringService,
     private val modelResolver: ModelResolver
 ) {
 
@@ -422,7 +420,7 @@ class PodcastService(
             onProgress
         )
         val updated = episodeService.saveFeedbackRecompose(episode, composeResult, feedback)
-        episodeService.regenerateRecap(updated, podcast)
+        episodeService.runEpilogueForRewrite(updated, podcast)
         eventPublisher.publishEvent(
             PodcastEvent(this, podcast.id, "episode", episodeId, "episode.created",
                 mapOf("episodeNumber" to episodeId))
@@ -518,32 +516,11 @@ class PodcastService(
                     mapOf("stage" to "generating_recap"))
             )
             val episode = episodeService.finalizeEpisode(generatingEpisode, podcast, composeResult.topicOrder)
-            judgeInBackground(episode)
             GenerateBriefingResult(episode = episode)
         } catch (e: Exception) {
             log.error("[Pipeline] Briefing generation failed for podcast '{}' ({}): {}", podcast.name, podcast.id, e.message, e)
             val failedEpisode = episodeService.failEpisode(podcast, e.message ?: "Unknown error", generatingEpisode)
             GenerateBriefingResult(episode = failedEpisode, failed = true, errorMessage = e.message)
-        }
-    }
-
-    /**
-     * Judges the finished script, when the judge is switched on.
-     *
-     * Launched rather than awaited: the episode is already produced and deliverable by this point,
-     * and the caller has no use for the score, so making it wait on a model round-trip would add
-     * latency to a result that does not depend on it. A judge that fails is logged and the episode
-     * stands, because evaluating a script says nothing about whether the script is deliverable.
-     */
-    private fun judgeInBackground(episode: Episode) {
-        pipelineScope.launch {
-            try {
-                episodeScoringService.scoreEpisode(episode)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.warn("[EVAL] Scoring episode {} failed, leaving the episode as it is: {}", episode.id, e.message)
-            }
         }
     }
 

@@ -1,5 +1,7 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.config.JudgeMode
+import com.aisummarypodcast.eval.EpisodeScoringService
 import com.aisummarypodcast.eval.EvaluationRunRecorder
 import com.aisummarypodcast.llm.ArticleEligibilityService
 import com.aisummarypodcast.llm.ComposeStageResult
@@ -32,6 +34,13 @@ import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastRepository
 import com.aisummarypodcast.store.PostArticleRepository
 import com.aisummarypodcast.tts.TtsPipeline
+import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.boot.context.event.ApplicationReadyEvent
@@ -61,10 +70,19 @@ class EpisodeService(
     private val evaluationRunRecorder: EvaluationRunRecorder,
     private val llmCallRepository: LlmCallRepository,
     private val appProperties: AppProperties,
-    private val researchSourceRepository: EpisodeResearchSourceRepository
+    private val researchSourceRepository: EpisodeResearchSourceRepository,
+    private val episodeScoringService: EpisodeScoringService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    // Background judging outlives the call that finished the script, so it gets its own scope.
+    private val judgeScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    @PreDestroy
+    fun shutdown() {
+        judgeScope.cancel()
+    }
 
     @Transactional
     @EventListener(ApplicationReadyEvent::class)
@@ -206,9 +224,7 @@ class EpisodeService(
 
         saveEpisodeArticleLinks(episode, result)
         if (!isFocusEpisode) markArticlesAsProcessed(result.processedArticleIds)
-        val recapEpisode = generateAndStoreRecap(episode, podcast, result.topicOrder)
-        val finalEpisode = generateAndStoreShowNotes(recapEpisode)
-        generateSourcesFile(finalEpisode, podcast)
+        val finalEpisode = runEpilogue(episode, podcast, result.topicOrder)
         if (updateLastGenerated && !isFocusEpisode) {
             val freshPodcast = podcastRepository.findByIdOrNull(podcast.id)!!
             podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
@@ -524,15 +540,8 @@ class EpisodeService(
             }
         }
 
-        // Generate recap (idempotent: skip if already exists)
-        val recapEpisode = if (withStatus.recap != null) {
-            withStatus
-        } else {
-            generateAndStoreRecap(withStatus, podcast, topicOrder)
-        }
-
-        val finalEpisode = generateAndStoreShowNotes(recapEpisode)
-        generateSourcesFile(finalEpisode, podcast)
+        // A recap that already exists is kept (a retry resuming at TTS), so only a missing one is generated.
+        val finalEpisode = runEpilogue(withStatus, podcast, topicOrder, keepExistingRecap = true)
 
         if (updateLastGenerated && !isFocusEpisode) {
             val freshPodcast = podcastRepository.findByIdOrNull(podcast.id)!!
@@ -697,19 +706,73 @@ class EpisodeService(
      * pool and risking SQLITE_BUSY. Each internal episode save is atomic on its own, and the recap →
      * show-notes → sources steps are independent idempotent updates that are safe to apply separately.
      */
-    suspend fun regenerateRecap(episode: Episode, podcast: Podcast): Episode {
-        // Derive the candidate topic labels from the episode's existing links (distinct topics that
-        // currently carry a topic_order, in order) so re-running recap recomputes — and prunes — the
-        // discussed set for already-generated episodes.
-        val topicLabels = episodeArticleRepository.findByEpisodeId(episode.id!!)
+    suspend fun regenerateRecap(episode: Episode, podcast: Podcast): Episode =
+        generateRecapShowNotesAndSources(episode, podcast, linkedTopicLabels(episode))
+
+    /**
+     * Runs the epilogue for an episode whose script was rewritten in place (a feedback recompose),
+     * deriving the recap's topic labels from the episode's existing article links.
+     */
+    suspend fun runEpilogueForRewrite(episode: Episode, podcast: Podcast): Episode =
+        runEpilogue(episode, podcast, linkedTopicLabels(episode))
+
+    /**
+     * The steps that follow a final script, whichever route produced it: the judge is launched in
+     * the background, then the recap, show notes and sources file are generated. With
+     * [keepExistingRecap], an episode that already carries a recap keeps it.
+     */
+    private suspend fun runEpilogue(
+        episode: Episode,
+        podcast: Podcast,
+        topicOrder: List<String>,
+        keepExistingRecap: Boolean = false
+    ): Episode {
+        judgeInBackground(episode)
+        return if (keepExistingRecap && episode.recap != null) {
+            generateShowNotesAndSources(episode, podcast)
+        } else {
+            generateRecapShowNotesAndSources(episode, podcast, topicOrder)
+        }
+    }
+
+    private suspend fun generateRecapShowNotesAndSources(episode: Episode, podcast: Podcast, topicOrder: List<String>): Episode =
+        generateShowNotesAndSources(generateAndStoreRecap(episode, podcast, topicOrder), podcast)
+
+    private fun generateShowNotesAndSources(episode: Episode, podcast: Podcast): Episode {
+        val finalEpisode = generateAndStoreShowNotes(episode)
+        generateSourcesFile(finalEpisode, podcast)
+        return finalEpisode
+    }
+
+    /**
+     * The candidate topic labels from the episode's existing links (distinct topics that currently
+     * carry a topic_order, in order), so re-running recap recomputes and prunes the discussed set.
+     */
+    private fun linkedTopicLabels(episode: Episode): List<String> =
+        episodeArticleRepository.findByEpisodeId(episode.id!!)
             .filter { it.topicOrder != null && !it.topic.isNullOrBlank() }
             .sortedBy { it.topicOrder }
             .mapNotNull { it.topic }
             .distinct()
-        val recapEpisode = generateAndStoreRecap(episode, podcast, topicLabels)
-        val finalEpisode = generateAndStoreShowNotes(recapEpisode)
-        generateSourcesFile(finalEpisode, podcast)
-        return finalEpisode
+
+    /**
+     * Judges the finished script, when the judge is switched on.
+     *
+     * Launched rather than awaited: the script is already final and deliverable, and nothing on the
+     * calling route depends on the score. A judge that fails is logged and the episode stands,
+     * because evaluating a script says nothing about whether the script is deliverable.
+     */
+    private fun judgeInBackground(episode: Episode) {
+        if (appProperties.eval.judge.mode == JudgeMode.OFF) return
+        judgeScope.launch {
+            try {
+                episodeScoringService.scoreEpisode(episode)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.warn("[EVAL] Scoring episode {} failed, leaving the episode as it is: {}", episode.id, e.message)
+            }
+        }
     }
 
     fun findLinkedArticlesAndTopics(episodeId: Long): LinkedArticlesResult {
