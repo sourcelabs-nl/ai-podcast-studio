@@ -10,6 +10,7 @@ import com.aisummarypodcast.tts.DialogueScriptParser
 import io.github.resilience4j.kotlin.retry.executeSuspendFunction
 import io.github.resilience4j.retry.RetryRegistry
 import org.slf4j.LoggerFactory
+import org.springframework.ai.chat.client.ChatClient
 import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
@@ -50,35 +51,50 @@ class ScriptJudge(
         val chatClient = chatClientFactory.createForModel(userId, evalModel, attribution = LlmCallAttribution(episodeId = episodeId))
         val prompt = buildPrompt(numbered)
         var attempt = 0
+        var previousFailure: String? = null
 
         return retryRegistry.retry("script-judge").executeSuspendFunction {
             attempt++
-            val converter = BeanOutputConverter(ScriptJudgeAnchors::class.java, jsonMapper)
-            val responseEntity = chatClient.prompt()
-                .user(promptForAttempt(prompt, attempt))
-                .options(
-                    OpenAiChatOptions.builder()
-                        .model(evalModel.model)
-                        .temperature(0.3)
-                        // Locating turns is recall, not deliberation, and reasoning tokens bill as
-                        // output on every one of the archive's scripts.
-                        .withRoutingAndReasoning(evalModel)
-                )
-                .call()
-                .responseEntity(converter)
-
-            val anchors = responseEntity.entity()
-                ?: throw IllegalStateException("Judge returned no parseable anchors for a ${numbered.size}-turn script")
-            val usage = TokenUsage.fromChatResponse(responseEntity.response())
-            val costCents = CostEstimator.resolveLlmCost(usage, evalModel.cost).costCents?.roundToInt()
-
-            val clean = withinRange(anchors, numbered.size)
-            log.info(
-                "[EVAL] Judged a {}-turn script: {} promises, {} humor beats, {} teaser topics",
-                numbered.size, clean.promises.size, clean.humorBeats.size, clean.teaserTopics.size
-            )
-            ScriptJudgement(clean, usage, costCents)
+            try {
+                judgeOnce(chatClient, promptForAttempt(prompt, attempt, previousFailure), evalModel, numbered.size)
+            } catch (e: Exception) {
+                previousFailure = e.message
+                throw e
+            }
         }
+    }
+
+    private fun judgeOnce(
+        chatClient: ChatClient,
+        prompt: String,
+        evalModel: ResolvedModel,
+        turnCount: Int
+    ): ScriptJudgement {
+        val converter = BeanOutputConverter(ScriptJudgeAnchors::class.java, jsonMapper)
+        val responseEntity = chatClient.prompt()
+            .user(prompt)
+            .options(
+                OpenAiChatOptions.builder()
+                    .model(evalModel.model)
+                    .temperature(0.3)
+                    // Locating turns is recall, not deliberation, and reasoning tokens bill as
+                    // output on every one of the archive's scripts.
+                    .withRoutingAndReasoning(evalModel)
+            )
+            .call()
+            .responseEntity(converter)
+
+        val anchors = responseEntity.entity()
+            ?: throw IllegalStateException("Judge returned no parseable anchors for a $turnCount-turn script")
+        val usage = TokenUsage.fromChatResponse(responseEntity.response())
+        val costCents = CostEstimator.resolveLlmCost(usage, evalModel.cost).costCents?.roundToInt()
+
+        val clean = withinRange(anchors, turnCount)
+        log.info(
+            "[EVAL] Judged a {}-turn script: {} promises, {} humor beats, {} teaser topics",
+            turnCount, clean.promises.size, clean.humorBeats.size, clean.teaserTopics.size
+        )
+        return ScriptJudgement(clean, usage, costCents)
     }
 
     /**
@@ -134,13 +150,21 @@ class ScriptJudge(
     /**
      * Returns the prompt for [attempt], appending a correction from the second attempt on.
      *
-     * A retry must never send the byte-identical prompt: `CachingChatModel` keys on prompt text, so
-     * an unparseable answer is cached and every identical retry would replay it in milliseconds
-     * without reaching the model.
+     * The correction quotes why the previous attempt failed ([previousFailure]), so the model can fix
+     * the specific mistake instead of guessing at it. A retry must also never send the byte-identical
+     * prompt: `CachingChatModel` keys on prompt text, so an unparseable answer is cached and every
+     * identical retry would replay it in milliseconds without reaching the model.
      */
-    internal fun promptForAttempt(prompt: String, attempt: Int): String =
-        if (attempt <= 1) prompt else
-            "$prompt\n\nRetry $attempt: your previous response could not be parsed as JSON. Respond " +
-                "with the raw JSON object only. Do not include reasoning, commentary, or markdown " +
-                "code fences, and do not write anything before or after the JSON."
+    internal fun promptForAttempt(prompt: String, attempt: Int, previousFailure: String? = null): String {
+        if (attempt <= 1) return prompt
+        val reason = previousFailure?.take(MAX_FAILURE_CHARS)?.let { " The error was: $it." } ?: ""
+        return "$prompt\n\nRetry $attempt: your previous response could not be parsed as JSON.$reason " +
+            "Respond with the raw JSON object only. Do not include reasoning, commentary, or markdown " +
+            "code fences, and do not write anything before or after the JSON."
+    }
+
+    private companion object {
+        /** A parser error can echo the whole response back; the model needs the reason, not its own answer. */
+        const val MAX_FAILURE_CHARS = 300
+    }
 }

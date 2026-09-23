@@ -68,6 +68,20 @@ class ScriptJudgeTest {
     }
 
     @Test
+    fun `a retry tells the model why its previous answer failed`() {
+        val retry = judge.promptForAttempt("the prompt", 2, "Unexpected character '`' at line 1")
+
+        assertTrue(retry.contains("The error was: Unexpected character '`' at line 1."))
+    }
+
+    @Test
+    fun `a long failure reason is truncated in the retry prompt`() {
+        val retry = judge.promptForAttempt("the prompt", 2, "x".repeat(5000))
+
+        assertFalse(retry.contains("x".repeat(301)))
+    }
+
+    @Test
     fun `a retry never sends the identical prompt`() {
         val prompt = "the prompt"
 

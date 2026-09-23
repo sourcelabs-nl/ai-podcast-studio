@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.0</version>
+		<version>4.1.1</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.aisummarypodcast</groupId>
@@ -16,7 +16,7 @@
 	<properties>
 		<java.version>25</java.version>
 		<kotlin.version>2.4.0</kotlin.version>
-		<spring-ai.version>2.0.0</spring-ai.version>
+		<spring-ai.version>2.0.1</spring-ai.version>
 		<resilience4j.version>2.4.0</resilience4j.version>
 	</properties>
 	<dependencyManagement>
