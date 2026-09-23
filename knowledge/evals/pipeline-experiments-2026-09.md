@@ -26,7 +26,7 @@ stale_after: 2026-12-23T00:00:00Z
 OpenRouter `provider.sort = throughput`, and the compose model (GPT-6 Luna at
 medium). **Held fixed:** the article set of episode 230, the podcast's prompt and
 settings, every stage other than compose, the judge. Three runs per variant; the
-baseline has two completed runs at the time of writing.
+baseline has two, its third run (episode 252) having been interrupted by an application restart.
 
 | Variant | Judge per run | Mean | Compose cost | Episode cost | Compose time | Reasoning tokens | Words |
 |---|---|---|---|---|---|---|---|
