@@ -22,8 +22,8 @@ import org.junit.jupiter.api.Test
 class RunConfigTest {
 
     private val defaultCompose = ModelReference("openrouter", "z-ai/glm-5.3")
-    private val defaultFilter = ModelReference("openrouter", "openai/gpt-5.4-nano")
-    private val podcastCompose = ModelReference("openrouter", "anthropic/claude-opus-4.7")
+    private val defaultFilter = ModelReference("openrouter", "deepseek/deepseek-v4-flash-0731")
+    private val podcastCompose = ModelReference("openrouter", "z-ai/glm-5.3")
     private val overrideCompose = ModelReference("openrouter", "moonshotai/kimi-k2")
 
     private val appProperties = AppProperties(

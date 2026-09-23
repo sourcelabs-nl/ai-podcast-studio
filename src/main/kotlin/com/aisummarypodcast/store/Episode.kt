@@ -102,6 +102,15 @@ data class Episode(
      * written before it was recorded.
      */
     val runConfigJson: String? = null,
+    /**
+     * The experiment an [EpisodePurpose.EXPERIMENT] episode belongs to: [experimentId] groups the
+     * runs of one experiment request, [experimentVariant] names the variant this run composed under,
+     * and [experimentSourceEpisodeId] is the episode whose article set it recomposes. Null for every
+     * other episode.
+     */
+    val experimentId: String? = null,
+    val experimentVariant: String? = null,
+    val experimentSourceEpisodeId: Long? = null,
     @Version val version: Long? = null
 ) {
     /**

@@ -33,6 +33,9 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
 
     fun findByPodcastId(podcastId: String): List<Episode>
 
+    /** The experiment episodes recomposing [sourceEpisodeId]'s article set, in creation order. */
+    fun findByExperimentSourceEpisodeIdOrderByIdAsc(sourceEpisodeId: Long): List<Episode>
+
     fun findByPodcastIdAndStatus(podcastId: String, status: EpisodeStatus): List<Episode>
 
     fun findByPodcastIdAndStatusInAndPurposeNot(

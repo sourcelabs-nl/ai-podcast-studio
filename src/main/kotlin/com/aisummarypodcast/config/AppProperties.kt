@@ -21,7 +21,17 @@ data class AppProperties(
     val eval: EvalProperties = EvalProperties(),
     val backup: BackupProperties = BackupProperties(),
     val previewAudio: PreviewAudioProperties = PreviewAudioProperties(),
-    val publishing: PublishingProperties = PublishingProperties()
+    val publishing: PublishingProperties = PublishingProperties(),
+    val experiments: ExperimentsProperties = ExperimentsProperties()
+)
+
+/**
+ * [maxVariantRepeats] caps one experiment request's variants x repeats, checked before any run
+ * starts. Each run is a full compose (plus recap and judge) at real cost, and the runs of one
+ * experiment execute one after another.
+ */
+data class ExperimentsProperties(
+    val maxVariantRepeats: Int = 6
 )
 
 /**
@@ -133,7 +143,7 @@ data class LlmCallLogProperties(
 data class StageTimeouts(
     val filter: Duration = Duration.ofMinutes(3),
     val dedup: Duration = Duration.ofMinutes(5),
-    val compose: Duration = Duration.ofMinutes(20),
+    val compose: Duration = Duration.ofMinutes(5),
     /**
      * The judge reads one whole script and answers with a short list of turn indices, so it sits
      * between a single article and a dedup batch in size. It gets dedup's allowance rather than

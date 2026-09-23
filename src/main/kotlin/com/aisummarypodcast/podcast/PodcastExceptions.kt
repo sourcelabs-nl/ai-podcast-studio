@@ -34,3 +34,18 @@ class EpisodeNotRecomposableException(message: String) : IllegalStateException(m
  * (maps to 409). It has to be unpublished from every target first.
  */
 class EpisodePublishedException(message: String) : IllegalStateException(message)
+
+/** An experiment request no run could execute, such as an unknown stage name (maps to 400). */
+class InvalidExperimentException(message: String) : IllegalArgumentException(message)
+
+/**
+ * An experiment request asking for more runs than `app.experiments.max-variant-repeats` allows
+ * (maps to 400). Refused before any run starts, so it costs nothing.
+ */
+class ExperimentTooLargeException(message: String) : IllegalArgumentException(message)
+
+/**
+ * The episode cannot be experimented on: it has no linked articles to recompose, or it is itself an
+ * experiment episode (maps to 409).
+ */
+class EpisodeNotExperimentableException(message: String) : IllegalStateException(message)

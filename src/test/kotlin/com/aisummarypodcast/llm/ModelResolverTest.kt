@@ -61,6 +61,14 @@ class ModelResolverTest {
     }
 
     @Test
+    fun `a resolved model carries its stage's request timeout`() {
+        val runConfig = RunConfig.resolve(appProperties, podcast)
+
+        assertEquals(appProperties.llm.timeouts.compose, resolver.resolve(runConfig, PipelineStage.COMPOSE).requestTimeout)
+        assertEquals(appProperties.llm.timeouts.filter, resolver.resolve(runConfig, PipelineStage.FILTER).requestTimeout)
+    }
+
+    @Test
     fun `podcast override takes precedence over global default`() {
         val podcastWithOverride = podcast.copy(
             llmModels = LlmModelOverrides(mapOf("compose" to ModelReference("ollama", "llama3")))

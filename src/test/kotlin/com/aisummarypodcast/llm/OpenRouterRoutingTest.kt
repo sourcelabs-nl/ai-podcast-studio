@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.springframework.ai.openai.OpenAiChatOptions
 
 class OpenRouterRoutingTest {
 
@@ -48,6 +49,58 @@ class OpenRouterRoutingTest {
 
         assertEquals(listOf("fp8", "fp16", "bf16", "fp32"), block?.get("quantizations"))
         assertEquals(true, block?.get("require_parameters"))
+    }
+
+    @Test
+    fun `an open-weight model keeps the floor when the model is named`() {
+        val block = providerBlock(OpenRouterRouting.extraBodyFor("openrouter", "medium", model = "deepseek/deepseek-v4.1-flash"))
+
+        assertEquals(listOf("fp8", "fp16", "bf16", "fp32"), block?.get("quantizations"))
+        assertEquals(true, block?.get("require_parameters"))
+    }
+
+    @Test
+    fun `a closed-weight vendor model is routed without the quantization floor`() {
+        for (model in listOf("openai/gpt-6-luna", "anthropic/claude-sonnet-5")) {
+            val block = providerBlock(OpenRouterRouting.extraBodyFor("openrouter", "none", model = model))
+
+            assertNull(block?.get("quantizations"), model)
+            assertEquals(true, block?.get("require_parameters"), model)
+        }
+    }
+
+    @Test
+    fun `a resolved closed-weight model drops the floor through the builder`() {
+        val resolved = ResolvedModel(provider = "openrouter", model = "openai/gpt-6-luna", cost = null, stage = PipelineStage.COMPOSE)
+        val body = OpenAiChatOptions.builder().withRoutingAndReasoning(resolved).build().extraBody
+
+        assertNull(providerBlock(body)?.get("quantizations"))
+        assertEquals("none", reasoningBlock(body)?.get("effort"))
+    }
+
+    @Test
+    fun `an openai model sends no temperature, any other model keeps it`() {
+        fun temperatureFor(model: String) = OpenAiChatOptions.builder().temperature(0.9)
+            .withRoutingAndReasoning(ResolvedModel(provider = "openrouter", model = model, cost = null, stage = PipelineStage.COMPOSE))
+            .build().temperature
+
+        assertNull(temperatureFor("openai/gpt-6-luna"))
+        assertEquals(0.9, temperatureFor("deepseek/deepseek-v4.1-flash"))
+        assertEquals(0.9, temperatureFor("anthropic/claude-sonnet-5"))
+    }
+
+    @Test
+    fun `the stage timeout is sent on the request options`() {
+        // Spring AI 2.0.1 sends the options' timeout per request, and an unset one defaults to 60s,
+        // replacing the client's stage timeout.
+        val resolved = ResolvedModel(
+            provider = "openrouter", model = "deepseek/deepseek-v4.1-flash", cost = null,
+            stage = PipelineStage.COMPOSE, requestTimeout = java.time.Duration.ofMinutes(5)
+        )
+
+        val options = OpenAiChatOptions.builder().withRoutingAndReasoning(resolved).build()
+
+        assertEquals(java.time.Duration.ofMinutes(5), options.timeout)
     }
 
     @Test

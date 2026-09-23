@@ -3,6 +3,7 @@ package com.aisummarypodcast.llm
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.ModelCost
 import org.springframework.stereotype.Component
+import java.time.Duration
 
 /**
  * A model resolved for one pipeline stage. [stage] travels with the model so downstream code —
@@ -24,7 +25,13 @@ data class ResolvedModel(
     val stage: PipelineStage,
     val telemetryStage: String = stage.value,
     val reasoningEffort: String = OpenRouterRouting.NO_REASONING,
-    val providerPreferences: ProviderPreferences = ProviderPreferences.DEFAULT
+    val providerPreferences: ProviderPreferences = ProviderPreferences.DEFAULT,
+    /**
+     * The stage's request timeout, sent on every call's options. Spring AI 2.0.1 sends the options'
+     * timeout as a per-request override, and an options object without one falls back to 60s, which
+     * replaces the client's stage timeout; see [withRoutingAndReasoning].
+     */
+    val requestTimeout: Duration? = null
 )
 
 @Component
@@ -41,7 +48,8 @@ class ModelResolver(
             cost = appProperties.models[ref.provider]?.get(ref.model),
             stage = stage,
             reasoningEffort = runConfig.reasoningEffortFor(stage),
-            providerPreferences = runConfig.providerPreferences
+            providerPreferences = runConfig.providerPreferences,
+            requestTimeout = stage.timeout(appProperties.llm.timeouts)
         )
     }
 }

@@ -138,6 +138,31 @@ class EpisodeService(
     }
 
     /**
+     * Creates the GENERATING placeholder of one experiment run, already marked as an experiment and
+     * carrying its [identity]. Unlike [createGeneratingEpisode] it never touches the podcast's
+     * schedule and announces nothing: an experiment episode appears in no listing.
+     */
+    fun createExperimentEpisode(podcast: Podcast, window: EpisodeWindow, identity: ExperimentRunIdentity): Episode =
+        episodeRepository.save(
+            Episode(
+                podcastId = podcast.id,
+                generatedAt = Instant.now().toString(),
+                windowStart = window.startIso,
+                windowEnd = window.endIso,
+                scriptText = "",
+                status = EpisodeStatus.GENERATING,
+                purpose = EpisodePurpose.EXPERIMENT,
+                experimentId = identity.experimentId,
+                experimentVariant = identity.variant,
+                experimentSourceEpisodeId = identity.sourceEpisodeId
+            )
+        )
+
+    /** Every experiment episode recomposing [sourceEpisodeId]'s article set, in creation order. */
+    fun findExperimentEpisodes(sourceEpisodeId: Long): List<Episode> =
+        episodeRepository.findByExperimentSourceEpisodeIdOrderByIdAsc(sourceEpisodeId)
+
+    /**
      * Deletes a GENERATING placeholder episode that never produced any content (e.g. when no
      * eligible articles were found). Owns the episode lifecycle so callers don't touch the
      * repository directly (Rule A2). No-op if the episode no longer exists.

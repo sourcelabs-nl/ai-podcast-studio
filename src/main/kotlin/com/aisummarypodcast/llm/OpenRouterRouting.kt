@@ -43,6 +43,31 @@ object OpenRouterRouting {
     private val ACCEPTED_QUANTIZATIONS = listOf("fp8", "fp16", "bf16", "fp32")
 
     /**
+     * Model prefixes of closed-weight vendors, whose models are served only by the vendor itself or a
+     * cloud reselling the vendor's own deployment (Azure, Bedrock). Those endpoints all report
+     * quantization "unknown", so the floor would reject every one of them and the request would come
+     * back 404 "No endpoints found": `openai/gpt-6-luna` has seven endpoints, all "unknown". No
+     * third party can serve a lossy copy of a closed-weight model, so the floor protects nothing
+     * there and is left out of the request. `google/` is deliberately absent: it also publishes
+     * open-weight Gemma models that third parties quantize.
+     */
+    private val CLOSED_WEIGHT_PREFIXES = listOf("openai/", "anthropic/")
+
+    private fun isClosedWeight(model: String?): Boolean =
+        model != null && CLOSED_WEIGHT_PREFIXES.any { model.startsWith(it) }
+
+    /**
+     * Model prefixes whose models reject a `temperature`. OpenAI's reasoning models do not list it
+     * among their supported parameters, so with `require_parameters` a request carrying one matches
+     * no endpoint: `openai/gpt-6-luna` answered 404 "No endpoints found that can handle the requested
+     * parameters" with `temperature: 0.9` and routed to OpenAI without it (probed 2026-09-23).
+     */
+    private val NO_TEMPERATURE_PREFIXES = listOf("openai/")
+
+    /** Whether a request to [model] may carry a temperature; see [NO_TEMPERATURE_PREFIXES]. */
+    fun acceptsTemperature(model: String): Boolean = NO_TEMPERATURE_PREFIXES.none { model.startsWith(it) }
+
+    /**
      * Extra body for a request to [provider], or an empty map when the provider is not OpenRouter —
      * neither block means anything to the direct `openai` provider.
      *
@@ -68,19 +93,22 @@ object OpenRouterRouting {
      *
      * [preferences] adds OpenRouter's `provider.sort` (`price`, `throughput` or `latency`) and
      * `provider.preferred_min_throughput` (tokens per second) when a run sets them.
+     *
+     * The quantization floor is sent for every [model] except a closed-weight vendor's (see
+     * [CLOSED_WEIGHT_PREFIXES]); a call that names no model gets the floor.
      */
     fun extraBodyFor(
         provider: String,
         reasoningEffort: String?,
-        preferences: ProviderPreferences = ProviderPreferences.DEFAULT
+        preferences: ProviderPreferences = ProviderPreferences.DEFAULT,
+        model: String? = null
     ): Map<String, Any> {
         if (provider != PROVIDER) return emptyMap()
-        val routing = mutableMapOf<String, Any>(
-            "quantizations" to ACCEPTED_QUANTIZATIONS,
-            // Skip an endpoint that cannot honour what the request actually sends rather than
-            // letting it silently ignore maxTokens or the reasoning budget.
-            "require_parameters" to true,
-        )
+        val routing = mutableMapOf<String, Any>()
+        if (!isClosedWeight(model)) routing["quantizations"] = ACCEPTED_QUANTIZATIONS
+        // Skip an endpoint that cannot honour what the request actually sends rather than letting it
+        // silently ignore maxTokens or the reasoning budget.
+        routing["require_parameters"] = true
         // Sorting and the throughput preference choose among the endpoints that clear the floor;
         // they never widen it. Both are sent only when a run sets them.
         preferences.sort?.let { routing["sort"] = it }
@@ -104,14 +132,26 @@ object OpenRouterRouting {
 fun OpenAiChatOptions.Builder.withRoutingAndReasoning(
     provider: String,
     reasoningEffort: String?,
-    preferences: ProviderPreferences = ProviderPreferences.DEFAULT
+    preferences: ProviderPreferences = ProviderPreferences.DEFAULT,
+    model: String? = null
 ): OpenAiChatOptions.Builder {
     if (provider != OpenRouterRouting.PROVIDER) {
         return if (reasoningEffort != null) reasoningEffort(reasoningEffort) else this
     }
-    return extraBody(OpenRouterRouting.extraBodyFor(provider, reasoningEffort, preferences))
+    return extraBody(OpenRouterRouting.extraBodyFor(provider, reasoningEffort, preferences, model))
 }
 
-/** Routing and reasoning as the run resolved them for [model]'s stage. */
-fun OpenAiChatOptions.Builder.withRoutingAndReasoning(model: ResolvedModel): OpenAiChatOptions.Builder =
-    withRoutingAndReasoning(model.provider, model.reasoningEffort, model.providerPreferences)
+/**
+ * Routing and reasoning as the run resolved them for [model]'s stage. A temperature set earlier on
+ * the builder is cleared for a model that rejects one (see [OpenRouterRouting.acceptsTemperature]),
+ * since every stage sets one and such a model would otherwise match no endpoint.
+ *
+ * The stage's timeout is set here too: Spring AI 2.0.1 sends the options' timeout on every request,
+ * and one left unset defaults to 60s, overriding the client's stage timeout and cutting a compose
+ * request off after a minute.
+ */
+fun OpenAiChatOptions.Builder.withRoutingAndReasoning(model: ResolvedModel): OpenAiChatOptions.Builder {
+    if (!OpenRouterRouting.acceptsTemperature(model.model)) temperature(null)
+    model.requestTimeout?.let { timeout(it) }
+    return withRoutingAndReasoning(model.provider, model.reasoningEffort, model.providerPreferences, model.model)
+}
