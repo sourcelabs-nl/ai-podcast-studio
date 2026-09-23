@@ -68,9 +68,10 @@ class EpisodeRepositoryPagingTest {
         episodeRepository.save(episode("p1", 2, EpisodeStatus.DISCARDED))
         episodeRepository.save(episode("p1", 3, EpisodeStatus.GENERATED))
 
-        val page = episodeRepository.findByPodcastIdAndStatusIn(
+        val page = episodeRepository.findByPodcastIdAndStatusInAndPurposeNot(
             "p1",
             listOf(EpisodeStatus.GENERATED, EpisodeStatus.FAILED),
+            EpisodePurpose.EXPERIMENT,
             PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "id"))
         )
         assertEquals(3, page.content.size)

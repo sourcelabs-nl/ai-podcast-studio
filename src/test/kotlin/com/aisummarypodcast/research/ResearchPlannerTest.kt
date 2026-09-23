@@ -6,6 +6,7 @@ import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineStage
 import com.aisummarypodcast.llm.RESEARCH_PLAN_STAGE
 import com.aisummarypodcast.llm.ResolvedModel
+import com.aisummarypodcast.llm.RunConfig
 import com.aisummarypodcast.store.Podcast
 import io.mockk.every
 import io.mockk.mockk
@@ -38,15 +39,20 @@ class ResearchPlannerTest {
             ChatClient.builder(chatModel).build()
     }
     private val modelResolver = mockk<ModelResolver> {
-        every { resolve(podcast, PipelineStage.FILTER) } returns filterModel
+        every { resolve(any(), PipelineStage.FILTER) } returns filterModel
     }
     private val planner = ResearchPlanner(chatClientFactory, modelResolver, JsonMapper.builder().build())
+    private val runConfig = RunConfig(
+        models = emptyMap(), reasoningEffort = emptyMap(),
+        providerPreferences = com.aisummarypodcast.llm.ProviderPreferences.DEFAULT,
+        targetWords = 1500, researchQueryCap = null, bypassLlmCache = false
+    )
 
     private fun answer(text: String) {
         every { chatModel.call(any<Prompt>()) } returns ChatResponse(listOf(Generation(AssistantMessage(text))))
     }
 
-    private val request = ResearchRequest(podcast, listOf("OpenAI o5 launch", "EU AI Act fines"), episodeId = 230)
+    private val request = ResearchRequest(podcast, listOf("OpenAI o5 launch", "EU AI Act fines"), runConfig, episodeId = 230)
 
     @Test
     fun `returns the planned queries on the filter model under the research-plan stage`() {

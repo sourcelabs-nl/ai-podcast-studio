@@ -7,6 +7,7 @@ import com.aisummarypodcast.research.BackgroundSource
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
 import com.aisummarypodcast.config.ComposeProperties
+import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.llm.ResolvedModel
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
@@ -31,6 +32,7 @@ class BriefingComposerTest {
     private val appProperties = mockk<AppProperties>().also {
         every { it.briefing } returns BriefingProperties(targetWords = 1500)
         every { it.compose } returns ComposeProperties()
+        every { it.llm } returns LlmProperties()
     }
     private val modelResolver = mockk<ModelResolver>()
     private val chatClientFactory = mockk<ChatClientFactory>()
@@ -348,7 +350,8 @@ class BriefingComposerTest {
             chatClientFactory.createForModel(podcast.userId, composeModelDef, useCache = false, attribution = any())
         } returns chatClient
 
-        composer.compose(articles, podcast, composeModelDef, ComposeContext(bypassLlmCache = true))
+        val runConfig = mockk<RunConfig>(relaxed = true).also { every { it.bypassLlmCache } returns true }
+        composer.compose(articles, podcast, composeModelDef, ComposeContext(runConfig = runConfig))
 
         verify {
             chatClientFactory.createForModel(podcast.userId, composeModelDef, useCache = false, attribution = any())

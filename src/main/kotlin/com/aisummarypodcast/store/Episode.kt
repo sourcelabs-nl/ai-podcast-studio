@@ -94,6 +94,14 @@ data class Episode(
     val focus: String? = null,
     /** The most recent feedback a reviewer submitted to recompose a focus episode's script. */
     val reviewFeedback: String? = null,
+    /** Why the current script was produced; see [EpisodePurpose]. */
+    val purpose: EpisodePurpose = EpisodePurpose.LEGACY,
+    /**
+     * The resolved run configuration (models, reasoning effort, provider preferences, target words,
+     * research cap, cache bypass) the current script was produced with, as JSON. Null for an episode
+     * written before it was recorded.
+     */
+    val runConfigJson: String? = null,
     @Version val version: Long? = null
 ) {
     /**

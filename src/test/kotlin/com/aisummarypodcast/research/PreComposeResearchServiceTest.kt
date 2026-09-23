@@ -2,6 +2,7 @@ package com.aisummarypodcast.research
 
 import com.aisummarypodcast.llm.EpisodeHistoryRepository
 import com.aisummarypodcast.llm.PastEpisodeMatch
+import com.aisummarypodcast.llm.RunConfig
 import com.aisummarypodcast.store.Podcast
 import io.mockk.every
 import io.mockk.mockk
@@ -24,6 +25,11 @@ class PreComposeResearchServiceTest {
     }
     private val recorder = mockk<ResearchSourceRecorder>(relaxed = true)
     private val service = PreComposeResearchService(planner, researchService, historyRepository, recorder)
+    private val runConfig = RunConfig(
+        models = emptyMap(), reasoningEffort = emptyMap(),
+        providerPreferences = com.aisummarypodcast.llm.ProviderPreferences.DEFAULT,
+        targetWords = 1500, researchQueryCap = null, bypassLlmCache = false
+    )
 
     private fun hits(vararg titles: String) = TavilyResponse(
         results = titles.map { TavilyResult(title = it, url = "https://example.com/$it", content = "snippet $it") }
@@ -37,7 +43,7 @@ class PreComposeResearchServiceTest {
         val recorded = slot<List<BackgroundSource>>()
         every { recorder.replace(230, capture(recorded)) } returns Unit
 
-        val research = service.research(ResearchRequest(deepDive, listOf("o5", "EU AI Act"), episodeId = 230))
+        val research = service.research(ResearchRequest(deepDive, listOf("o5", "EU AI Act"), runConfig, episodeId = 230))
 
         assertEquals(2, research.researchCalls)
         assertEquals(listOf("a", "b", "c"), research.sources.map { it.title })
@@ -53,7 +59,7 @@ class PreComposeResearchServiceTest {
         every { researchService.search("u1", "q2", any()) } throws RuntimeException("timeout")
         every { researchService.search("u1", "q3", any()) } returns hits("c")
 
-        val research = service.research(ResearchRequest(deepDive, listOf("o5"), episodeId = 230))
+        val research = service.research(ResearchRequest(deepDive, listOf("o5"), runConfig, episodeId = 230))
 
         assertEquals(3, research.researchCalls)
         assertEquals(listOf("a", "c"), research.sources.map { it.title })
@@ -64,7 +70,7 @@ class PreComposeResearchServiceTest {
         val match = PastEpisodeMatch(5, "2026-09-20", "o5 preview", "The o5 preview.")
         every { historyRepository.search("p1", "o5", HISTORY_MATCHES_PER_SUBJECT) } returns listOf(match)
 
-        val research = service.research(ResearchRequest(regular, listOf("o5"), episodeId = 230))
+        val research = service.research(ResearchRequest(regular, listOf("o5"), runConfig, episodeId = 230))
 
         assertEquals(listOf(match), research.history)
         assertTrue(research.sources.isEmpty())
@@ -79,7 +85,7 @@ class PreComposeResearchServiceTest {
         every { planner.plan(any()) } returns listOf("opus angle")
         every { researchService.search("u1", "opus angle", any()) } returns hits("a")
 
-        val research = service.research(ResearchRequest(regular, listOf("Claude Opus 5.5"), focusEpisode = true, episodeId = 31))
+        val research = service.research(ResearchRequest(regular, listOf("Claude Opus 5.5"), runConfig, focusEpisode = true, episodeId = 31))
 
         assertEquals(1, research.researchCalls)
         verify { recorder.replace(31, any()) }
@@ -91,7 +97,7 @@ class PreComposeResearchServiceTest {
         val shared = PastEpisodeMatch(5, "2026-09-20", "t", "r", isFocusEpisode = true)
         every { historyRepository.search("p1", any(), HISTORY_MATCHES_PER_SUBJECT) } returns listOf(shared)
 
-        val research = service.research(ResearchRequest(regular, subjects))
+        val research = service.research(ResearchRequest(regular, subjects, runConfig))
 
         assertEquals(listOf(shared), research.history)
         assertTrue(research.history.single().isFocusEpisode)
@@ -103,7 +109,7 @@ class PreComposeResearchServiceTest {
         every { planner.plan(any()) } returns listOf("q1")
         every { researchService.search("u1", "q1", any()) } returns hits("a")
 
-        val research = service.research(ResearchRequest(deepDive, listOf("o5"), episodeId = null))
+        val research = service.research(ResearchRequest(deepDive, listOf("o5"), runConfig, episodeId = null))
 
         assertEquals(1, research.sources.size)
         verify(exactly = 0) { recorder.replace(any(), any()) }

@@ -4,6 +4,7 @@ import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.JudgeMode
 import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineStage
+import com.aisummarypodcast.llm.RunConfig
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeScore
@@ -111,7 +112,7 @@ class EpisodeScoringService(
     }
 
     private suspend fun judgeAndStore(episodeId: Long, episode: Episode, podcast: Podcast): ScoringOutcome? {
-        val evalModel = modelResolver.resolve(podcast, PipelineStage.EVAL)
+        val evalModel = modelResolver.resolve(RunConfig.resolve(appProperties, podcast), PipelineStage.EVAL)
         // A script the judge cannot answer for is skipped, not fatal. Scoring runs over the whole
         // archive at once, and letting one unreadable script abort the run would throw away every
         // episode after it along with the calls already paid for.

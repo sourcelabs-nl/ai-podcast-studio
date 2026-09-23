@@ -16,6 +16,7 @@ import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineResult
 import com.aisummarypodcast.llm.PipelineStage
+import com.aisummarypodcast.llm.RunConfig
 import com.aisummarypodcast.llm.RecentFocusEpisode
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
@@ -29,6 +30,7 @@ import com.aisummarypodcast.store.EpisodeCandidateArticleRepository
 import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeResearchSource
 import com.aisummarypodcast.store.EpisodeResearchSourceRepository
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastRepository
@@ -147,6 +149,15 @@ class EpisodeService(
         log.info("[Pipeline] Deleted empty GENERATING episode {}", episodeId)
     }
 
+    /**
+     * Records on the episode why its script is being produced and the resolved configuration the run
+     * uses, before any stage runs, so a failed run and an in-flight experiment carry both too.
+     */
+    fun recordRun(episodeId: Long, purpose: EpisodePurpose, runConfigJson: String) {
+        val episode = episodeRepository.findByIdOrNull(episodeId) ?: return
+        episodeRepository.save(episode.copy(purpose = purpose, runConfigJson = runConfigJson))
+    }
+
     fun updatePipelineStage(episodeId: Long, stage: String) {
         val episode = episodeRepository.findByIdOrNull(episodeId) ?: return
         episodeRepository.save(episode.copy(pipelineStage = stage))
@@ -182,30 +193,8 @@ class EpisodeService(
         val requireReview = podcast.requireReview || isFocusEpisode
 
         val withScript = episodeRepository.save(
-            baseEpisode.copy(
+            withPipelineResult(baseEpisode, result).copy(
                 generatedAt = generatedAt,
-                scriptText = result.script,
-                filterModel = result.filterModel,
-                dedupModel = result.dedupModel,
-                composeModel = result.composeModel,
-                llmInputTokens = result.llmInputTokens,
-                llmOutputTokens = result.llmOutputTokens,
-                llmCostCents = result.llmCostCents,
-                llmCostSource = result.llmCostSource,
-                researchCalls = result.researchCalls,
-                researchCostCents = result.researchCostCents,
-                scoreInputTokens = result.scoreInputTokens,
-                scoreOutputTokens = result.scoreOutputTokens,
-                scoreCostCents = result.scoreCostCents,
-                scoreReportedCostCents = result.scoreReportedCostCents,
-                dedupInputTokens = result.dedupInputTokens,
-                dedupOutputTokens = result.dedupOutputTokens,
-                dedupCostCents = result.dedupCostCents,
-                dedupReportedCostCents = result.dedupReportedCostCents,
-                composeInputTokens = result.composeInputTokens,
-                composeOutputTokens = result.composeOutputTokens,
-                composeCostCents = result.composeCostCents,
-                composeReportedCostCents = result.composeReportedCostCents,
                 pipelineStage = if (requireReview) null else "tts",
                 status = if (requireReview) EpisodeStatus.PENDING_REVIEW else EpisodeStatus.GENERATING,
                 publishApproved = !podcast.requirePublishApproval
@@ -238,6 +227,56 @@ class EpisodeService(
 
         return finalEpisode
     }
+
+    /**
+     * The Sandbox outcome of an experiment run: the script, its costs and its article links are
+     * stored and the epilogue runs, but no audio is generated, the episode is never approved for
+     * publication and no event announces it, its articles stay unconsumed and the podcast's schedule
+     * does not move.
+     *
+     * NOT @Transactional, for the same reason as [createEpisodeFromPipelineResult]: the epilogue makes
+     * long LLM calls and must not hold the SQLite write lock while it does.
+     */
+    suspend fun finalizeSandboxEpisode(podcast: Podcast, result: PipelineResult, generatingEpisode: Episode): Episode {
+        val base = episodeRepository.findByIdOrNull(generatingEpisode.id!!) ?: generatingEpisode
+        val withScript = episodeRepository.save(
+            withPipelineResult(base, result).copy(
+                status = EpisodeStatus.GENERATED,
+                pipelineStage = null,
+                publishApproved = false
+            )
+        )
+        evaluationRunRecorder.record(withScript, result.provenance)
+        saveEpisodeArticleLinks(withScript, result)
+        log.info("[Pipeline] Sandbox episode {} composed for podcast '{}' ({})", withScript.id, podcast.name, podcast.id)
+        return runEpilogue(withScript, podcast, result.topicOrder)
+    }
+
+    private fun withPipelineResult(episode: Episode, result: PipelineResult): Episode =
+        episode.copy(
+            scriptText = result.script,
+            filterModel = result.filterModel,
+            dedupModel = result.dedupModel,
+            composeModel = result.composeModel,
+            llmInputTokens = result.llmInputTokens,
+            llmOutputTokens = result.llmOutputTokens,
+            llmCostCents = result.llmCostCents,
+            llmCostSource = result.llmCostSource,
+            researchCalls = result.researchCalls,
+            researchCostCents = result.researchCostCents,
+            scoreInputTokens = result.scoreInputTokens,
+            scoreOutputTokens = result.scoreOutputTokens,
+            scoreCostCents = result.scoreCostCents,
+            scoreReportedCostCents = result.scoreReportedCostCents,
+            dedupInputTokens = result.dedupInputTokens,
+            dedupOutputTokens = result.dedupOutputTokens,
+            dedupCostCents = result.dedupCostCents,
+            dedupReportedCostCents = result.dedupReportedCostCents,
+            composeInputTokens = result.composeInputTokens,
+            composeOutputTokens = result.composeOutputTokens,
+            composeCostCents = result.composeCostCents,
+            composeReportedCostCents = result.composeReportedCostCents
+        )
 
     private fun saveEpisodeArticleLinks(episode: Episode, result: PipelineResult) {
         val topicOrderMap = result.topicOrder.withIndex().associate { (index, label) -> label to index }
@@ -286,7 +325,7 @@ class EpisodeService(
 
     private suspend fun generateAndStoreRecap(episode: Episode, podcast: Podcast, topicLabels: List<String> = emptyList()): Episode {
         return try {
-            val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+            val filterModelDef = modelResolver.resolve(RunConfig.resolve(appProperties, podcast), PipelineStage.FILTER)
             val recapResult = episodeRecapGenerator.generate(episode.scriptText, podcast, filterModelDef, topicLabels, episode.id)
             val withStages = episode.copy(
                 recap = recapResult.recap,
@@ -465,6 +504,7 @@ class EpisodeService(
      */
     fun findRecentFocusEpisodes(podcastId: String): List<RecentFocusEpisode> {
         val generated = episodeRepository.findByPodcastIdAndStatus(podcastId, EpisodeStatus.GENERATED)
+            .filter { it.purpose != EpisodePurpose.EXPERIMENT }
         val lastRegular = generated.filter { it.focus == null }.maxOfOrNull { it.generatedAt }
         return generated
             .filter { it.focus != null && (lastRegular == null || it.generatedAt > lastRegular) }
@@ -682,8 +722,9 @@ class EpisodeService(
                 )
             )
         }
-        // A failed focus episode was never part of the regular schedule, so it must not satisfy a slot.
-        if (episode.focus == null) {
+        // A failed focus or experiment episode was never part of the regular schedule, so it must not
+        // satisfy a slot.
+        if (episode.focus == null && episode.purpose != EpisodePurpose.EXPERIMENT) {
             val freshPodcast = podcastRepository.findByIdOrNull(podcast.id)!!
             podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
         }
@@ -906,9 +947,9 @@ class EpisodeService(
 
     fun findByPodcastId(podcastId: String, status: EpisodeStatus? = null): List<Episode> {
         return if (status != null) {
-            episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc(podcastId, status)
+            episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc(podcastId, status, EpisodePurpose.EXPERIMENT)
         } else {
-            episodeRepository.findByPodcastIdOrderByGeneratedAtDescIdDesc(podcastId)
+            episodeRepository.findByPodcastIdAndPurposeNotOrderByGeneratedAtDescIdDesc(podcastId, EpisodePurpose.EXPERIMENT)
         }
     }
 
@@ -917,19 +958,20 @@ class EpisodeService(
         statuses: Collection<EpisodeStatus>,
         pageable: org.springframework.data.domain.Pageable
     ): org.springframework.data.domain.Page<Episode> =
-        if (statuses.isEmpty()) episodeRepository.findByPodcastId(podcastId, pageable)
-        else episodeRepository.findByPodcastIdAndStatusIn(podcastId, statuses, pageable)
+        if (statuses.isEmpty()) episodeRepository.findByPodcastIdAndPurposeNot(podcastId, EpisodePurpose.EXPERIMENT, pageable)
+        else episodeRepository.findByPodcastIdAndStatusInAndPurposeNot(podcastId, statuses, EpisodePurpose.EXPERIMENT, pageable)
 
     /**
      * Whether an episode of the given kind is in flight for the podcast. Regular and focus episodes
      * are counted apart: a focus episode sits outside the regular schedule and consumes nothing, so
      * one waiting for review must not hold up the scheduled episode, and the other way around. Only
-     * one of each kind runs at a time.
+     * one of each kind runs at a time. An experiment episode is neither kind and never blocks a run.
      */
     fun hasActiveEpisode(podcastId: String, focusEpisodes: Boolean = false): Boolean {
-        return episodeRepository.findByPodcastIdAndStatusIn(
+        return episodeRepository.findByPodcastIdAndStatusInAndPurposeNot(
             podcastId,
-            listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)
+            listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO),
+            EpisodePurpose.EXPERIMENT
         ).any { (it.focus != null) == focusEpisodes }
     }
 

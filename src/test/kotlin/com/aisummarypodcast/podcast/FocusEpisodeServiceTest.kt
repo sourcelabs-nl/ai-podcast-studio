@@ -15,6 +15,7 @@ import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeArticle
 import com.aisummarypodcast.store.EpisodeArticleRepository
 import com.aisummarypodcast.store.EpisodeRepository
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeResearchSourceRepository
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
@@ -159,7 +160,7 @@ class FocusEpisodeServiceTest {
 
     @Test
     fun `a focus episode blocks another focus episode but not a regular one`() {
-        every { episodeRepository.findByPodcastIdAndStatusIn("p1", any<Collection<EpisodeStatus>>()) } returns
+        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", any<Collection<EpisodeStatus>>(), EpisodePurpose.EXPERIMENT) } returns
             listOf(focusEpisode(EpisodeStatus.PENDING_REVIEW))
 
         assertFalse(service.hasActiveEpisode("p1"))

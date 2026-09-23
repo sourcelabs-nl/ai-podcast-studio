@@ -51,8 +51,8 @@ class ModelResolverTest {
 
     @Test
     fun `uses global default when podcast has no overrides`() {
-        val filterModel = resolver.resolve(podcast, PipelineStage.FILTER)
-        val composeModel = resolver.resolve(podcast, PipelineStage.COMPOSE)
+        val filterModel = resolver.resolve(RunConfig.resolve(appProperties, podcast), PipelineStage.FILTER)
+        val composeModel = resolver.resolve(RunConfig.resolve(appProperties, podcast), PipelineStage.COMPOSE)
 
         assertEquals("openrouter", filterModel.provider)
         assertEquals("anthropic/claude-haiku-4.5", filterModel.model)
@@ -66,7 +66,7 @@ class ModelResolverTest {
             llmModels = LlmModelOverrides(mapOf("compose" to ModelReference("ollama", "llama3")))
         )
 
-        val composeModel = resolver.resolve(podcastWithOverride, PipelineStage.COMPOSE)
+        val composeModel = resolver.resolve(RunConfig.resolve(appProperties, podcastWithOverride), PipelineStage.COMPOSE)
 
         assertEquals("ollama", composeModel.provider)
         assertEquals("llama3", composeModel.model)
@@ -78,8 +78,8 @@ class ModelResolverTest {
             llmModels = LlmModelOverrides(mapOf("compose" to ModelReference("ollama", "llama3")))
         )
 
-        val filterModel = resolver.resolve(podcastWithOverride, PipelineStage.FILTER)
-        val composeModel = resolver.resolve(podcastWithOverride, PipelineStage.COMPOSE)
+        val filterModel = resolver.resolve(RunConfig.resolve(appProperties, podcastWithOverride), PipelineStage.FILTER)
+        val composeModel = resolver.resolve(RunConfig.resolve(appProperties, podcastWithOverride), PipelineStage.COMPOSE)
 
         assertEquals("anthropic/claude-haiku-4.5", filterModel.model)
         assertEquals("llama3", composeModel.model)
@@ -96,7 +96,7 @@ class ModelResolverTest {
             )
         )
 
-        val result = resolver.resolve(podcastOnWithheldModel, PipelineStage.FILTER)
+        val result = resolver.resolve(RunConfig.resolve(appProperties, podcastOnWithheldModel), PipelineStage.FILTER)
 
         assertEquals("anthropic/claude-opus-5", result.model)
         assertEquals(5.00, result.cost?.inputCostPerMtok)
@@ -108,7 +108,7 @@ class ModelResolverTest {
             llmModels = LlmModelOverrides(mapOf("filter" to ModelReference("openrouter", "nonexistent")))
         )
 
-        val result = resolver.resolve(podcastWithBadOverride, PipelineStage.FILTER)
+        val result = resolver.resolve(RunConfig.resolve(appProperties, podcastWithBadOverride), PipelineStage.FILTER)
 
         assertEquals("openrouter", result.provider)
         assertEquals("nonexistent", result.model)

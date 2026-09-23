@@ -23,9 +23,14 @@ import java.time.LocalDate
  * is derived rather than passed in, so callers leave it null and the pipeline fills it in. It stays
  * null when the cron is unparseable or fires too infrequently to name a next day.
  *
- * [bypassLlmCache] is set by an evaluation run comparing repetitions of one prompt variant. The
- * LLM cache keys on model and prompt text and ignores temperature, so without it the second and
- * later repetitions replay the first one's script and the comparison measures nothing.
+ * [runConfig] is the configuration of the run composing (see [RunConfig]): the models, reasoning
+ * effort, provider preferences and target length the composers use. The pipeline fills it in for a
+ * caller that passes none, from the podcast's own configuration.
+ *
+ * [bypassLlmCache] comes from [runConfig] and is set by an evaluation run comparing repetitions of
+ * one prompt variant. The LLM cache keys on model and prompt text and ignores temperature, so
+ * without it the second and later repetitions replay the first one's script and the comparison
+ * measures nothing.
  *
  * [episodeId] is the episode being composed, used to attribute the recorded request telemetry. It
  * travels here rather than as a parameter on every composer because every compose path already
@@ -49,13 +54,15 @@ data class ComposeContext(
     val topicLabels: List<String> = emptyList(),
     val episodeDate: LocalDate = LocalDate.now(),
     val nextEpisodeDate: LocalDate? = null,
-    val bypassLlmCache: Boolean = false,
     val episodeId: Long? = null,
     val focus: String? = null,
     val extraInstruction: String? = null,
     val recentFocusEpisodes: List<RecentFocusEpisode> = emptyList(),
-    val research: PreComposeResearch = PreComposeResearch.NONE
-)
+    val research: PreComposeResearch = PreComposeResearch.NONE,
+    val runConfig: RunConfig? = null
+) {
+    val bypassLlmCache: Boolean get() = runConfig?.bypassLlmCache ?: false
+}
 
 /** A focus episode that aired since the previous regular episode, as the compose prompt names it. */
 data class RecentFocusEpisode(

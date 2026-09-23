@@ -169,7 +169,7 @@ class TopicDedupFilter(
                                 // by default, and those tokens are charged against maxTokens, which
                                 // consumed the whole budget and returned empty content. Measured at
                                 // 0 reasoning tokens with an explicit effort of "none".
-                                .withRoutingAndReasoning(modelDef.provider, OpenRouterRouting.NO_REASONING)
+                                .withRoutingAndReasoning(modelDef)
                         )
                         .call()
                         .chatResponse()

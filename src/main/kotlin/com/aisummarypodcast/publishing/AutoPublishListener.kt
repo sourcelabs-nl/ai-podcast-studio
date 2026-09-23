@@ -5,6 +5,7 @@ import com.aisummarypodcast.eval.EvaluationRunRecorder
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.podcast.PodcastService
+import com.aisummarypodcast.store.EpisodePurpose
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,7 +28,8 @@ import org.springframework.stereotype.Component
  * ship a thin episode is the user's call to make.
  *
  * An episode with a recorded evaluation run (its script came from a cache-bypassed compose that
- * samples a prompt variant) is never auto-published: it is an experiment, not a release.
+ * samples a prompt variant) is never auto-published: it is an experiment, not a release. Neither is
+ * an episode whose purpose is `EXPERIMENT`, whatever the target's `autoPublish` setting.
  */
 @Component
 class AutoPublishListener(
@@ -66,6 +68,10 @@ class AutoPublishListener(
             val episode = episodeService.findById(episodeId)
             if (episode == null) {
                 log.warn("Auto-publish skipped: episode {} not found for podcast {}", episodeId, podcastId)
+                return@launch
+            }
+            if (episode.purpose == EpisodePurpose.EXPERIMENT) {
+                log.info("Auto-publish skipped: episode {} is an experiment", episodeId)
                 return@launch
             }
 

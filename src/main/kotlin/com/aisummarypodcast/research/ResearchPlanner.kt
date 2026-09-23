@@ -3,7 +3,6 @@ package com.aisummarypodcast.research
 import com.aisummarypodcast.llm.ChatClientFactory
 import com.aisummarypodcast.llm.LlmCallAttribution
 import com.aisummarypodcast.llm.ModelResolver
-import com.aisummarypodcast.llm.OpenRouterRouting
 import com.aisummarypodcast.llm.PipelineStage
 import com.aisummarypodcast.llm.RESEARCH_PLAN_STAGE
 import com.aisummarypodcast.llm.withRoutingAndReasoning
@@ -55,7 +54,7 @@ class ResearchPlanner(
     }
 
     private fun requestPlan(request: ResearchRequest): List<String> {
-        val filterModel = modelResolver.resolve(request.podcast, PipelineStage.FILTER)
+        val filterModel = modelResolver.resolve(request.runConfig, PipelineStage.FILTER)
             .copy(telemetryStage = RESEARCH_PLAN_STAGE)
         val chatClient = chatClientFactory.createForModel(
             request.podcast.userId,
@@ -70,7 +69,7 @@ class ResearchPlanner(
                     .model(filterModel.model)
                     .temperature(0.3)
                     .maxTokens(PLAN_MAX_OUTPUT_TOKENS)
-                    .withRoutingAndReasoning(filterModel.provider, OpenRouterRouting.NO_REASONING)
+                    .withRoutingAndReasoning(filterModel)
             )
             .call()
             .entity(converter)

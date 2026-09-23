@@ -6,6 +6,7 @@ import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeArticleRepository
 import com.aisummarypodcast.store.EpisodePublicationRepository
 import com.aisummarypodcast.store.EpisodeRepository
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.FeedArticle
 import com.aisummarypodcast.store.Podcast
@@ -46,7 +47,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed title is podcast name only`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(podcast, user)
@@ -57,7 +58,7 @@ class FeedGeneratorTest {
     @Test
     fun `feed includes language element matching podcast language`() {
         val nlPodcast = podcast.copy(language = "nl")
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(nlPodcast, user)
@@ -66,7 +67,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed includes image element when publicUrl and image are present`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns Path.of("/data/p1/podcast-image.jpg")
 
         val xml = feedGenerator.generate(podcast, user, publicUrl = "https://podcast.example.com/shows/tech/")
@@ -75,7 +76,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed includes image with local url when no publicUrl`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns Path.of("/data/p1/podcast-image.jpg")
 
         val xml = feedGenerator.generate(podcast, user)
@@ -84,7 +85,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed omits image element when no image exists`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(podcast, user, publicUrl = "https://podcast.example.com/shows/tech/")
@@ -99,7 +100,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
             showNotes = "Today's recap summary."
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns emptyMap()
@@ -117,7 +118,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
             showNotes = "Recap summary."
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns emptyMap()
@@ -129,7 +130,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed excludes pending review episodes`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(podcast, user)
@@ -138,7 +139,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed includes itunes type and explicit at channel level`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(podcast, user)
@@ -148,7 +149,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed includes itunes category`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(podcast, user)
@@ -158,7 +159,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed includes itunes image when podcast image exists`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns Path.of("/data/p1/podcast-image.jpg")
 
         val xml = feedGenerator.generate(podcast, user)
@@ -168,7 +169,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed includes atom self link`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(podcast, user)
@@ -179,7 +180,7 @@ class FeedGeneratorTest {
 
     @Test
     fun `feed includes lastBuildDate`() {
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
 
         val xml = feedGenerator.generate(podcast, user)
@@ -193,7 +194,7 @@ class FeedGeneratorTest {
             scriptText = "Script", status = EpisodeStatus.GENERATED,
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 3661
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns emptyMap()
@@ -210,7 +211,7 @@ class FeedGeneratorTest {
             scriptText = "Script", status = EpisodeStatus.GENERATED,
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns emptyMap()
@@ -228,7 +229,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
             showNotes = "Great episode about AI."
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns mapOf(
@@ -255,7 +256,7 @@ class FeedGeneratorTest {
         )
         val focus = regular.copy(id = 2L, generatedAt = "2025-01-01T20:00:00Z", focus = "Claude Opus 5.5 release",
             audioFilePath = "/data/p1/episodes/briefing-20250101-200000.mp3")
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(focus, regular)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(focus, regular)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(regular) } returns "briefing-20250101-100000"
         every { episodeSourcesGenerator.deriveSlug(focus) } returns "briefing-20250101-200000"
@@ -274,7 +275,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
             showNotes = "AI news roundup."
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns mapOf(
@@ -308,7 +309,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
             showNotes = "Legacy episode."
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns mapOf(
@@ -334,7 +335,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
             showNotes = "Topic extraction failed for this episode."
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         // topicOrder is set but every label is an empty string (the broken-data case from 2026-06-04)
@@ -359,7 +360,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120,
             showNotes = "AI news roundup."
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns mapOf(
@@ -386,7 +387,7 @@ class FeedGeneratorTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120
             // no showNotes, no recap -> falls back to the script
         )
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
         every { episodeArticleRepository.findArticlesByEpisodeIds(listOf(1L)) } returns emptyMap()

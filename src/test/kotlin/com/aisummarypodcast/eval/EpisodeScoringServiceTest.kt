@@ -4,6 +4,7 @@ import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.EvalProperties
 import com.aisummarypodcast.config.JudgeMode
 import com.aisummarypodcast.config.JudgeProperties
+import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineStage
 import com.aisummarypodcast.llm.ResolvedModel
@@ -49,6 +50,9 @@ class EpisodeScoringServiceTest {
 
     private fun serviceWith(mode: JudgeMode, norm: Double? = null): EpisodeScoringService {
         every { appProperties.eval } returns EvalProperties(JudgeProperties(mode, norm))
+        every { appProperties.llm } returns LlmProperties()
+        every { appProperties.briefing } returns com.aisummarypodcast.config.BriefingProperties()
+        every { appProperties.compose } returns com.aisummarypodcast.config.ComposeProperties()
         return EpisodeScoringService(
             scriptJudge, episodeRepository, podcastRepository, repository,
             modelResolver, JsonMapper.builder().build(), appProperties
@@ -58,7 +62,7 @@ class EpisodeScoringServiceTest {
     private fun stubJudgeReturning(anchors: ScriptJudgeAnchors) {
         every { podcastRepository.findById("podcast-1") } returns java.util.Optional.of(podcast)
         every { repository.findByEpisodeIdAndScorerVersion(7L, any()) } returns null
-        every { modelResolver.resolve(podcast, PipelineStage.EVAL) } returns
+        every { modelResolver.resolve(any(), PipelineStage.EVAL) } returns
             ResolvedModel("openrouter", "judge-model", null, PipelineStage.EVAL)
         coEvery { scriptJudge.judge(any(), "user-1", any(), 7L) } returns
             ScriptJudgement(anchors, TokenUsage(100, 20), 1)

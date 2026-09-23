@@ -1,10 +1,15 @@
 package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.llm.PreviewResult
+import com.aisummarypodcast.llm.RunOverrides
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.Podcast
 
-/** Why a pipeline run happens. It decides the progress reporting and the failure handling of the run. */
+/**
+ * Why a pipeline run happens. It decides the progress reporting and the failure handling of the run,
+ * and is recorded on the episode as its [EpisodePurpose]; a preview writes no episode.
+ */
 enum class RunPurpose {
     SCHEDULED,
     MANUAL,
@@ -13,7 +18,10 @@ enum class RunPurpose {
     RERUN,
     REGENERATE,
     RECOMPOSE,
-    PREVIEW
+    EXPERIMENT,
+    PREVIEW;
+
+    fun episodePurpose(): EpisodePurpose? = if (this == PREVIEW) null else EpisodePurpose.valueOf(name)
 }
 
 /** What a run selects its articles from. */
@@ -54,12 +62,20 @@ sealed interface RunOutcome {
     data class Transient(
         val onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ) : RunOutcome
+
+    /**
+     * An experiment's result: the script is stored on the episode and the epilogue runs, but no
+     * audio is generated, the episode is never published, its articles are not consumed and the
+     * podcast's schedule does not move. Only an [RunInput.ArticleSet] run has this outcome.
+     */
+    data object Sandbox : RunOutcome
 }
 
 /**
  * One pipeline run. [episode] is the episode the run writes to, and is null only for a
- * [RunOutcome.Transient] run. [bypassLlmCache] makes the run an evaluation run (see
- * [ComposeContext.bypassLlmCache]).
+ * [RunOutcome.Transient] run. [overrides] change the configuration the run gets from the app
+ * defaults and the podcast (see `RunConfig`); a run with `bypassLlmCache` set is an evaluation run
+ * (see [ComposeContext.bypassLlmCache]).
  */
 data class RunSpec(
     val podcast: Podcast,
@@ -68,10 +84,12 @@ data class RunSpec(
     val input: RunInput,
     val resumePoint: ResumePoint,
     val outcome: RunOutcome,
-    val bypassLlmCache: Boolean = false
+    val overrides: RunOverrides? = null
 ) {
     init {
         require(episode != null || outcome is RunOutcome.Transient) { "Only a transient run has no episode" }
+        require(outcome !is RunOutcome.Sandbox || input is RunInput.ArticleSet) { "Only an article-set run is sandboxed" }
+        require((purpose == RunPurpose.PREVIEW) == (outcome is RunOutcome.Transient)) { "A preview run, and only a preview run, is transient" }
     }
 }
 

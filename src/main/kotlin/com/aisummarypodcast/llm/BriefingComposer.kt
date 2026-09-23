@@ -37,7 +37,7 @@ class BriefingComposer(
     )
 
     suspend fun compose(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): CompositionResult {
-        val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
+        val composeModelDef = modelResolver.resolve(context.runConfigFor(podcast, appProperties), PipelineStage.COMPOSE)
         return compose(articles, podcast, composeModelDef, context)
     }
 
@@ -84,7 +84,7 @@ class BriefingComposer(
     }
 
     internal fun buildPrompt(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): String {
-        val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
+        val targetWords = context.runConfigFor(podcast, appProperties).targetWords
         val stylePrompt = stylePrompts[podcast.style] ?: stylePrompts[PodcastStyle.NEWS_BRIEFING]!!
 
         val useFullBody = shouldUseFullBody(articles.size, podcast, appProperties.briefing.fullBodyThreshold)

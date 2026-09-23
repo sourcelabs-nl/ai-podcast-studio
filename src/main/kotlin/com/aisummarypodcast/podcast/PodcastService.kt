@@ -6,6 +6,8 @@ import com.aisummarypodcast.llm.LlmCallCost
 import com.aisummarypodcast.llm.LlmPipeline
 import com.aisummarypodcast.llm.ModelResolver
 import com.aisummarypodcast.llm.PipelineStage
+import com.aisummarypodcast.llm.RunConfig
+import com.aisummarypodcast.llm.RunOverrides
 import com.aisummarypodcast.llm.PreviewResult
 import com.aisummarypodcast.source.SourceAggregator
 import com.aisummarypodcast.store.*
@@ -378,7 +380,7 @@ class PodcastService(
                 podcast, generatingEpisode, RunPurpose.REGENERATE, RunInput.ArticleSet(linked, window),
                 ResumePoint.COMPOSE,
                 RunOutcome.Deliver(updateLastGenerated = false, generatedAt = sourceEpisode.generatedAt),
-                bypassLlmCache = bypassLlmCache
+                overrides = if (bypassLlmCache) RunOverrides(bypassLlmCache = true) else null
             )
         )
         return generatingEpisode
@@ -444,7 +446,7 @@ class PodcastService(
      * from their tokens. No article is scored to answer this; the figures are already on them.
      */
     private fun scoringSpend(podcast: Podcast, articles: List<Article>): ScoringSpend {
-        val filterModel = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        val filterModel = modelResolver.resolve(RunConfig.resolve(appProperties, podcast), PipelineStage.FILTER)
         val cost = CostEstimator.aggregateStageCost(
             articles.map { LlmCallCost(it.llmInputTokens ?: 0, it.llmOutputTokens ?: 0, it.llmReportedCostUsd) },
             filterModel.cost

@@ -65,17 +65,27 @@ object OpenRouterRouting {
      * the client cannot read it regardless: reasoning comes back in `message.reasoning`, which
      * `openai-java`'s `ChatCompletionMessage` has no field for. Leaving it out of the response also
      * means it cannot be mistaken for the script.
+     *
+     * [preferences] adds OpenRouter's `provider.sort` (`price`, `throughput` or `latency`) and
+     * `provider.preferred_min_throughput` (tokens per second) when a run sets them.
      */
-    fun extraBodyFor(provider: String, reasoningEffort: String?): Map<String, Any> {
+    fun extraBodyFor(
+        provider: String,
+        reasoningEffort: String?,
+        preferences: ProviderPreferences = ProviderPreferences.DEFAULT
+    ): Map<String, Any> {
         if (provider != PROVIDER) return emptyMap()
-        val body = mutableMapOf<String, Any>(
-            "provider" to mapOf(
-                "quantizations" to ACCEPTED_QUANTIZATIONS,
-                // Skip an endpoint that cannot honour what the request actually sends rather than
-                // letting it silently ignore maxTokens or the reasoning budget.
-                "require_parameters" to true,
-            )
+        val routing = mutableMapOf<String, Any>(
+            "quantizations" to ACCEPTED_QUANTIZATIONS,
+            // Skip an endpoint that cannot honour what the request actually sends rather than
+            // letting it silently ignore maxTokens or the reasoning budget.
+            "require_parameters" to true,
         )
+        // Sorting and the throughput preference choose among the endpoints that clear the floor;
+        // they never widen it. Both are sent only when a run sets them.
+        preferences.sort?.let { routing["sort"] = it }
+        preferences.preferredMinThroughput?.let { routing["preferred_min_throughput"] = it }
+        val body = mutableMapOf<String, Any>("provider" to routing)
         if (reasoningEffort != null) {
             body["reasoning"] = mapOf(
                 "effort" to reasoningEffort,
@@ -93,10 +103,15 @@ object OpenRouterRouting {
  */
 fun OpenAiChatOptions.Builder.withRoutingAndReasoning(
     provider: String,
-    reasoningEffort: String?
+    reasoningEffort: String?,
+    preferences: ProviderPreferences = ProviderPreferences.DEFAULT
 ): OpenAiChatOptions.Builder {
     if (provider != OpenRouterRouting.PROVIDER) {
         return if (reasoningEffort != null) reasoningEffort(reasoningEffort) else this
     }
-    return extraBody(OpenRouterRouting.extraBodyFor(provider, reasoningEffort))
+    return extraBody(OpenRouterRouting.extraBodyFor(provider, reasoningEffort, preferences))
 }
+
+/** Routing and reasoning as the run resolved them for [model]'s stage. */
+fun OpenAiChatOptions.Builder.withRoutingAndReasoning(model: ResolvedModel): OpenAiChatOptions.Builder =
+    withRoutingAndReasoning(model.provider, model.reasoningEffort, model.providerPreferences)

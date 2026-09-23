@@ -115,6 +115,22 @@ class AutoPublishListenerTest {
     }
 
     @Test
+    fun `an experiment episode is never auto-published, whatever the target setting`() {
+        every { targetService.list("pod1") } returns listOf(
+            PodcastPublicationTarget(podcastId = "pod1", target = "ftp", enabled = true, autoPublish = true)
+        )
+        every { podcastService.findById("pod1") } returns podcast
+        every { episodeService.findById(1L) } returns episode.copy(purpose = com.aisummarypodcast.store.EpisodePurpose.EXPERIMENT)
+        every { episodeService.countArticles(1L) } returns 12
+
+        listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
+
+        verify(timeout = 2000) { episodeService.findById(1L) }
+        Thread.sleep(200)
+        coVerify(exactly = 0) { publishingService.publish(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `an episode with a recorded evaluation run is not published to any target`() {
         every { targetService.list("pod1") } returns listOf(
             PodcastPublicationTarget(podcastId = "pod1", target = "ftp", enabled = true, autoPublish = true)

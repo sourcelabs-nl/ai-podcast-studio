@@ -9,6 +9,7 @@ import com.aisummarypodcast.store.EpisodePublication
 import com.aisummarypodcast.store.EpisodePublicationRepository
 import com.aisummarypodcast.store.EpisodeArticleRepository
 import com.aisummarypodcast.store.EpisodeRepository
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastPublicationTarget
@@ -63,7 +64,7 @@ class StaticFeedExporterTest {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech")
         val user = User(id = "u1", name = "Test User")
         every { userRepository.findById("u1") } returns Optional.of(user)
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
         every { targetService.get("p1", "ftp") } returns null
 
@@ -87,7 +88,7 @@ class StaticFeedExporterTest {
             audioFilePath = "/data/p1/episodes/briefing-20250101-000000.mp3", durationSeconds = 120
         )
         every { userRepository.findById("u1") } returns Optional.of(user)
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { podcastImageService.get("p1") } returns null
         every { targetService.get("p1", "ftp") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
@@ -119,7 +120,7 @@ class StaticFeedExporterTest {
             createdAt = "2025-01-01T00:00:00Z"
         )
         every { userRepository.findById("u1") } returns Optional.of(user)
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns listOf(episode)
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns listOf(episode)
         every { publicationRepository.findPublishedByPodcastIdAndTarget("p1", "ftp") } returns listOf(publication)
         every { podcastImageService.get("p1") } returns null
         every { episodeSourcesGenerator.deriveSlug(episode) } returns "briefing-20250101-000000"
@@ -143,7 +144,7 @@ class StaticFeedExporterTest {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Tech", topic = "tech")
         val user = User(id = "u1", name = "Test User")
         every { userRepository.findById("u1") } returns Optional.of(user)
-        every { episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc("p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT) } returns emptyList()
         every { podcastImageService.get("p1") } returns null
         every { targetService.get("p1", "ftp") } returns PodcastPublicationTarget(
             id = 1, podcastId = "p1", target = "ftp",

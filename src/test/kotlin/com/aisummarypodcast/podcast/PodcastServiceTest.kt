@@ -40,6 +40,8 @@ import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.llm.PipelineStage
 import com.aisummarypodcast.llm.ResolvedModel
+import com.aisummarypodcast.llm.RunConfig
+import tools.jackson.databind.json.JsonMapper
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -76,13 +78,18 @@ class PodcastServiceTest {
         podcastRepository, sourceRepository, articleRepository, postRepository,
         postArticleRepository, episodeArticleRepository, episodeRepository, appProperties, llmPipeline, episodeService,
         eventPublisher, sourceAggregator, episodeWindowResolver, modelResolver,
-        PipelineRunner(llmPipeline, episodeService, episodeWindowResolver, eventPublisher)
+        PipelineRunner(llmPipeline, episodeService, episodeWindowResolver, eventPublisher, appProperties, JsonMapper.builder().build())
     )
 
     private val podcast = Podcast(
         id = "p1", userId = "u1", name = "Test", topic = "tech",
         lastGeneratedAt = "2026-03-01T00:00:00Z"
     )
+    private val config = RunConfig.resolve(appProperties, podcast)
+
+    init {
+        every { episodeService.recordRun(any(), any(), any()) } returns Unit
+    }
 
     private val source = Source(
         id = "s1", podcastId = "p1", type = SourceType.RSS,
@@ -128,7 +135,7 @@ class PodcastServiceTest {
             cost = ModelCost(type = ModelType.LLM, inputCostPerMtok = 0.15, outputCostPerMtok = 0.60),
             stage = PipelineStage.FILTER
         )
-        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModel
+        every { modelResolver.resolve(any(), PipelineStage.FILTER) } returns filterModel
         every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
         every { articleRepository.findUnprocessedSince(listOf("s1"), any()) } returns listOf(
             scoredArticle(1, input = 1000, output = 100, reportedUsd = 0.001),
@@ -151,7 +158,7 @@ class PodcastServiceTest {
 
     @Test
     fun `getUpcomingContent reports no scoring spend when nothing is standing`() {
-        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns ResolvedModel(
+        every { modelResolver.resolve(any(), PipelineStage.FILTER) } returns ResolvedModel(
             provider = "openrouter", model = "deepseek/deepseek-v4.1-flash", cost = null,
             stage = PipelineStage.FILTER
         )
@@ -276,7 +283,7 @@ class PodcastServiceTest {
         // The re-run must not satisfy today's cron slot, hence updateLastGenerated = false.
         every { episodeService.createGeneratingEpisode(podcast, window, false) } returns rerun
         every { episodeService.updatePipelineStage(any(), any()) } returns Unit
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 206L, any()) } returns null
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, config, window, 206L, any()) } returns null
         every { episodeService.deleteGeneratingEpisode(any()) } returns Unit
 
         val result = podcastService.rerunEpisodeAsync(discarded, podcast)
@@ -320,12 +327,12 @@ class PodcastServiceTest {
         every { episodeService.resetForRetry(failed) } returns failed
         every { episodeService.updatePipelineStage(any(), any()) } returns Unit
         every { episodeService.failEpisode(any(), any(), any()) } returns failed
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 191L, any()) } returns null
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, config, window, 191L, any()) } returns null
 
         podcastService.retryEpisode(failed, podcast)
 
         // The retry runs in the background, so the call is awaited rather than asserted inline.
-        coVerify(timeout = 2_000) { llmPipeline.aggregateScoreAndFilter(podcast, window, 191L, any()) }
+        coVerify(timeout = 2_000) { llmPipeline.aggregateScoreAndFilter(podcast, config, window, 191L, any()) }
     }
 
     @Test
@@ -388,12 +395,13 @@ class PodcastServiceTest {
 
         podcastService.regenerateEpisodeAsync(sourceEpisode, podcast, bypassLlmCache = true)
 
+        val bypassConfig = RunConfig.resolve(appProperties, podcast, com.aisummarypodcast.llm.RunOverrides(bypassLlmCache = true))
         coVerify(timeout = 5000) {
             llmPipeline.recompose(
                 listOf(article), podcast,
                 ComposeContext(
-                    topicLabels = listOf("Topic"), episodeDate = episodeDate, bypassLlmCache = true,
-                    episodeId = 192L
+                    topicLabels = listOf("Topic"), episodeDate = episodeDate,
+                    episodeId = 192L, runConfig = bypassConfig
                 ),
                 any()
             )
@@ -426,7 +434,7 @@ class PodcastServiceTest {
         coVerify(timeout = 5000) {
             llmPipeline.recompose(
                 listOf(article), podcast,
-                ComposeContext(followUpAnnotations = annotations, topicLabels = listOf("Topic"), episodeDate = episodeDate, episodeId = 192L),
+                ComposeContext(followUpAnnotations = annotations, topicLabels = listOf("Topic"), episodeDate = episodeDate, episodeId = 192L, runConfig = config),
                 any()
             )
         }
@@ -493,7 +501,7 @@ class PodcastServiceTest {
         every { episodeService.markRecomposing(focusEpisode) } returns focusEpisode.copy(pipelineStage = "composing")
         every { episodeService.updatePipelineStage(any(), any()) } returns Unit
         every { episodeService.findLinkedArticlesAndTopics(30L) } returns LinkedArticlesResult(listOf(linkedArticle), emptyList(), emptyMap(), emptyMap())
-        coEvery { llmPipeline.scoreForFocus(podcast, listOf(linkedArticle), "Claude Opus 5.5 release", 30L, any()) } returns selection
+        coEvery { llmPipeline.scoreForFocus(podcast, any(), listOf(linkedArticle), "Claude Opus 5.5 release", 30L, any()) } returns selection
         coEvery { llmPipeline.compose(selection.articles, podcast, any(), any()) } returns composeResult
         every { episodeService.saveFeedbackRecompose(any(), composeResult, "shorter") } answers {
             firstArg<Episode>().copy(scriptText = "new", reviewFeedback = "shorter", pipelineStage = null)

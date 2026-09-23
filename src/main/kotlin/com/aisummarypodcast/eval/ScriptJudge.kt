@@ -3,7 +3,6 @@ package com.aisummarypodcast.eval
 import com.aisummarypodcast.llm.LlmCallAttribution
 import com.aisummarypodcast.llm.ChatClientFactory
 import com.aisummarypodcast.llm.CostEstimator
-import com.aisummarypodcast.llm.OpenRouterRouting
 import com.aisummarypodcast.llm.ResolvedModel
 import com.aisummarypodcast.llm.TokenUsage
 import com.aisummarypodcast.llm.withRoutingAndReasoning
@@ -63,7 +62,7 @@ class ScriptJudge(
                         .temperature(0.3)
                         // Locating turns is recall, not deliberation, and reasoning tokens bill as
                         // output on every one of the archive's scripts.
-                        .withRoutingAndReasoning(evalModel.provider, OpenRouterRouting.NO_REASONING)
+                        .withRoutingAndReasoning(evalModel)
                 )
                 .call()
                 .responseEntity(converter)

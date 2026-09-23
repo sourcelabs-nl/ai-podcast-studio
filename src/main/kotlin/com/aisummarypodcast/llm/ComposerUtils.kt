@@ -644,7 +644,8 @@ fun extractDomainAndPath(url: String): String =
  * The reasoning effort is stated rather than left to the provider. Composition is the one stage
  * where reasoning earns its cost — it plans a long script — but OpenRouter infers an omitted
  * setting from the routed provider's defaults, and that produced compose output between 6,048 and
- * 72,821 tokens for scripts of comparable length. See [resolveReasoningEffort].
+ * 72,821 tokens for scripts of comparable length. The effort is the run's (see [RunConfig]), which
+ * [ResolvedModel.reasoningEffort] carries, and defaults to [resolveReasoningEffort].
  *
  * The routing floor keeps the request off lossy endpoints; see [OpenRouterRouting].
  */
@@ -657,5 +658,9 @@ fun buildComposeOptions(
         .model(model.model)
         .temperature(resolveTemperature(podcast, appProperties))
         .maxTokens(appProperties.compose.maxOutputTokens)
-        .withRoutingAndReasoning(model.provider, resolveReasoningEffort(podcast, appProperties))
+        .withRoutingAndReasoning(model)
 }
+
+/** The run's configuration, or the podcast's own when the composer is called outside a run. */
+internal fun ComposeContext.runConfigFor(podcast: Podcast, appProperties: AppProperties): RunConfig =
+    runConfig ?: RunConfig.resolve(appProperties, podcast)

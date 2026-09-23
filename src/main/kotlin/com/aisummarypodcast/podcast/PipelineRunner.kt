@@ -1,14 +1,17 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.llm.ComposeContext
 import com.aisummarypodcast.llm.FilteredArticle
 import com.aisummarypodcast.llm.LlmPipeline
+import com.aisummarypodcast.llm.RunConfig
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.Podcast
 import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
+import tools.jackson.databind.json.JsonMapper
 
 private typealias ProgressCallback = (stage: String, detail: Map<String, Any>) -> Unit
 
@@ -16,6 +19,10 @@ private typealias ProgressCallback = (stage: String, detail: Map<String, Any>) -
  * The only way the pipeline is run. A route describes its run as a [RunSpec]; the runner sequences
  * the stages [LlmPipeline] implements for that spec's input and resume point, then applies the
  * outcome, which is also where the shared epilogue (judge, recap, show notes, sources) runs.
+ *
+ * The run's [RunConfig] is resolved once, from the app defaults, the podcast and the spec's
+ * overrides, and passed to every stage. A run that writes to an episode records its purpose and
+ * that configuration on the episode before the first stage.
  *
  * A run that writes to an episode never throws, except for cancellation: a failure is handled per
  * purpose and returned as [RunResult.Failed]. A [RunOutcome.Transient] run lets its failure
@@ -26,18 +33,22 @@ class PipelineRunner(
     private val llmPipeline: LlmPipeline,
     private val episodeService: EpisodeService,
     private val episodeWindowResolver: EpisodeWindowResolver,
-    private val eventPublisher: ApplicationEventPublisher
+    private val eventPublisher: ApplicationEventPublisher,
+    private val appProperties: AppProperties,
+    private val jsonMapper: JsonMapper
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
     suspend fun run(spec: RunSpec): RunResult {
+        val config = RunConfig.resolve(appProperties, spec.podcast, spec.overrides)
         val outcome = spec.outcome
-        if (outcome is RunOutcome.Transient) return preview(spec, outcome)
+        if (outcome is RunOutcome.Transient) return preview(spec, config, outcome)
 
         val episode = spec.episode!!
         return try {
-            execute(spec, episode)
+            episodeService.recordRun(episode.id!!, spec.purpose.episodePurpose()!!, jsonMapper.writeValueAsString(config))
+            execute(spec, config, episode)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -45,24 +56,24 @@ class PipelineRunner(
         }
     }
 
-    private suspend fun preview(spec: RunSpec, outcome: RunOutcome.Transient): RunResult {
+    private suspend fun preview(spec: RunSpec, config: RunConfig, outcome: RunOutcome.Transient): RunResult {
         val input = spec.input as? RunInput.Window
             ?: throw IllegalArgumentException("A transient run selects from a window, not ${spec.input}")
-        return RunResult.Previewed(llmPipeline.preview(spec.podcast, input.window, outcome.onProgress))
+        return RunResult.Previewed(llmPipeline.preview(spec.podcast, config, input.window, outcome.onProgress))
     }
 
-    private suspend fun execute(spec: RunSpec, episode: Episode): RunResult {
+    private suspend fun execute(spec: RunSpec, config: RunConfig, episode: Episode): RunResult {
         val onProgress = progressReporter(spec, episode.id!!)
         if (spec.resumePoint == ResumePoint.POST_COMPOSE) {
             val topicLabels = episodeService.findLinkedArticlesAndTopics(episode.id).topicLabels
             return RunResult.Completed(episodeService.finalizeEpisode(episode, spec.podcast, topicLabels))
         }
         return when (val input = spec.input) {
-            is RunInput.Focus -> composeFocus(spec, episode, input, onProgress)
-            is RunInput.ArticleSet -> recomposeArticleSet(spec, episode, input, onProgress)
+            is RunInput.Focus -> composeFocus(spec, config, episode, input, onProgress)
+            is RunInput.ArticleSet -> recomposeArticleSet(spec, config, episode, input, onProgress)
             is RunInput.Window ->
-                if (spec.resumePoint == ResumePoint.FULL_PIPELINE) selectAndCompose(spec, episode, input.window, onProgress)
-                else composeLinked(spec, episode, input.window, onProgress)
+                if (spec.resumePoint == ResumePoint.FULL_PIPELINE) selectAndCompose(spec, config, episode, input.window, onProgress)
+                else composeLinked(spec, config, episode, input.window, onProgress)
         }
     }
 
@@ -73,15 +84,16 @@ class PipelineRunner(
      */
     private suspend fun selectAndCompose(
         spec: RunSpec,
+        config: RunConfig,
         episode: Episode,
         window: EpisodeWindow,
         onProgress: ProgressCallback
     ): RunResult {
         val podcast = spec.podcast
         val isRetry = spec.purpose == RunPurpose.RETRY
-        val eligible = llmPipeline.aggregateScoreAndFilter(podcast, window, episode.id, onProgress)
+        val eligible = llmPipeline.aggregateScoreAndFilter(podcast, config, window, episode.id, onProgress)
             ?: return nothingSelected(spec, episode, "No eligible articles for retry in window $window")
-        val dedupResult = llmPipeline.dedup(eligible, podcast, episode.id, onProgress)
+        val dedupResult = llmPipeline.dedup(eligible, podcast, config, episode.id, onProgress)
             ?: return nothingSelected(spec, episode, "All articles filtered as duplicates during retry")
 
         episodeService.saveDedupResults(episode, dedupResult)
@@ -94,7 +106,8 @@ class PipelineRunner(
                 topicLabels = dedupResult.topicLabels,
                 episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
                 episodeId = episode.id,
-                recentFocusEpisodes = if (isRetry) emptyList() else episodeService.findRecentFocusEpisodes(podcast.id)
+                recentFocusEpisodes = if (isRetry) emptyList() else episodeService.findRecentFocusEpisodes(podcast.id),
+                runConfig = config
             ),
             onProgress
         )
@@ -123,6 +136,7 @@ class PipelineRunner(
     /** A retry resuming at compose: the episode's own linked articles, composed with their dedup topics. */
     private suspend fun composeLinked(
         spec: RunSpec,
+        config: RunConfig,
         episode: Episode,
         window: EpisodeWindow,
         onProgress: ProgressCallback
@@ -134,7 +148,8 @@ class PipelineRunner(
             ComposeContext(
                 topicLabels = topicLabels,
                 episodeDate = episodeWindowResolver.episodeDateOf(podcast, window),
-                episodeId = episode.id
+                episodeId = episode.id,
+                runConfig = config
             ),
             onProgress
         )
@@ -151,6 +166,7 @@ class PipelineRunner(
      */
     private suspend fun composeFocus(
         spec: RunSpec,
+        config: RunConfig,
         episode: Episode,
         input: RunInput.Focus,
         onProgress: ProgressCallback
@@ -158,11 +174,11 @@ class PipelineRunner(
         val podcast = spec.podcast
         val episodeId = episode.id!!
         val selection = if (spec.resumePoint == ResumePoint.FULL_PIPELINE) {
-            llmPipeline.selectForFocus(podcast, input.window, input.text, episodeId, onProgress)
+            llmPipeline.selectForFocus(podcast, config, input.window, input.text, episodeId, onProgress)
                 .also { episodeService.saveFocusSelection(episode, it) }
         } else {
             llmPipeline.scoreForFocus(
-                podcast, episodeService.findLinkedArticlesAndTopics(episodeId).articles, input.text, episodeId, onProgress
+                podcast, config, episodeService.findLinkedArticlesAndTopics(episodeId).articles, input.text, episodeId, onProgress
             )
         }
         val outcome = spec.outcome
@@ -172,7 +188,8 @@ class PipelineRunner(
                 episodeDate = episodeWindowResolver.episodeDateOf(podcast, input.window),
                 episodeId = episodeId,
                 focus = input.text,
-                extraInstruction = (outcome as? RunOutcome.Review)?.feedback
+                extraInstruction = (outcome as? RunOutcome.Review)?.feedback,
+                runConfig = config
             ),
             onProgress
         )
@@ -193,32 +210,38 @@ class PipelineRunner(
     }
 
     /**
-     * A regeneration: the source episode's articles recomposed with their stored topics and
-     * follow-up annotations (no dedup runs, so these are the only continuity signal), delivered as
-     * a new episode.
+     * A regeneration or an experiment: the source episode's articles recomposed with their stored
+     * topics and follow-up annotations (no dedup runs, so these are the only continuity signal),
+     * delivered as a new episode, or kept in the sandbox.
      */
     private suspend fun recomposeArticleSet(
         spec: RunSpec,
+        config: RunConfig,
         episode: Episode,
         input: RunInput.ArticleSet,
         onProgress: ProgressCallback
     ): RunResult {
         val podcast = spec.podcast
-        val outcome = spec.outcome as? RunOutcome.Deliver
-            ?: throw IllegalArgumentException("A recomposed article set is delivered, not ${spec.outcome}")
         val (articles, topicLabels, articleTopics, followUpAnnotations) = input.linked
         val context = ComposeContext(
             followUpAnnotations = followUpAnnotations,
             topicLabels = topicLabels,
             episodeDate = episodeWindowResolver.episodeDateOf(podcast, input.window),
-            bypassLlmCache = spec.bypassLlmCache,
-            episodeId = episode.id
+            episodeId = episode.id,
+            runConfig = config
         )
-        val result = llmPipeline.recompose(articles, podcast, context, onProgress)
+        val result = llmPipeline.recompose(articles, podcast, context, onProgress).copy(articleTopics = articleTopics)
+        val outcome = spec.outcome
+        if (outcome is RunOutcome.Sandbox) {
+            return RunResult.Completed(episodeService.finalizeSandboxEpisode(podcast, result, episode))
+        }
+        if (outcome !is RunOutcome.Deliver) {
+            throw IllegalArgumentException("A recomposed article set is delivered or sandboxed, not $outcome")
+        }
         return RunResult.Completed(
             episodeService.createEpisodeFromPipelineResult(
                 podcast,
-                result.copy(articleTopics = articleTopics),
+                result,
                 generatingEpisode = episode,
                 overrideGeneratedAt = outcome.generatedAt,
                 updateLastGenerated = outcome.updateLastGenerated

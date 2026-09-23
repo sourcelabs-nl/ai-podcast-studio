@@ -44,7 +44,7 @@ class EpisodeRecapGenerator(
                         OpenAiChatOptions.builder()
                             .model(filterModelDef.model)
                             // A short paragraph; reasoning would be cost without benefit.
-                            .withRoutingAndReasoning(filterModelDef.provider, OpenRouterRouting.NO_REASONING)
+                            .withRoutingAndReasoning(filterModelDef)
                     )
                     .call()
                     .chatResponse()

@@ -140,6 +140,7 @@ class LlmPipeline(
      */
     suspend fun aggregateScoreAndFilter(
         podcast: Podcast,
+        runConfig: RunConfig,
         window: EpisodeWindow,
         episodeId: Long? = null,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
@@ -151,8 +152,8 @@ class LlmPipeline(
             return null
         }
 
-        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
-        val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
+        val filterModelDef = modelResolver.resolve(runConfig, PipelineStage.FILTER)
+        val composeModelDef = modelResolver.resolve(runConfig, PipelineStage.COMPOSE)
         val threshold = podcast.relevanceThreshold
         val sourceLabels = sources.associate { it.id to extractDomainAndPath(it.url) }
 
@@ -162,9 +163,8 @@ class LlmPipeline(
         // Cost gate: estimate cost before any LLM calls
         val allUnscored = articleRepository.findUnscoredBySourceIds(sourceIds)
         if (allUnscored.isNotEmpty()) {
-            val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
             val baseEstimate = CostEstimator.estimatePipelineCostCents(
-                allUnscored, filterModelDef, composeModelDef, targetWords
+                allUnscored, filterModelDef, composeModelDef, runConfig.targetWords
             )
             val researchBuffer = if (podcast.deepDiveEnabled) appProperties.research.costBufferCents else 0
             val estimatedCostCents = baseEstimate?.let { it + researchBuffer }
@@ -233,6 +233,7 @@ class LlmPipeline(
      */
     suspend fun selectForFocus(
         podcast: Podcast,
+        runConfig: RunConfig,
         window: EpisodeWindow,
         focus: String,
         episodeId: Long? = null,
@@ -246,7 +247,7 @@ class LlmPipeline(
         val candidates = articleEligibilityService.findEligibleArticlesForFocus(sourceIds, podcast, window)
         if (candidates.isEmpty()) throw NoFocusRelevantArticlesException(focus)
 
-        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        val filterModelDef = modelResolver.resolve(runConfig, PipelineStage.FILTER)
         val estimatedCostCents = CostEstimator.estimateScoringCostCents(candidates, filterModelDef)
         val costThreshold = podcast.maxLlmCostCents ?: appProperties.llm.maxCostCents
         if (estimatedCostCents != null && estimatedCostCents > costThreshold) {
@@ -256,7 +257,7 @@ class LlmPipeline(
             )
         }
 
-        val scored = scoreForFocus(podcast, candidates, focus, episodeId, onProgress)
+        val scored = scoreForFocus(podcast, runConfig, candidates, focus, episodeId, onProgress)
         val relevant = scored.articles.filter { (it.article.relevanceScore ?: 0) >= podcast.relevanceThreshold }
         log.info("[LLM] Focus \"{}\" for podcast '{}' ({}): {} of {} candidates relevant",
             focus, podcast.name, podcast.id, relevant.size, candidates.size)
@@ -273,13 +274,14 @@ class LlmPipeline(
      */
     suspend fun scoreForFocus(
         podcast: Podcast,
+        runConfig: RunConfig,
         articles: List<Article>,
         focus: String,
         episodeId: Long? = null,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): FocusSelection {
         val sources = sourceRepository.findByPodcastId(podcast.id)
-        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        val filterModelDef = modelResolver.resolve(runConfig, PipelineStage.FILTER)
         onProgress("scoring", mapOf("articleCount" to articles.size))
         val scored = articleScoreSummarizer.scoreForFocus(
             articles, focus, podcast, filterModelDef,
@@ -333,8 +335,8 @@ class LlmPipeline(
         val unscored = articleRepository.findUnscoredBySourceIds(readyIds)
         if (unscored.isEmpty()) return
 
-        // Step 3: cost gate (scoring-only estimate)
-        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        // Step 3: cost gate (scoring-only estimate). Not a run, so the podcast's own configuration.
+        val filterModelDef = modelResolver.resolve(RunConfig.resolve(appProperties, podcast), PipelineStage.FILTER)
         val estimatedCostCents = CostEstimator.estimateScoringCostCents(unscored, filterModelDef)
         val costThreshold = podcast.maxLlmCostCents ?: appProperties.llm.maxCostCents
         if (estimatedCostCents != null && estimatedCostCents > costThreshold) {
@@ -352,11 +354,12 @@ class LlmPipeline(
     suspend fun dedup(
         eligible: List<Article>,
         podcast: Podcast,
+        runConfig: RunConfig,
         episodeId: Long? = null,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): DedupStageResult? {
-        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
-        val dedupModelDef = modelResolver.resolve(podcast, PipelineStage.DEDUP)
+        val filterModelDef = modelResolver.resolve(runConfig, PipelineStage.FILTER)
+        val dedupModelDef = modelResolver.resolve(runConfig, PipelineStage.DEDUP)
 
         onProgress("deduplicating", mapOf("articleCount" to eligible.size))
 
@@ -488,7 +491,8 @@ class LlmPipeline(
      * the prompt that is not derived from the articles themselves, including
      * [ComposeContext.episodeDate]: a retry, a re-run or a regeneration of a past day must state
      * that day rather than the day the run happens. The TTS guidelines are resolved here from the
-     * podcast's provider and filled into the context.
+     * podcast's provider and filled into the context. The run's configuration travels in
+     * [ComposeContext.runConfig]; without one the podcast's own configuration applies.
      */
     suspend fun compose(
         filteredArticles: List<FilteredArticle>,
@@ -496,7 +500,8 @@ class LlmPipeline(
         context: ComposeContext = ComposeContext(),
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): ComposeStageResult {
-        val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
+        val runConfig = context.runConfig ?: RunConfig.resolve(appProperties, podcast)
+        val composeModelDef = modelResolver.resolve(runConfig, PipelineStage.COMPOSE)
         // Enforce distinctness and the compose cap at this shared chokepoint so every entry path is
         // bounded — including retry-from-compose, which reloads previously persisted articles and
         // skips dedup entirely.
@@ -513,7 +518,8 @@ class LlmPipeline(
         val composeContext = context.copy(
             ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
             nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate),
-            research = research(toCompose, podcast, context)
+            research = research(toCompose, podcast, runConfig, context),
+            runConfig = runConfig
         )
 
         // Retried only on a transient provider fault (see the `compose` instance): an invalid or
@@ -560,13 +566,15 @@ class LlmPipeline(
         context: ComposeContext = ComposeContext(),
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): PipelineResult {
-        val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
+        val runConfig = context.runConfig ?: RunConfig.resolve(appProperties, podcast)
+        val composeModelDef = modelResolver.resolve(runConfig, PipelineStage.COMPOSE)
         val ttsProvider = ttsProviderFactory.resolve(podcast)
         onProgress("composing", mapOf("articleCount" to articles.size))
         val composeContext = context.copy(
             ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
             nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate),
-            research = research(articles, podcast, context)
+            research = research(articles, podcast, runConfig, context),
+            runConfig = runConfig
         )
 
         // Recompose runs no dedup stage, so the annotations must come from the source episode's
@@ -580,7 +588,7 @@ class LlmPipeline(
             }
         }
 
-        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
+        val filterModelDef = modelResolver.resolve(runConfig, PipelineStage.FILTER)
         val composeCost = CostEstimator.resolveLlmCost(compositionResult.usage, composeModelDef.cost)
         val costCents = composeCost.costCents?.roundToInt()
 
@@ -625,6 +633,7 @@ class LlmPipeline(
      */
     suspend fun preview(
         podcast: Podcast,
+        runConfig: RunConfig,
         window: EpisodeWindow,
         onProgress: (stage: String, detail: Map<String, Any>) -> Unit = { _, _ -> }
     ): PreviewResult? {
@@ -632,8 +641,8 @@ class LlmPipeline(
         val sourceIds = sources.map { it.id }
         if (sourceIds.isEmpty()) return null
 
-        val filterModelDef = modelResolver.resolve(podcast, PipelineStage.FILTER)
-        val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
+        val filterModelDef = modelResolver.resolve(runConfig, PipelineStage.FILTER)
+        val composeModelDef = modelResolver.resolve(runConfig, PipelineStage.COMPOSE)
         val sourceLabels = sources.associate { it.id to extractDomainAndPath(it.url) }
 
         // Step 1: Aggregate unlinked posts into articles
@@ -673,7 +682,7 @@ class LlmPipeline(
 
         onProgress("deduplicating", mapOf("articleCount" to eligible.size))
 
-        val dedupModelDef = modelResolver.resolve(podcast, PipelineStage.DEDUP)
+        val dedupModelDef = modelResolver.resolve(runConfig, PipelineStage.DEDUP)
         val history = articleEligibilityService.findHistory(podcast)
         // Let a dedup failure surface (the preview controller reports it as an error event) rather
         // than silently previewing un-deduped articles — consistent with the generation path.
@@ -695,9 +704,10 @@ class LlmPipeline(
             followUpAnnotations = followUpAnnotations,
             topicLabels = dedupResult.filteredArticles.mapNotNull { it.topic }.distinct(),
             episodeDate = episodeDate,
-            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, episodeDate)
+            nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, episodeDate),
+            runConfig = runConfig
         )
-        val composeContext = previewContext.copy(research = research(toCompose, podcast, previewContext))
+        val composeContext = previewContext.copy(research = research(toCompose, podcast, runConfig, previewContext))
 
         // Same transient-fault retry as the compose stage above.
         val compositionResult = retryRegistry.retry("compose").executeSuspendFunction {
@@ -720,7 +730,12 @@ class LlmPipeline(
      * transient compose fault does not repeat the research. The subjects are the focus of a focus
      * episode followed by the topic clusters, or the article titles for a run that has neither.
      */
-    private suspend fun research(articles: List<Article>, podcast: Podcast, context: ComposeContext): PreComposeResearch {
+    private suspend fun research(
+        articles: List<Article>,
+        podcast: Podcast,
+        runConfig: RunConfig,
+        context: ComposeContext
+    ): PreComposeResearch {
         val subjects = (listOfNotNull(context.focus) + context.topicLabels)
             .ifEmpty { articles.map { it.title } }
             .map { it.trim() }
@@ -730,6 +745,7 @@ class LlmPipeline(
             ResearchRequest(
                 podcast = podcast,
                 subjects = subjects,
+                runConfig = runConfig,
                 focusEpisode = context.focus != null,
                 episodeId = context.episodeId
             )

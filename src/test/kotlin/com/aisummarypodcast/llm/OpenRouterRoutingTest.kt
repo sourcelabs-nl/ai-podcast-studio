@@ -25,8 +25,11 @@ class OpenRouterRoutingTest {
         compose = ComposeProperties(maxOutputTokens = 96000, reasoningEffort = effort)
     )
 
-    private fun model(provider: String) =
-        ResolvedModel(provider = provider, model = "z-ai/glm-5.3", cost = null, stage = PipelineStage.COMPOSE)
+    private fun model(provider: String, reasoningEffort: String = OpenRouterRouting.NO_REASONING) =
+        ResolvedModel(
+            provider = provider, model = "z-ai/glm-5.3", cost = null, stage = PipelineStage.COMPOSE,
+            reasoningEffort = reasoningEffort
+        )
 
     private fun podcast(settings: Map<String, String>? = null) =
         Podcast(id = "p1", userId = "u1", name = "T", topic = "t", composeSettings = settings)
@@ -74,7 +77,7 @@ class OpenRouterRoutingTest {
 
     @Test
     fun `compose options carry the configured reasoning effort and the floor`() {
-        val options = buildComposeOptions(model("openrouter"), podcast(), appProperties()).build()
+        val options = buildComposeOptions(model("openrouter", "medium"), podcast(), appProperties()).build()
 
         // OpenRouter reads a `reasoning` object and, per its docs, does not accept OpenAI's flat
         // `reasoning_effort`; sending the flat field here had no effect at all.
@@ -88,7 +91,7 @@ class OpenRouterRoutingTest {
     @Test
     fun `a podcast overrides the reasoning effort`() {
         val options = buildComposeOptions(
-            model("openrouter"), podcast(mapOf("reasoningEffort" to "low")), appProperties()
+            model("openrouter", "low"), podcast(mapOf("reasoningEffort" to "low")), appProperties()
         ).build()
 
         assertEquals("low", reasoningBlock(options.extraBody)?.get("effort"))
@@ -97,7 +100,7 @@ class OpenRouterRoutingTest {
     @Test
     fun `a blank podcast override falls back to the configured effort`() {
         val options = buildComposeOptions(
-            model("openrouter"), podcast(mapOf("reasoningEffort" to "  ")), appProperties(effort = "high")
+            model("openrouter", "high"), podcast(mapOf("reasoningEffort" to "  ")), appProperties(effort = "high")
         ).build()
 
         assertEquals("high", reasoningBlock(options.extraBody)?.get("effort"))
@@ -126,7 +129,7 @@ class OpenRouterRoutingTest {
 
     @Test
     fun `reasoning text is excluded from the response`() {
-        val options = buildComposeOptions(model("openrouter"), podcast(), appProperties()).build()
+        val options = buildComposeOptions(model("openrouter", "medium"), podcast(), appProperties()).build()
 
         // The tokens are billed either way and openai-java has no field for message.reasoning, so
         // returning it would only risk it being mistaken for the script.
@@ -135,7 +138,7 @@ class OpenRouterRoutingTest {
 
     @Test
     fun `compose options for a direct openai model carry no routing block`() {
-        val options = buildComposeOptions(model("openai"), podcast(), appProperties()).build()
+        val options = buildComposeOptions(model("openai", "medium"), podcast(), appProperties()).build()
 
         assertTrue(options.extraBody.isNullOrEmpty())
         // On a direct OpenAI call the flat field is the real one.

@@ -5,6 +5,7 @@ import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeArticleRepository
 import com.aisummarypodcast.store.EpisodePublicationRepository
 import com.aisummarypodcast.store.EpisodeRepository
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.FeedArticle
 import com.aisummarypodcast.store.Podcast
@@ -99,7 +100,9 @@ class FeedGenerator(
         modules.add(atomModule)
         feed.modules = modules
 
-        val allEpisodes = episodeRepository.findByPodcastIdAndStatusOrderByGeneratedAtDescIdDesc(podcast.id, EpisodeStatus.GENERATED)
+        val allEpisodes = episodeRepository.findByPodcastIdAndStatusAndPurposeNotOrderByGeneratedAtDescIdDesc(
+            podcast.id, EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT
+        )
         val episodes = if (publishedTarget != null) {
             val publishedEpisodeIds = publicationRepository.findPublishedByPodcastIdAndTarget(podcast.id, publishedTarget)
                 .map { it.episodeId }.toSet()

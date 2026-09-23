@@ -1,5 +1,11 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.config.AppProperties
+import com.aisummarypodcast.config.BriefingProperties
+import com.aisummarypodcast.config.EncryptionProperties
+import com.aisummarypodcast.config.EpisodesProperties
+import com.aisummarypodcast.config.FeedProperties
+import com.aisummarypodcast.config.LlmProperties
 import com.aisummarypodcast.llm.ComposeContext
 import com.aisummarypodcast.llm.ComposeStageResult
 import com.aisummarypodcast.llm.DedupStageResult
@@ -10,11 +16,15 @@ import com.aisummarypodcast.llm.LlmPipeline
 import com.aisummarypodcast.llm.PipelineResult
 import com.aisummarypodcast.llm.PreviewResult
 import com.aisummarypodcast.llm.RecentFocusEpisode
+import com.aisummarypodcast.llm.RunConfig
+import com.aisummarypodcast.llm.RunOverrides
 import com.aisummarypodcast.llm.TokenUsage
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Episode
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
+import tools.jackson.databind.json.JsonMapper
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -38,6 +48,14 @@ import java.time.LocalDate
 class PipelineRunnerTest {
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+    private val appProperties = AppProperties(
+        llm = LlmProperties(),
+        briefing = BriefingProperties(),
+        episodes = EpisodesProperties(),
+        feed = FeedProperties(),
+        encryption = EncryptionProperties(masterKey = "test-key")
+    )
+    private val config = RunConfig.resolve(appProperties, podcast)
     private val window = EpisodeWindow(
         start = Instant.parse("2026-08-30T13:00:00Z"),
         end = Instant.parse("2026-08-31T13:00:00Z")
@@ -69,6 +87,7 @@ class PipelineRunnerTest {
     private val llmPipeline = mockk<LlmPipeline>()
     private val episodeService = mockk<EpisodeService> {
         every { updatePipelineStage(any(), any()) } returns Unit
+        every { recordRun(any(), any(), any()) } returns Unit
     }
     private val episodeWindowResolver = mockk<EpisodeWindowResolver> {
         every { episodeDateOf(any(), any()) } returns episodeDate
@@ -78,7 +97,9 @@ class PipelineRunnerTest {
         every { publishEvent(any<ApplicationEvent>()) } answers { (firstArg<Any>() as? PodcastEvent)?.let(events::add); Unit }
     }
 
-    private val runner = PipelineRunner(llmPipeline, episodeService, episodeWindowResolver, eventPublisher)
+    private val runner = PipelineRunner(
+        llmPipeline, episodeService, episodeWindowResolver, eventPublisher, appProperties, JsonMapper.builder().build()
+    )
 
     private fun spec(
         purpose: RunPurpose,
@@ -91,9 +112,9 @@ class PipelineRunnerTest {
     private fun stageNames() = events.filter { it.event == "episode.stage" }.map { it.data["stage"] }
 
     private fun stubSelection() {
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 7L, any()) } returns listOf(article)
-        coEvery { llmPipeline.dedup(listOf(article), podcast, 7L, any()) } answers {
-            arg<(String, Map<String, Any>) -> Unit>(3)("deduplicating", emptyMap())
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, config, window, 7L, any()) } returns listOf(article)
+        coEvery { llmPipeline.dedup(listOf(article), podcast, config, 7L, any()) } answers {
+            arg<(String, Map<String, Any>) -> Unit>(4)("deduplicating", emptyMap())
             dedupResult
         }
         every { episodeService.saveDedupResults(episode, dedupResult) } returns Unit
@@ -111,7 +132,8 @@ class PipelineRunnerTest {
         val outcomes = listOf(RunOutcome.Deliver(), RunOutcome.Review("shorter"), RunOutcome.Transient())
 
         for (input in inputs) for (outcome in outcomes) {
-            assertEquals(input, spec(RunPurpose.MANUAL, input = input, outcome = outcome).input)
+            val purpose = if (outcome is RunOutcome.Transient) RunPurpose.PREVIEW else RunPurpose.MANUAL
+            assertEquals(input, spec(purpose, input = input, outcome = outcome, target = episode).input)
         }
     }
 
@@ -126,8 +148,8 @@ class PipelineRunnerTest {
     fun `a transient run previews the window and touches no episode`() = runTest {
         val preview = PreviewResult(script = "preview", articleIds = listOf(1L))
         val progress = mutableListOf<String>()
-        coEvery { llmPipeline.preview(podcast, window, any()) } answers {
-            arg<(String, Map<String, Any>) -> Unit>(2)("composing", emptyMap())
+        coEvery { llmPipeline.preview(podcast, config, window, any()) } answers {
+            arg<(String, Map<String, Any>) -> Unit>(3)("composing", emptyMap())
             preview
         }
 
@@ -145,7 +167,7 @@ class PipelineRunnerTest {
 
     @Test
     fun `a failing transient run propagates its failure to the caller`() = runTest {
-        coEvery { llmPipeline.preview(podcast, window, any()) } throws IllegalStateException("dedup down")
+        coEvery { llmPipeline.preview(podcast, config, window, any()) } throws IllegalStateException("dedup down")
 
         assertThrows(IllegalStateException::class.java) {
             kotlinx.coroutines.runBlocking { runner.run(spec(RunPurpose.PREVIEW, outcome = RunOutcome.Transient(), target = null)) }
@@ -167,7 +189,7 @@ class PipelineRunnerTest {
                 dedupResult.filteredArticles, podcast,
                 ComposeContext(
                     followUpAnnotations = mapOf(1L to "follow"), topicLabels = listOf("Topic"),
-                    episodeDate = episodeDate, episodeId = 7L, recentFocusEpisodes = recentFocus
+                    episodeDate = episodeDate, episodeId = 7L, recentFocusEpisodes = recentFocus, runConfig = config
                 ),
                 any()
             )
@@ -203,7 +225,7 @@ class PipelineRunnerTest {
 
     @Test
     fun `a generation with nothing eligible deletes its placeholder episode`() = runTest {
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 7L, any()) } returns null
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, config, window, 7L, any()) } returns null
         every { episodeService.deleteGeneratingEpisode(7L) } returns Unit
 
         val result = runner.run(spec(RunPurpose.MANUAL))
@@ -215,7 +237,7 @@ class PipelineRunnerTest {
     @Test
     fun `a failed generation fails its episode and reports the error`() = runTest {
         val failed = episode.copy(status = EpisodeStatus.FAILED)
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 7L, any()) } throws IllegalStateException("boom")
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, config, window, 7L, any()) } throws IllegalStateException("boom")
         every { episodeService.failEpisode(podcast, "boom", episode) } returns failed
 
         val result = runner.run(spec(RunPurpose.SCHEDULED))
@@ -236,7 +258,7 @@ class PipelineRunnerTest {
                 dedupResult.filteredArticles, podcast,
                 ComposeContext(
                     followUpAnnotations = mapOf(1L to "follow"), topicLabels = listOf("Topic"),
-                    episodeDate = episodeDate, episodeId = 7L
+                    episodeDate = episodeDate, episodeId = 7L, runConfig = config
                 ),
                 any()
             )
@@ -247,7 +269,7 @@ class PipelineRunnerTest {
 
     @Test
     fun `a full retry with nothing eligible fails the episode rather than deleting it`() = runTest {
-        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, window, 7L, any()) } returns null
+        coEvery { llmPipeline.aggregateScoreAndFilter(podcast, config, window, 7L, any()) } returns null
         every { episodeService.failEpisode(podcast, any(), episode) } returns episode
 
         val result = runner.run(spec(RunPurpose.RETRY))
@@ -270,7 +292,7 @@ class PipelineRunnerTest {
         coVerify {
             llmPipeline.compose(
                 listOf(FilteredArticle(article, topic = "Topic")), podcast,
-                ComposeContext(topicLabels = listOf("Topic"), episodeDate = episodeDate, episodeId = 7L),
+                ComposeContext(topicLabels = listOf("Topic"), episodeDate = episodeDate, episodeId = 7L, runConfig = config),
                 any()
             )
         }
@@ -294,7 +316,7 @@ class PipelineRunnerTest {
 
     @Test
     fun `a focus run selects against the focus, saves the selection and finalizes`() = runTest {
-        coEvery { llmPipeline.selectForFocus(podcast, window, "Opus", 7L, any()) } returns focusSelection
+        coEvery { llmPipeline.selectForFocus(podcast, config, window, "Opus", 7L, any()) } returns focusSelection
         every { episodeService.saveFocusSelection(episode, focusSelection) } returns Unit
         coEvery { llmPipeline.compose(focusSelection.articles, podcast, any(), any()) } returns composeResult
         every { episodeService.saveComposeResult(episode, composeResult) } returns Unit
@@ -305,7 +327,7 @@ class PipelineRunnerTest {
         coVerify {
             llmPipeline.compose(
                 focusSelection.articles, podcast,
-                ComposeContext(episodeDate = episodeDate, episodeId = 7L, focus = "Opus"),
+                ComposeContext(episodeDate = episodeDate, episodeId = 7L, focus = "Opus", runConfig = config),
                 any()
             )
         }
@@ -315,14 +337,14 @@ class PipelineRunnerTest {
     fun `a focus retry from compose rescores the linked set against the focus`() = runTest {
         every { episodeService.findLinkedArticlesAndTopics(7L) } returns
             LinkedArticlesResult(listOf(article), emptyList(), emptyMap())
-        coEvery { llmPipeline.scoreForFocus(podcast, listOf(article), "Opus", 7L, any()) } returns focusSelection
+        coEvery { llmPipeline.scoreForFocus(podcast, config, listOf(article), "Opus", 7L, any()) } returns focusSelection
         coEvery { llmPipeline.compose(focusSelection.articles, podcast, any(), any()) } returns composeResult
         every { episodeService.saveComposeResult(episode, composeResult) } returns Unit
         coEvery { episodeService.finalizeEpisode(episode, podcast, listOf("Topic")) } returns episode
 
         runner.run(spec(RunPurpose.RETRY, input = RunInput.Focus("Opus", window), resumePoint = ResumePoint.COMPOSE))
 
-        coVerify(exactly = 0) { llmPipeline.selectForFocus(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { llmPipeline.selectForFocus(any(), any(), any(), any(), any(), any()) }
         coVerify { episodeService.finalizeEpisode(episode, podcast, listOf("Topic")) }
     }
 
@@ -330,7 +352,7 @@ class PipelineRunnerTest {
     fun `a failed feedback recompose leaves the episode in review`() = runTest {
         every { episodeService.findLinkedArticlesAndTopics(7L) } returns
             LinkedArticlesResult(listOf(article), emptyList(), emptyMap())
-        coEvery { llmPipeline.scoreForFocus(any(), any(), any(), any(), any()) } throws IllegalStateException("down")
+        coEvery { llmPipeline.scoreForFocus(any(), any(), any(), any(), any(), any()) } throws IllegalStateException("down")
         every { episodeService.clearPipelineStage(7L) } returns Unit
 
         val result = runner.run(
@@ -358,11 +380,12 @@ class PipelineRunnerTest {
         }
         coEvery { episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any()) } returns episode
 
+        val bypassConfig = RunConfig.resolve(appProperties, podcast, RunOverrides(bypassLlmCache = true))
         runner.run(
             RunSpec(
                 podcast, episode, RunPurpose.REGENERATE, RunInput.ArticleSet(linked, window), ResumePoint.COMPOSE,
                 RunOutcome.Deliver(updateLastGenerated = false, generatedAt = "2026-08-31T13:00:00Z"),
-                bypassLlmCache = true
+                overrides = RunOverrides(bypassLlmCache = true)
             )
         )
 
@@ -371,7 +394,7 @@ class PipelineRunnerTest {
                 listOf(article), podcast,
                 ComposeContext(
                     followUpAnnotations = mapOf(1L to "follow"), topicLabels = listOf("Topic"),
-                    episodeDate = episodeDate, bypassLlmCache = true, episodeId = 7L
+                    episodeDate = episodeDate, episodeId = 7L, runConfig = bypassConfig
                 ),
                 any()
             )
@@ -384,5 +407,51 @@ class PipelineRunnerTest {
         }
         assertEquals(listOf("composing"), stageNames())
         verify(exactly = 0) { episodeService.updatePipelineStage(any(), any()) }
+    }
+
+    // --- Run configuration snapshot and the Sandbox outcome ------------------------------------------
+
+    @Test
+    fun `a run records its purpose and the run config it used before any stage`() = runTest {
+        val overrides = RunOverrides(providerSort = "throughput", targetWords = 700)
+        val used = RunConfig.resolve(appProperties, podcast, overrides)
+        val linked = LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"), emptyMap())
+        val contexts = mutableListOf<ComposeContext>()
+        coEvery { llmPipeline.recompose(any(), any(), capture(contexts), any()) } returns
+            PipelineResult(script = "s", filterModel = "f", composeModel = "c")
+        coEvery { episodeService.finalizeSandboxEpisode(any(), any(), any()) } returns episode
+        val json = io.mockk.slot<String>()
+        every { episodeService.recordRun(7L, EpisodePurpose.EXPERIMENT, capture(json)) } returns Unit
+
+        runner.run(
+            RunSpec(podcast, episode, RunPurpose.EXPERIMENT, RunInput.ArticleSet(linked, window), ResumePoint.COMPOSE,
+                RunOutcome.Sandbox, overrides)
+        )
+
+        assertEquals(used, contexts.single().runConfig)
+        assertEquals(JsonMapper.builder().build().writeValueAsString(used), json.captured)
+    }
+
+    @Test
+    fun `a sandboxed run keeps its result in the sandbox rather than delivering it`() = runTest {
+        val linked = LinkedArticlesResult(listOf(article), listOf("Topic"), mapOf(1L to "Topic"), emptyMap())
+        val recomposed = PipelineResult(script = "s", filterModel = "f", composeModel = "c")
+        coEvery { llmPipeline.recompose(any(), any(), any(), any()) } returns recomposed
+        coEvery { episodeService.finalizeSandboxEpisode(any(), any(), any()) } returns episode
+
+        val result = runner.run(
+            RunSpec(podcast, episode, RunPurpose.EXPERIMENT, RunInput.ArticleSet(linked, window), ResumePoint.COMPOSE,
+                RunOutcome.Sandbox)
+        )
+
+        assertEquals(RunResult.Completed(episode), result)
+        coVerify { episodeService.finalizeSandboxEpisode(podcast, recomposed.copy(articleTopics = mapOf(1L to "Topic")), episode) }
+        coVerify(exactly = 0) { episodeService.createEpisodeFromPipelineResult(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { episodeService.finalizeEpisode(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `only an article-set run may be sandboxed`() {
+        assertThrows(IllegalArgumentException::class.java) { spec(RunPurpose.EXPERIMENT, outcome = RunOutcome.Sandbox) }
     }
 }

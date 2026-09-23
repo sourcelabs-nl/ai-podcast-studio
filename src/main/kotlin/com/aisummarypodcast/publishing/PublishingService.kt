@@ -5,6 +5,7 @@ import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodePublication
 import com.aisummarypodcast.store.EpisodePublicationRepository
 import com.aisummarypodcast.store.EpisodeRepository
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PublicationStatus
@@ -38,6 +39,10 @@ class PublishingService(
         val publicationTarget = targetService.get(podcast.id, target)
         if (publicationTarget == null || !publicationTarget.enabled) {
             throw TargetNotConfiguredException("Publication target '$target' is not configured or enabled for this podcast")
+        }
+
+        if (episode.purpose == EpisodePurpose.EXPERIMENT) {
+            throw IllegalStateException("Episode ${episode.id} is an experiment and is never published")
         }
 
         if (episode.status != EpisodeStatus.GENERATED) {

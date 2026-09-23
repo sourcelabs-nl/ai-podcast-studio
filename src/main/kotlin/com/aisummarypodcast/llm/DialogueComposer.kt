@@ -21,7 +21,7 @@ class DialogueComposer(
     private val log = LoggerFactory.getLogger(javaClass)
 
     suspend fun compose(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): CompositionResult {
-        val composeModelDef = modelResolver.resolve(podcast, PipelineStage.COMPOSE)
+        val composeModelDef = modelResolver.resolve(context.runConfigFor(podcast, appProperties), PipelineStage.COMPOSE)
         return compose(articles, podcast, composeModelDef, context)
     }
 
@@ -71,7 +71,7 @@ class DialogueComposer(
     }
 
     internal fun buildPrompt(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): String {
-        val targetWords = podcast.targetWords ?: appProperties.briefing.targetWords
+        val targetWords = context.runConfigFor(podcast, appProperties).targetWords
         val speakerRoles = resolveSpeakerRoles(podcast).toList()
         val tagExamples = speakerRoles.joinToString("\n            ") { role -> "<$role>Example text</$role>" }
 

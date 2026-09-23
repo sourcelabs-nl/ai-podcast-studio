@@ -19,6 +19,7 @@ import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.ScoreAttribution
 import com.aisummarypodcast.store.EpisodeArticle
 import com.aisummarypodcast.store.EpisodeArticleRepository
+import com.aisummarypodcast.store.EpisodePurpose
 import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
@@ -100,7 +101,7 @@ class EpisodeServiceTest {
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
 
     private fun setupRecapMocks(podcast: Podcast) {
-        every { modelResolver.resolve(podcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(any(), PipelineStage.FILTER) } returns filterModelDef
         coEvery { episodeRecapGenerator.generate(any(), podcast, filterModelDef, any(), 5L) } returns RecapResult(
             recap = "Recap text.", usage = TokenUsage(800, 60), costCents = 0,
             costSource = LlmCostSource.TABLE
@@ -217,7 +218,7 @@ class EpisodeServiceTest {
         val result = PipelineResult(script = "Script", filterModel = "filter", composeModel = "compose")
         every { episodeRepository.save(any()) } answers { firstArg<Episode>().copy(id = 5) }
         every { podcastRepository.save(any()) } answers { firstArg() }
-        every { modelResolver.resolve(reviewPodcast, PipelineStage.FILTER) } returns filterModelDef
+        every { modelResolver.resolve(any(), PipelineStage.FILTER) } returns filterModelDef
         coEvery { episodeRecapGenerator.generate(any(), reviewPodcast, filterModelDef, any(), 5L) } throws RuntimeException("LLM error")
 
         episodeService.createEpisodeFromPipelineResult(reviewPodcast, result)
@@ -732,11 +733,55 @@ class EpisodeServiceTest {
         verify { episodeRepository.save(match { it.status == EpisodeStatus.FAILED && it.pipelineStage == "composing" && it.errorMessage == "LLM error" }) }
     }
 
+    @Test
+    fun `a failed experiment episode does not move the schedule`() {
+        val experiment = Episode(
+            id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "",
+            status = EpisodeStatus.GENERATING, purpose = EpisodePurpose.EXPERIMENT
+        )
+        every { episodeRepository.findById(5L) } returns Optional.of(experiment)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        episodeService.failEpisode(podcast, "LLM error", experiment)
+
+        verify(exactly = 0) { podcastRepository.save(any()) }
+    }
+
+    // --- finalizeSandboxEpisode tests ---
+
+    @Test
+    fun `a sandboxed episode stores its script without audio, publication, consumption or a schedule move`() = runTest {
+        val generating = Episode(
+            id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "",
+            status = EpisodeStatus.GENERATING, purpose = EpisodePurpose.EXPERIMENT
+        )
+        val result = PipelineResult(
+            script = "Script", filterModel = "filter", composeModel = "compose",
+            processedArticleIds = listOf(10L), composeCostCents = 3
+        )
+        every { episodeRepository.findById(5L) } returns Optional.of(generating)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+        setupRecapMocks(podcast)
+
+        val episode = episodeService.finalizeSandboxEpisode(podcast.copy(requirePublishApproval = false), result, generating)
+
+        assertEquals("Script", episode.scriptText)
+        assertEquals(3, episode.composeCostCents)
+        assertEquals(EpisodeStatus.GENERATED, episode.status)
+        assertEquals(false, episode.publishApproved)
+        assertEquals("Recap text.", episode.recap, "the epilogue still runs")
+        verify { episodeArticleRepository.insertIgnore(5L, 10L, null, null) }
+        coVerify(exactly = 0) { ttsPipeline.generateForExistingEpisode(any(), any()) }
+        verify(exactly = 0) { articleRepository.save(any()) }
+        verify(exactly = 0) { podcastRepository.save(any()) }
+        verify(exactly = 0) { eventPublisher.publishEvent(any<Any>()) }
+    }
+
     // --- hasActiveEpisode tests ---
 
     @Test
     fun `hasActiveEpisode returns true when pending episodes exist`() {
-        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)) } returns listOf(
+        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns listOf(
             Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.PENDING_REVIEW)
         )
 
@@ -745,14 +790,14 @@ class EpisodeServiceTest {
 
     @Test
     fun `hasActiveEpisode returns false when no pending episodes`() {
-        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)) } returns emptyList()
+        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns emptyList()
 
         assertEquals(false, episodeService.hasActiveEpisode("p1"))
     }
 
     @Test
     fun `hasActiveEpisode returns true when GENERATING_AUDIO episode exists`() {
-        every { episodeRepository.findByPodcastIdAndStatusIn("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO)) } returns listOf(
+        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns listOf(
             Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.GENERATING_AUDIO)
         )
 

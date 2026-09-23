@@ -1,6 +1,7 @@
 package com.aisummarypodcast.research
 
 import com.aisummarypodcast.llm.PastEpisodeMatch
+import com.aisummarypodcast.llm.RunConfig
 import com.aisummarypodcast.store.Podcast
 
 /** Web search queries a regular episode of a deep-dive podcast may run before compose. */
@@ -46,15 +47,18 @@ data class PreComposeResearch(
  * One run of the research stage. [subjects] are what to research, in priority order (the focus
  * first, then the topic clusters). [focusEpisode] raises the query cap and forces web search on.
  * [episodeId] is the episode the sources are recorded against and the plan request is attributed
- * to; null for a preview.
+ * to; null for a preview. [runConfig] is the run's configuration: the plan call uses its filter
+ * model, and its research query cap, when set, replaces the default cap.
  */
 data class ResearchRequest(
     val podcast: Podcast,
     val subjects: List<String>,
+    val runConfig: RunConfig,
     val focusEpisode: Boolean = false,
     val episodeId: Long? = null
 ) {
     val webSearchEnabled: Boolean get() = focusEpisode || podcast.deepDiveEnabled
 
-    val queryCap: Int get() = if (focusEpisode) FOCUS_RESEARCH_QUERY_CAP else RESEARCH_QUERY_CAP
+    val queryCap: Int get() =
+        runConfig.researchQueryCap ?: if (focusEpisode) FOCUS_RESEARCH_QUERY_CAP else RESEARCH_QUERY_CAP
 }
