@@ -5,6 +5,23 @@ so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
 months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
 screen.
 
+## [2026-09-24] Lint
+
+Repaired this file's own header again: adding the 2026-09-24 Record entry had
+spliced it into the middle of the "Each entry begins with..." header paragraph,
+the same failure mode fixed on 2026-09-22. Normalized `[[evals/structured-output-for-scripts]]`
+to `[[structured-output-for-scripts]]` (wikilinks resolve by name; the path
+prefix was inconsistent with every other link in the bundle). No dangling
+wikilinks, no em-dashes, no expired `stale_after`, no index line mismatching its
+entry's `answers` elsewhere in the bundle.
+
+## [2026-09-24] Record
+
+Added `evals/history-accuracy-audit-2026-09.md`: over episodes 195-230 no covered
+story was re-announced, while `[FOLLOW-UP: ...]` headers were acknowledged in 1 of
+3 checked scripts under a compose rule that only permits it. Noted the phrase-only
+repeat check in `prompt-rules/dedup-guards-articles-not-claims.md`.
+
 ## [2026-09-23] Record
 
 Added the episode 226 confirmation to `evals/pipeline-experiments-2026-09.md`: on a
@@ -170,7 +187,7 @@ availability incident on this endpoint in one morning.
 
 Measured whether the compose stage should return JSON turns instead of tagged
 free text, after episode 222 shipped with its second half attributed to the wrong
-speaker: [[evals/structured-output-for-scripts]]. Free text malformed its speaker
+speaker: [[structured-output-for-scripts]]. Free text malformed its speaker
 tags in three runs out of three; structured output did not, and the truncation
 objection that had been argued against it did not reproduce. Structured output
 loses control of script length instead, which is the axis that carries the TTS

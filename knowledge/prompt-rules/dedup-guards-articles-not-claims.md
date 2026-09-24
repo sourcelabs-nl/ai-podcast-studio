@@ -44,8 +44,9 @@ themselves downstream of the article-level clustering.
 
 How often this happens is not known. A first attempt to measure the base rate
 across the recent archive returned zero repeats, but it had been reading 404
-responses from a wrong endpoint and was discarded; no valid measurement has
-replaced it. One confirmed occurrence is not a rate, and nothing here argues for
+responses from a wrong endpoint and was discarded; a later pass over 8
+episodes (see [[history-accuracy-audit-2026-09]]) found no verbatim repeat, but it
+matched phrases only and so does not measure paraphrased repeats either. One confirmed occurrence is not a rate, and nothing here argues for
 building a claim-level check before that number exists.
 
-Related: [[echo-turns]], [[adjacent-turns-must-not-repeat]]
+Related: [[echo-turns]], [[adjacent-turns-must-not-repeat]], [[history-accuracy-audit-2026-09]]

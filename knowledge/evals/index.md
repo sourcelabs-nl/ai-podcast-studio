@@ -36,3 +36,5 @@ Negative results are recorded on the same terms as positive ones.
   Read when deciding whether to lower compose reasoning effort, add throughput-based OpenRouter provider routing, or diagnosing why a compose call ran long or cost more than expected.
 - [Compose reasoning effort, throughput routing and GPT-6 Luna on one article set](pipeline-experiments-2026-09.md)  
   Read when choosing compose's reasoning effort, provider sort or model, or reading an experiment comparison.
+- [Scripts rarely repeat covered stories, and often ignore the FOLLOW-UP header they were given](history-accuracy-audit-2026-09.md)  
+  Read when considering a richer episode-history store to improve scripts, or asking why a continuation story aired as fresh news.
