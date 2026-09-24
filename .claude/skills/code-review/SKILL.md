@@ -31,7 +31,7 @@ Apply rules based on file types:
 - **All `.kt` files**: Apply rules from the `architecture` skill (A1-A9), `kotlin-quality` skill (K1-K10), and `spring-boot` skill (SB1-SB7), plus the inline rules below (Controller Hygiene, Service Layer, Testing, Jackson 3.x, Concurrency, LLM Prompt Grounding).
 - **`@Table`-annotated entities (e.g. under `store/`), `*Repository.kt`, `*.sql` files**: Additionally apply rules from the `spring-data-jdbc` skill and `database-design` skill (DB1-DB5). Use the `flyway-migration` skill to validate migration files. (Note: this codebase combines domain and entity in one class and does not use the `*Entity.kt` suffix; match `@Table` instead of the filename.)
 - **Jackson-related files**: Use the `jackson-migration` skill as reference for Jackson 2.x vs 3.x patterns.
-- **AI/LLM files** (files using `ChatModel`/`ChatClient`/`OpenAiChatOptions`/`BeanOutputConverter`, or anything under `com.aisummarypodcast.llm`): Additionally apply rules from the `spring-ai` skill (SA1-SA6).
+- **AI/LLM files** (files using `ChatModel`/`ChatClient`/`OpenAiChatOptions`/`BeanOutputConverter`): Additionally apply rules from the `spring-ai` skill (SA1-SA6).
 
 ### Controller Hygiene
 
@@ -58,7 +58,7 @@ Services are the single home for business logic. When the same operation can be 
 - Duplicate logic: reimplementing something that already exists in another service method
 - Multiple entry points (controller + scheduler) implementing the same operation with duplicated logic instead of sharing a service method
 - Missing `@Transactional` on methods that call save/delete on multiple repositories
-- Bypassing a service to directly access a repository owned by another service (e.g., calling `articleRepository` from `EpisodeService` instead of going through `ArticleService`, if one exists)
+- Bypassing a service to directly access a repository owned by another service (e.g., calling `productRepository` from `OrderService` instead of going through `ProductService`, if one exists)
 
 ### Testing: MockK Only
 
@@ -97,10 +97,10 @@ This project uses Kotlin coroutines for all async/background work. No Java concu
 
 ### LLM Prompt Grounding
 
-Composer prompts (briefing, dialogue, interview) must include grounding instructions that constrain LLM output to the provided article content only.
+Prompts that generate content from supplied source material must include grounding instructions that constrain LLM output to that material only.
 
 **Violations to flag:**
-- A new or modified composer prompt that lacks explicit instructions to only use provided article content
+- A new or modified composer prompt that lacks explicit instructions to only use the provided source material
 - Removal of existing grounding constraints from prompts
 - Prompts that encourage the LLM to add external knowledge or speculation
 

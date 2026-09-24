@@ -75,22 +75,22 @@ Pure domain logic (calculations, derivations, mappings that depend only on domai
 **Correct pattern:**
 ```kotlin
 // Good: domain logic lives in the domain enum
-enum class EpisodeStyle {
-    MONOLOGUE,
-    DIALOGUE,
-    INTERVIEW;
+enum class ShippingMethod {
+    STANDARD,
+    EXPRESS,
+    PICKUP;
 
-    fun requiresMultipleSpeakers(): Boolean = when (this) {
-        MONOLOGUE -> false
-        DIALOGUE, INTERVIEW -> true
+    fun requiresCourier(): Boolean = when (this) {
+        STANDARD -> false
+        EXPRESS, PICKUP -> true
     }
 }
 
 // Bad: domain logic lives in the service
-class EpisodeService {
-    private fun requiresMultipleSpeakers(style: EpisodeStyle): Boolean = when (style) {
-        EpisodeStyle.MONOLOGUE -> false
-        EpisodeStyle.DIALOGUE, EpisodeStyle.INTERVIEW -> true
+class OrderService {
+    private fun requiresCourier(method: ShippingMethod): Boolean = when (method) {
+        ShippingMethod.STANDARD -> false
+        ShippingMethod.EXPRESS, ShippingMethod.PICKUP -> true
     }
 }
 ```
@@ -126,15 +126,15 @@ When a method returns multiple values, use a named data class instead of `Pair`,
 **Correct pattern:**
 ```kotlin
 // Good: named data class
-data class LinkedArticlesResult(
-    val articles: List<Article>,
-    val topicLabels: List<String>,
-    val articleTopics: Map<Long, String>
+data class LinkedProductsResult(
+    val products: List<Product>,
+    val categoryLabels: List<String>,
+    val productCategories: Map<Long, String>
 )
-fun findLinkedArticles(episodeId: Long): LinkedArticlesResult
+fun findLinkedProducts(orderId: Long): LinkedProductsResult
 
 // Bad: generic triple
-fun findLinkedArticles(episodeId: Long): Triple<List<Article>, List<String>, Map<Long, String>>
+fun findLinkedProducts(orderId: Long): Triple<List<Product>, List<String>, Map<Long, String>>
 ```
 
 ---

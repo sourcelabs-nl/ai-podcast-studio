@@ -1,12 +1,12 @@
 ---
 name: database-design
-description: Database design rules for schema conventions, ID patterns, migrations, and query optimization. Applied to .kt and .sql files during code review. Adapted for SQLite.
+description: Database design rules for schema conventions, ID patterns, migrations, and query optimization. Applied to .kt and .sql files during code review. Includes SQLite-specific rules.
 user_invocable: false
 ---
 
 # Database Design Rules
 
-5 rules covering schema design, data integrity, and query optimization. Applied to all `.kt` and `.sql` files. This project uses **SQLite**.
+5 rules covering schema design, data integrity, and query optimization. Applied to all `.kt` and `.sql` files.
 
 ---
 
@@ -24,7 +24,7 @@ Database schemas must follow relational best practices to ensure data integrity 
 - Entity field names that don't correspond to their database column names (Kotlin camelCase should map to SQL snake_case via Spring Data JDBC's default naming strategy)
 - New entities without a corresponding Flyway migration
 
-**SQLite-specific notes:**
+**If the project uses SQLite:**
 - Use `TEXT`, `INTEGER`, `REAL`, `BLOB` as column types
 - Foreign key enforcement requires `PRAGMA foreign_keys = ON` (configured at connection level)
 - SQLite only supports `ADD COLUMN` and `RENAME COLUMN` in ALTER TABLE
@@ -42,14 +42,14 @@ Tables use `INTEGER PRIMARY KEY AUTOINCREMENT` for auto-increment IDs. UUID-base
 **Correct patterns:**
 ```sql
 -- Auto-increment ID
-CREATE TABLE podcast (
+CREATE TABLE store (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL
 );
 
 -- Seed data: use subselects on natural keys when referencing other tables
-INSERT INTO episode (podcast_id, title)
-VALUES ((SELECT id FROM podcast WHERE name = 'My Podcast'), 'Episode 1');
+INSERT INTO orders (store_id, title)
+VALUES ((SELECT id FROM store WHERE name = 'My Store'), 'Order 1');
 ```
 
 ---
@@ -67,12 +67,12 @@ Sorting, ordering, filtering, aggregation, and deduplication should be done in d
 **Correct pattern:**
 ```kotlin
 // Bad: sort in application
-fun getRecentEpisodes(): List<Episode> {
+fun getRecentOrders(): List<Order> {
     return repository.findAll().sortedByDescending { it.createdAt }
 }
 
 // Good: sort in database
-fun getRecentEpisodes(): List<Episode> {
+fun getRecentOrders(): List<Order> {
     return repository.findAllByOrderByCreatedAtDesc()
 }
 ```
@@ -112,5 +112,6 @@ Flyway migrations must follow strict naming and content rules. See also the `fly
 - Migration files not matching `V{number}__{description}.sql` naming convention
 - Non-sequential version numbers (gaps in the sequence)
 - Missing `ON DELETE CASCADE` on foreign keys for child entities managed via `@MappedCollection`
-- Using ALTER TABLE operations not supported by SQLite (only ADD COLUMN and RENAME COLUMN are supported)
+
+**If the project uses SQLite:**
 - Using ALTER TABLE operations not supported by SQLite (only ADD COLUMN and RENAME COLUMN are supported)

@@ -25,11 +25,11 @@ V<version>__<description>.sql
 
 - **Version**: Integer, monotonically increasing (e.g., `V34`)
 - **Separator**: Exactly two underscores (`__`)
-- **Description**: snake_case summary of the change (e.g., `add_sponsor_to_podcasts`)
+- **Description**: snake_case summary of the change (e.g., `add_discount_to_stores`)
 
 Examples:
 ```
-V34__add_sponsor_to_podcasts.sql
+V34__add_discount_to_stores.sql
 V35__add_user_preferences_table.sql
 ```
 
@@ -41,7 +41,7 @@ Each migration **must** have a unique version number. Flyway will refuse to star
 FlywayException: Found more than one migration with version 10
 Offenders:
 -> V10__add_cost_tracking.sql
--> V10__add_sponsor_to_podcasts.sql
+-> V10__add_discount_to_stores.sql
 ```
 
 ### Before creating a new migration
@@ -58,9 +58,9 @@ Rename the newer migration file to the next available version number. Never rena
 
 ## Migration Content Guidelines
 
-### SQLite dialect
+### If the project uses SQLite
 
-This project uses SQLite. Keep these SQLite-specific rules in mind:
+Keep these SQLite-specific rules in mind:
 
 - `ALTER TABLE` only supports `ADD COLUMN` and `RENAME COLUMN` (no `DROP COLUMN` before SQLite 3.35.0)
 - No `ALTER TABLE ... ALTER COLUMN` — to change a column type, create a new table, copy data, drop the old one, and rename

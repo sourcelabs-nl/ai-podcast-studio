@@ -99,7 +99,7 @@ Functions should do one thing and be small enough to understand at a glance. Fun
 **Correct pattern:**
 ```kotlin
 // Bad: one large function doing everything
-fun processEpisode(request: EpisodeRequest): Episode {
+fun processOrder(request: OrderRequest): Order {
     // 20 lines of validation
     // 15 lines of mapping
     // 10 lines of persistence
@@ -107,10 +107,10 @@ fun processEpisode(request: EpisodeRequest): Episode {
 }
 
 // Good: small focused functions
-fun processEpisode(request: EpisodeRequest): Episode {
+fun processOrder(request: OrderRequest): Order {
     val validated = validate(request)
-    val episode = mapToDomain(validated)
-    val saved = persist(episode)
+    val order = mapToDomain(validated)
+    val saved = persist(order)
     notify(saved)
     return saved
 }

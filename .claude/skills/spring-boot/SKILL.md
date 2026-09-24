@@ -23,21 +23,21 @@ Single-write operations do not need `@Transactional` because Spring Data JDBC wr
 **Correct pattern:**
 ```kotlin
 @Service
-class PodcastService(
-    private val podcastRepository: PodcastRepository,
-    private val sourceRepository: SourceRepository,
+class StoreService(
+    private val storeRepository: StoreRepository,
+    private val supplierRepository: SupplierRepository,
 ) {
     // Good: multiple writes wrapped in a transaction
     @Transactional
-    fun createPodcast(podcast: Podcast): Podcast {
-        val savedPodcast = podcastRepository.save(podcast.toEntity())
-        sourceRepository.save(podcast.source.toEntity(savedPodcast.id!!))
-        return savedPodcast.toDomain()
+    fun createStore(store: Store): Store {
+        val savedStore = storeRepository.save(store.toEntity())
+        supplierRepository.save(store.supplier.toEntity(savedStore.id!!))
+        return savedStore.toDomain()
     }
 
     // Good: single write, no @Transactional needed
-    fun deletePodcast(id: Long) {
-        podcastRepository.deleteById(id)
+    fun deleteStore(id: Long) {
+        storeRepository.deleteById(id)
     }
 }
 ```
@@ -57,10 +57,10 @@ class PodcastService(
 
 **Violation:**
 ```kotlin
-interface EpisodeRepository : CrudRepository<EpisodeEntity, Long> {
+interface OrderRepository : CrudRepository<OrderEntity, Long> {
     @Transactional  // Wrong: don't put @Transactional on repositories
     @Modifying
-    @Query("DELETE FROM episode WHERE id = :id")
+    @Query("DELETE FROM orders WHERE id = :id")
     fun deleteById(@Param("id") id: Long)
 }
 ```
@@ -68,9 +68,9 @@ interface EpisodeRepository : CrudRepository<EpisodeEntity, Long> {
 **Correct:**
 ```kotlin
 @Service
-class EpisodeService(private val repository: EpisodeRepository) {
+class OrderService(private val repository: OrderRepository) {
     @Transactional
-    fun deleteEpisode(id: Long) {
+    fun deleteOrder(id: Long) {
         repository.deleteById(id)
     }
 }
@@ -103,22 +103,22 @@ If method A calls method B on the same service, and B needs a transaction, then 
 **Correct pattern:**
 ```kotlin
 @Service
-class EpisodeService(
-    private val episodeRepository: EpisodeRepository,
-    private val articleRepository: EpisodeArticleRepository,
+class OrderService(
+    private val orderRepository: OrderRepository,
+    private val orderItemRepository: OrderItemRepository,
 ) {
-    // Good: @Transactional is required here because createEpisode() is called
-    // via self-invocation (this.createEpisode()), bypassing Spring's proxy.
+    // Good: @Transactional is required here because createOrder() is called
+    // via self-invocation (this.createOrder()), bypassing Spring's proxy.
     @Transactional
-    fun createEpisodeWithArticles(podcast: Podcast, articles: List<Article>): Episode {
-        val episode = createEpisode(podcast)  // self-invocation: inner @Transactional is ignored
-        articles.forEach { articleRepository.save(it.toEntity(episode.id!!)) }
-        return episode
+    fun createOrderWithItems(store: Store, items: List<Product>): Order {
+        val order = createOrder(store)  // self-invocation: inner @Transactional is ignored
+        items.forEach { orderItemRepository.save(it.toEntity(order.id!!)) }
+        return order
     }
 
     @Transactional
-    fun createEpisode(podcast: Podcast): Episode {
-        return episodeRepository.save(Episode(podcastId = podcast.id!!).toEntity()).toDomain()
+    fun createOrder(store: Store): Order {
+        return orderRepository.save(Order(storeId = store.id!!).toEntity()).toDomain()
     }
 }
 ```
@@ -213,19 +213,19 @@ Scope the advice to the relevant controllers with `@RestControllerAdvice(assigna
 
 **Correct pattern:**
 ```kotlin
-@RestControllerAdvice(assignableTypes = [PublishingController::class])
-class PublishingExceptionHandler {
-    @ExceptionHandler(SoundCloudQuotaExceededException::class)
-    fun handleQuotaExceeded(e: SoundCloudQuotaExceededException): ResponseEntity<Any> =
+@RestControllerAdvice(assignableTypes = [OrderController::class])
+class OrderExceptionHandler {
+    @ExceptionHandler(WarehouseQuotaExceededException::class)
+    fun handleQuotaExceeded(e: WarehouseQuotaExceededException): ResponseEntity<Any> =
         ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(
             mapOf("error" to e.message, "code" to "quota_exceeded", /* plan fields */)
         )
 }
 
 // Controller just delegates — no quota try/catch:
-@PostMapping("/publish/{target}")
-fun publish(...): ResponseEntity<Any> {
-    val publication = publishingService.publish(episode, podcast, userId, target)
-    return ResponseEntity.ok(publication.toResponse())
+@PostMapping("/ship/{target}")
+fun ship(...): ResponseEntity<Any> {
+    val shipment = shippingService.ship(order, store, userId, target)
+    return ResponseEntity.ok(shipment.toResponse())
 }
 ```
