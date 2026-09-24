@@ -296,6 +296,39 @@ fired, and the episode it produced. Read them at `GET .../evaluation-runs`, or
 `GET .../episodes/{episodeId}/evaluation-runs` for one episode. An ordinary generation records
 nothing here.
 
+### Experiments
+
+An experiment compares several run configurations on the same input. It takes an existing
+episode's article set and composes it once per variant and repeat, so any difference between the
+resulting scripts comes from the configuration and not from a different news day.
+
+`POST .../episodes/{episodeId}/experiments` starts one and returns `202` with the experiment id and
+the episodes it will produce; the runs execute in the background. The request lists `variants`,
+the number of `repeats` per variant, and whether to `includeBaseline` (a variant with no
+overrides). Each variant may override any of the following, and keeps the podcast's own value for
+whatever it leaves out:
+
+| Override | What it changes |
+|----------|-----------------|
+| `models` | The model per pipeline stage (`filter`, `dedup`, `compose`, `eval`) |
+| `reasoningEffort` | The reasoning effort per stage |
+| `providerSort`, `preferredMinThroughput` | How OpenRouter picks the serving provider |
+| `targetWords` | The script length |
+| `researchQueryCap` | The number of deep-dive research queries |
+| `bypassLlmCache` | Defaults to `true`, so repeats are independent samples |
+
+The same overrides apply to any single run: the app resolves its defaults, the podcast's settings
+and the run's overrides once per run, and stores the result on the episode as a snapshot of what
+it was generated under.
+
+Experiment runs are sandboxed. Each produces an `EXPERIMENT` episode whose script is stored and
+judged, but no audio is generated, nothing is published, no articles are marked as used and the
+podcast's schedule is untouched. These episodes are left out of episode lists, feeds, history
+lookups and focus follow-ups.
+
+`GET .../episodes/{episodeId}/experiments` compares every experiment on the episode, per variant:
+judge score, cost, generation time, reasoning tokens and the provider that served each call.
+
 ## Knowledge Bundle
 
 `knowledge/` is what we have measured about the models and APIs this project depends on, why the
@@ -465,13 +498,13 @@ When `deepDiveEnabled` is set on a podcast, a pre-compose research stage plans u
 
 ## Focus Episodes
 
-Besides the regular scheduled episode, you can generate a one-off **focus episode** on demand: on the Upcoming Episode page, type a topic into the "Focus" field next to "Generate Episode" (e.g. "Claude Opus 5.5 release") and confirm in the dialog that opens. A focus episode is scored against that free-text focus instead of the podcast's topic, selecting from the same current article window as a regular manual generation, and considers every article in that window regardless of relevance to the podcast's general topic or whether a regular episode already used it (pure retweets are excluded; replies and quote posts with their own text are kept). If nothing clears the relevance threshold against the focus text, generation fails with a message naming the focus.
+Besides the regular scheduled episode, you can generate a one-off **focus episode** on demand: on the Upcoming Episode page, press "Generate Episode" and type a topic into the "Focus" field of the dialog that opens (e.g. "Claude Opus 5.5 release"). The dialog explains what the regular and the focus episode each trigger. A focus episode is scored against that free-text focus instead of the podcast's topic, selecting from the same current article window as a regular manual generation, and considers every article in that window regardless of relevance to the podcast's general topic or whether a regular episode already used it (pure retweets are excluded; replies and quote posts with their own text are kept). If nothing clears the relevance threshold against the focus text, generation fails with a message naming the focus.
 
 A focus episode's articles are linked for traceability but never marked processed, and it never advances the podcast's `lastGeneratedAt`, so it does not affect the regular schedule or article pool: the same articles remain eligible for the next regular episode, which treats a recent focus episode as a follow-up rather than skipping the topic as already covered.
 
 A focus episode always lands in `PENDING_REVIEW`, regardless of the podcast's `requireReview` setting. Its review screen shows the selected articles, the recorded research sources, and an estimated spoken length. From review you can submit feedback text and recompose the script (research reruns from cache, so this costs nothing extra); feedback asking for a different length overrides the podcast's configured target word count. This loop is repeatable, and approving after any number of feedback recomposes starts TTS as usual.
 
-Once published, the extra episode is announced and coexists in the feed alongside the same-day regular episode; its show notes and feed title read "Special: <focus>".
+Once published, the extra episode is announced and coexists in the feed alongside the same-day regular episode; its show notes and feed title read "Special: <focus>". The script says so too: the introduction presents it as an extra, special episode about that one subject, and the closing says the regular episode follows as usual.
 
 ## Publishing
 
