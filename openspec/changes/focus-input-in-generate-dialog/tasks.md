@@ -2,7 +2,8 @@
 
 - [x] 1.1 Move the Focus input from the header into the generate confirmation dialog, with a label and autofocus
 - [x] 1.2 Generate on Enter in the input
-- [x] 1.3 Explain in the dialog what a regular and a focus episode trigger, including the intro and closing
+- [x] 1.3 Add a Regular | Focus selection; show the focus input only for Focus and require it there
+- [x] 1.4 Explain in the dialog what a regular and a focus episode trigger, including the intro and closing
 
 ## 2. Verification
 

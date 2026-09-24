@@ -5,9 +5,9 @@ On the Upcoming Episode page the Focus input sat in the header next to the Gener
 ## What Changes
 
 - The Focus input moves from the page header into the confirmation dialog opened by Generate Episode, with a "Focus (optional)" label. It has keyboard focus when the dialog opens.
-- The dialog explains what each kind of episode does, and switches between the two as the focus is typed:
-  - Regular: built from the upcoming articles, which are marked as used; the schedule moves on; the intro and sign-off follow the podcast's usual format; review follows the podcast's `requireReview` setting.
-  - Focus: every article in the window is scored against the focus and research goes deep on it; the intro announces an extra, special episode and the closing says the regular episode follows as usual; the feed title reads "Special: <focus>"; it always stops for review and uses up no articles.
+- The dialog offers a Regular | Focus selection (Regular by default). The Focus input shows only for Focus, and generating a focus episode requires a non-empty focus. The explanation follows the selection:
+  - Regular: articles scoring at the relevance threshold or above against the podcast topic, grouped with duplicates merged; research as the deep-dive setting says; built from the upcoming articles, which are marked as used; the schedule moves on; the intro and sign-off follow the podcast's usual format; review follows the podcast's `requireReview` setting.
+  - Focus: every article in the window, including used ones (pure retweets excluded), is scored against the focus and only those at the threshold or above are kept; web search always runs with up to 5 queries across the subject's angles, plus past coverage; the intro announces an extra, special episode and the closing says the regular episode follows as usual; the feed title reads "Special: <focus>"; it always stops for review and uses up no articles.
 - Pressing Enter in the input generates, like the dialog's Generate button.
 - The request sent to the API is unchanged.
 

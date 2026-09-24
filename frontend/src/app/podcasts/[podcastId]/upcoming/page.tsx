@@ -29,6 +29,10 @@ import { useTabParam } from "@/hooks/use-tab-param";
 
 const WORDS_PER_MINUTE = 150;
 const TABS = ["articles", "script", "costs"] as const;
+const EPISODE_KINDS = [
+  { value: "regular", label: "Regular" },
+  { value: "focus", label: "Focus" },
+] as const;
 
 function formatCents(costCents: number | null): string {
   if (costCents === null) return "an unknown amount";
@@ -50,6 +54,7 @@ export default function UpcomingPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewStage, setPreviewStage] = useState<string | null>(null);
   const [generateLoading, setGenerateLoading] = useState(false);
+  const [episodeKind, setEpisodeKind] = useState<"regular" | "focus">("regular");
   const [focus, setFocus] = useState("");
   const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [sampleLoading, setSampleLoading] = useState(false);
@@ -298,7 +303,7 @@ export default function UpcomingPage() {
     setError(null);
     try {
       // Without a focus the request is sent exactly as before, with no body.
-      const trimmedFocus = focus.trim();
+      const trimmedFocus = episodeKind === "focus" ? focus.trim() : "";
       const res = await fetch(
         `/api/users/${selectedUser.id}/podcasts/${params.podcastId}/generate`,
         trimmedFocus
@@ -523,68 +528,105 @@ export default function UpcomingPage() {
       <AlertDialog open={confirmGenerate} onOpenChange={setConfirmGenerate}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {focus.trim() ? "Generate a focus episode?" : "Generate a regular episode?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              {focus.trim() ? (
-                <div className="space-y-2">
-                  <p>
-                    A one-off special episode about &ldquo;{focus.trim()}&rdquo;, on top of the regular schedule.
-                  </p>
-                  <ul className="list-disc space-y-1 pl-5">
-                    <li>
-                      All {articles.length} article{articles.length !== 1 ? "s" : ""} in the current window are scored
-                      against the focus instead of the podcast topic, and web research goes deep on this one subject.
-                    </li>
-                    <li>
-                      The intro announces it as an extra, special episode on this subject, and the closing says the
-                      regular episode follows as usual. The feed title reads &ldquo;Special: {focus.trim()}&rdquo;.
-                    </li>
-                    <li>
-                      It always stops for review before audio. It does not use up any articles or change the
-                      schedule, and the next regular episode picks the subject up as a follow-up.
-                    </li>
-                  </ul>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p>
-                    The next regular episode, generated now instead of at its scheduled time.
-                  </p>
-                  <ul className="list-disc space-y-1 pl-5">
-                    <li>
-                      Built from the {articles.length} upcoming article{articles.length !== 1 ? "s" : ""}, which are
-                      marked as used, and the schedule moves on from this episode.
-                    </li>
-                    <li>The intro and sign-off follow the podcast&rsquo;s usual format.</li>
-                    <li>
-                      {podcast.requireReview
-                        ? "It stops for review before audio."
-                        : "It goes straight on to audio, without a review step."}
-                    </li>
-                  </ul>
-                  <p>Enter a focus below to make a special episode about one subject instead.</p>
-                </div>
-              )}
+            <AlertDialogTitle>Generate an episode</AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose what kind of episode to generate from the {articles.length} upcoming
+              article{articles.length !== 1 ? "s" : ""}.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="focus">Focus (optional)</Label>
-            <Input
-              id="focus"
-              autoFocus
-              placeholder="e.g. Claude Opus 5.5 release"
-              value={focus}
-              onChange={(e) => setFocus(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setConfirmGenerate(false);
-                  handleGenerate();
-                }
-              }}
-            />
+
+          <div role="radiogroup" aria-label="Episode kind" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+            {EPISODE_KINDS.map((kind) => (
+              <button
+                key={kind.value}
+                type="button"
+                role="radio"
+                aria-checked={episodeKind === kind.value}
+                onClick={() => setEpisodeKind(kind.value)}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  episodeKind === kind.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {kind.label}
+              </button>
+            ))}
           </div>
+
+          {episodeKind === "regular" ? (
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>The next regular episode, generated now instead of at its scheduled time.</p>
+              <ul className="list-disc space-y-1 pl-5">
+                <li>
+                  <span className="font-medium text-foreground">Articles:</span> the upcoming articles scoring{" "}
+                  {podcast.relevanceThreshold} or higher against the podcast&rsquo;s topic, grouped by topic with
+                  duplicates merged. They are marked as used, and the schedule moves on from this episode.
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">Research:</span>{" "}
+                  {podcast.deepDiveEnabled
+                    ? "deep-dive research is on, so web search runs up to 3 queries on the most newsworthy stories."
+                    : "deep-dive research is off, so no web search runs."}{" "}
+                  Past episodes on the same stories are looked up either way.
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">Intro and sign-off:</span> the podcast&rsquo;s usual
+                  format.
+                </li>
+                <li>
+                  {podcast.requireReview
+                    ? "It stops for review before audio."
+                    : "It goes straight on to audio, without a review step."}
+                </li>
+              </ul>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>A one-off special episode about a single subject, on top of the regular schedule.</p>
+                <ul className="list-disc space-y-1 pl-5">
+                  <li>
+                    <span className="font-medium text-foreground">Articles:</span> every article in the current
+                    window is scored against the focus instead of the podcast topic, including articles a regular
+                    episode already used (pure retweets excluded). Only those scoring {podcast.relevanceThreshold} or
+                    higher are kept; if none do, generation stops with an error.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Research:</span> web search always runs, with up
+                    to 5 queries spread over the subject&rsquo;s angles (the announcement, reactions, numbers or
+                    benchmarks, what it means for the field), plus a look at past episodes that covered it.
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">Intro and closing:</span> the intro announces it
+                    as an extra, special episode on this subject, and the closing says the
+                    regular episode follows as usual. The feed title reads &ldquo;Special: {focus.trim() || "<focus>"}&rdquo;.
+                  </li>
+                  <li>
+                    It always stops for review before audio. It does not use up any articles or change the
+                    schedule, and the next regular episode picks the subject up as a follow-up.
+                  </li>
+                </ul>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="focus">Focus</Label>
+                <Input
+                  id="focus"
+                  autoFocus
+                  placeholder="e.g. Claude Opus 5.5 release"
+                  value={focus}
+                  onChange={(e) => setFocus(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && focus.trim()) {
+                      setConfirmGenerate(false);
+                      handleGenerate();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           <AlertDialogFooter>
             <AlertDialogCancel size="sm">
               <X className="size-4" />
@@ -592,13 +634,14 @@ export default function UpcomingPage() {
             </AlertDialogCancel>
             <AlertDialogAction
               size="sm"
+              disabled={episodeKind === "focus" && !focus.trim()}
               onClick={() => {
                 setConfirmGenerate(false);
                 handleGenerate();
               }}
             >
               <Sparkles className="size-4" />
-              Generate
+              {episodeKind === "focus" ? "Generate Focus Episode" : "Generate Regular Episode"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
