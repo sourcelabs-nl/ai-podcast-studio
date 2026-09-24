@@ -87,5 +87,7 @@ data class LlmCallRecord(
     /** The upstream provider that served the request, as OpenRouter reports it; null when unreported. */
     val servedProvider: String? = null,
     /** How many of [outputTokens] were reasoning; null when unreported. */
-    val reasoningTokens: Int? = null
+    val reasoningTokens: Int? = null,
+    /** OpenRouter's id for the request, used to look up its generation stats; null when unreported. */
+    val generationId: String? = null
 )

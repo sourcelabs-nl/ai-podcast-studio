@@ -35,6 +35,7 @@ class ChatClientFactoryTimeoutTest {
         providerConfigService = mockk<UserProviderConfigService>(),
         llmCacheRepository = mockk<LlmCacheRepository>(),
         llmCallLogService = mockk<LlmCallLogService>(relaxed = true),
+        generationStatsService = mockk<GenerationStatsService>(),
         appProperties = appProperties
     )
 

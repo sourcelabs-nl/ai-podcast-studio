@@ -382,6 +382,38 @@ export interface LlmCallLatencyResponse {
   stages: StageLatency[];
 }
 
+/** One upstream endpoint OpenRouter tried for a request. Mirrors backend `ProviderAttempt`. */
+export interface ProviderAttempt {
+  provider: string | null;
+  status: number | null;
+  latencyMs: number | null;
+}
+
+/**
+ * OpenRouter's account of a request. Mirrors backend `GenerationStats`. `generationTimeMs` spans the
+ * whole request and `firstContentMs` is the time until the first answer token, after reasoning.
+ */
+export interface GenerationStats {
+  firstContentMs: number | null;
+  generationTimeMs: number | null;
+  nativeCompletionTokens: number | null;
+  nativeReasoningTokens: number | null;
+  finishReason: string | null;
+  servedProvider: string | null;
+  attempts: ProviderAttempt[];
+}
+
+/**
+ * A request's time split into phases. Mirrors backend `RequestPhases`: startup until the provider
+ * began responding (failed attempts included), reasoning until the first answer token, then writing.
+ */
+export interface RequestPhases {
+  startupMs: number | null;
+  reasoningMs: number | null;
+  writingMs: number | null;
+  tokensPerSecond: number | null;
+}
+
 /** One recorded LLM request of an episode. Mirrors backend `LlmCallResponse`. */
 export interface LlmCall {
   startedAt: string;
@@ -390,6 +422,11 @@ export interface LlmCall {
   durationMs: number;
   outcome: string;
   cacheHit: boolean;
+  servedProvider?: string | null;
+  reasoningTokens?: number | null;
+  /** Null until fetched shortly after the request, and for non-OpenRouter, cached and failed requests. */
+  generationStats?: GenerationStats | null;
+  phases?: RequestPhases | null;
 }
 
 /**

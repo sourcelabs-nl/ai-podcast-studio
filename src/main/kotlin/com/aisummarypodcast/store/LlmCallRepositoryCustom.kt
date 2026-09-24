@@ -1,11 +1,15 @@
 package com.aisummarypodcast.store
 
 import com.aisummarypodcast.llm.DEDUP_GATE_STAGE
+import com.aisummarypodcast.llm.GenerationStats
 import com.aisummarypodcast.llm.LlmCostSource
 import com.aisummarypodcast.llm.RESEARCH_PLAN_STAGE
 import com.aisummarypodcast.llm.TIMEOUT_ERROR_TYPE
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
+import tools.jackson.databind.json.JsonMapper
+import tools.jackson.module.kotlin.readValue
+import java.sql.ResultSet
 
 /**
  * Which rows count as measured request latency: a real request that either answered or ran out of
@@ -93,7 +97,9 @@ data class LlmCallRow(
     val outcome: String,
     val cacheHit: Boolean,
     val servedProvider: String? = null,
-    val reasoningTokens: Int? = null
+    val reasoningTokens: Int? = null,
+    /** OpenRouter's account of the request; null until it has been fetched, and for every other provider. */
+    val generationStats: GenerationStats? = null
 )
 
 /**
@@ -138,6 +144,12 @@ interface LlmCallRepositoryCustom {
      * understates the most expensive stage of the pipeline rather than merely failing to improve it.
      */
     fun scoreAttribution(episodeId: Long): ScoreAttribution
+
+    /**
+     * Writes OpenRouter's account of the request recorded as [id]. The served provider is only
+     * filled in where the response itself did not report one.
+     */
+    fun updateGenerationStats(id: Long, stats: GenerationStats)
 }
 
 /** How much of an episode's scoring the request log can account for. See [LlmCallRepositoryCustom.scoreAttribution]. */
@@ -164,7 +176,8 @@ data class ScoreAttribution(val candidates: Int, val attributed: Int) {
  */
 @Repository
 class LlmCallRepositoryCustomImpl(
-    private val jdbcClient: JdbcClient
+    private val jdbcClient: JdbcClient,
+    private val jsonMapper: JsonMapper
 ) : LlmCallRepositoryCustom {
 
     override fun latencyPercentiles(scope: LlmCallScope): List<LlmCallLatency> {
@@ -196,7 +209,9 @@ class LlmCallRepositoryCustomImpl(
     override fun requestsForEpisode(episodeId: Long): List<LlmCallRow> =
         jdbcClient.sql(
             """
-            SELECT started_at, stage, model, duration_ms, outcome, cache_hit, served_provider, reasoning_tokens
+            SELECT started_at, stage, model, duration_ms, outcome, cache_hit, served_provider, reasoning_tokens,
+                   first_content_ms, generation_time_ms, native_completion_tokens, native_reasoning_tokens,
+                   finish_reason, provider_attempts_json
             FROM llm_calls
             WHERE $BELONGS_TO_EPISODE
             ORDER BY started_at DESC, id DESC
@@ -212,10 +227,50 @@ class LlmCallRepositoryCustomImpl(
                     outcome = rs.getString("outcome"),
                     cacheHit = rs.getBoolean("cache_hit"),
                     servedProvider = rs.getString("served_provider"),
-                    reasoningTokens = rs.getInt("reasoning_tokens").takeUnless { rs.wasNull() }
+                    reasoningTokens = rs.getInt("reasoning_tokens").takeUnless { rs.wasNull() },
+                    generationStats = generationStatsOf(rs)
                 )
             }
             .list()
+
+    override fun updateGenerationStats(id: Long, stats: GenerationStats) {
+        jdbcClient.sql(
+            """
+            UPDATE llm_calls
+            SET first_content_ms = :firstContentMs,
+                generation_time_ms = :generationTimeMs,
+                native_completion_tokens = :nativeCompletionTokens,
+                native_reasoning_tokens = :nativeReasoningTokens,
+                finish_reason = :finishReason,
+                provider_attempts_json = :attempts,
+                served_provider = COALESCE(served_provider, :servedProvider)
+            WHERE id = :id
+            """.trimIndent()
+        )
+            .param("firstContentMs", stats.firstContentMs)
+            .param("generationTimeMs", stats.generationTimeMs)
+            .param("nativeCompletionTokens", stats.nativeCompletionTokens)
+            .param("nativeReasoningTokens", stats.nativeReasoningTokens)
+            .param("finishReason", stats.finishReason)
+            .param("attempts", jsonMapper.writeValueAsString(stats.attempts))
+            .param("servedProvider", stats.servedProvider)
+            .param("id", id)
+            .update()
+    }
+
+    /** Stats are present once a lookup has written the attempts, which every successful lookup does. */
+    private fun generationStatsOf(rs: ResultSet): GenerationStats? {
+        val attemptsJson = rs.getString("provider_attempts_json") ?: return null
+        return GenerationStats(
+            firstContentMs = rs.getLong("first_content_ms").takeUnless { rs.wasNull() },
+            generationTimeMs = rs.getLong("generation_time_ms").takeUnless { rs.wasNull() },
+            nativeCompletionTokens = rs.getInt("native_completion_tokens").takeUnless { rs.wasNull() },
+            nativeReasoningTokens = rs.getInt("native_reasoning_tokens").takeUnless { rs.wasNull() },
+            finishReason = rs.getString("finish_reason"),
+            servedProvider = rs.getString("served_provider"),
+            attempts = jsonMapper.readValue(attemptsJson)
+        )
+    }
 
     override fun earliestAttributedStart(): String? =
         jdbcClient.sql("SELECT MIN(started_at) FROM llm_calls WHERE episode_id IS NOT NULL")

@@ -72,7 +72,14 @@ class LlmCallLatencyControllerTest {
             episodeId = 224,
             predatesAttribution = false,
             requests = listOf(
-                LlmCallResponse("2026-09-18T10:00:00Z", "compose", "test-model", 59_300, "ok", false),
+                LlmCallResponse(
+                    "2026-09-18T10:00:00Z", "compose", "test-model", 59_300, "ok", false,
+                    generationStats = GenerationStats(
+                        40_000, 58_000, 7_000, 5_000, "stop", "Novita",
+                        listOf(ProviderAttempt("DeepInfra", 503, 900), ProviderAttempt("Novita", 200, 1_200))
+                    ),
+                    phases = RequestPhases(2_100, 37_900, 18_000, 125.2)
+                ),
                 LlmCallResponse("2026-09-18T10:02:00Z", "filter", "test-model", 0, "ok", true)
             )
         )
@@ -81,7 +88,11 @@ class LlmCallLatencyControllerTest {
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.predatesAttribution").value(false))
             .andExpect(jsonPath("$.requests[0].durationMs").value(59_300))
+            .andExpect(jsonPath("$.requests[0].generationStats.firstContentMs").value(40_000))
+            .andExpect(jsonPath("$.requests[0].phases.reasoningMs").value(37_900))
+            .andExpect(jsonPath("$.requests[0].generationStats.attempts[0].provider").value("DeepInfra"))
             .andExpect(jsonPath("$.requests[1].cacheHit").value(true))
+            .andExpect(jsonPath("$.requests[1].generationStats").doesNotExist())
     }
 
     @Test

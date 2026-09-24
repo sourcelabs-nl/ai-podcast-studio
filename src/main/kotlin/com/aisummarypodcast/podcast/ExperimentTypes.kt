@@ -24,7 +24,8 @@ data class ExperimentStarted(val experimentId: String, val sourceEpisodeId: Long
  * the last one's end (research tool rounds included), [reasoningTokens] sums what the provider
  * reported, and [servedProviders] lists every upstream provider that answered one. [totalCostCents]
  * covers everything the sandbox run is billed for (compose, research and recap), without the judge.
- * [wordCount] counts spoken words, leaving out speaker tags and bracketed cues.
+ * [wordCount] counts spoken words, leaving out speaker tags and bracketed cues. [composeBreakdown]
+ * splits the compose time using OpenRouter's account of each request; see [ComposeBreakdown].
  */
 data class ExperimentRunMetrics(
     val episodeId: Long,
@@ -38,7 +39,8 @@ data class ExperimentRunMetrics(
     val composeCalls: Int,
     val reasoningTokens: Int?,
     val servedProviders: List<String>,
-    val wordCount: Int?
+    val wordCount: Int?,
+    val composeBreakdown: ComposeBreakdown?
 )
 
 /** Means over a variant's completed runs; each is null when no completed run reported it. */
@@ -49,7 +51,8 @@ data class ExperimentVariantMeans(
     val composeDurationMs: Double?,
     val composeCalls: Double?,
     val reasoningTokens: Double?,
-    val wordCount: Double?
+    val wordCount: Double?,
+    val composeBreakdown: ComposeBreakdownMeans
 )
 
 data class ExperimentVariantComparison(

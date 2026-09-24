@@ -35,9 +35,10 @@ class LlmCallLogService(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /** Returns the recorded row's id, or null when the write failed. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun record(record: LlmCallRecord) {
-        try {
+    fun record(record: LlmCallRecord): Long? {
+        return try {
             val cost = resolveCost(record)
             llmCallRepository.save(
                 LlmCall(
@@ -57,14 +58,26 @@ class LlmCallLogService(
                     episodeId = record.attribution.episodeId,
                     articleId = record.attribution.articleId,
                     servedProvider = record.servedProvider,
-                    reasoningTokens = record.reasoningTokens
+                    reasoningTokens = record.reasoningTokens,
+                    generationId = record.generationId
                 )
-            )
+            ).id
         } catch (e: RuntimeException) {
             log.warn(
                 "Failed to record LLM call telemetry for stage={} model={}: {}",
                 record.stage, record.model, e.message
             )
+            null
+        }
+    }
+
+    /** Writes OpenRouter's account of a recorded request. Like [record], a failure is logged and swallowed. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun recordGenerationStats(callId: Long, stats: GenerationStats) {
+        try {
+            llmCallRepository.updateGenerationStats(callId, stats)
+        } catch (e: RuntimeException) {
+            log.warn("Failed to record generation stats for LLM call {}: {}", callId, e.message)
         }
     }
 

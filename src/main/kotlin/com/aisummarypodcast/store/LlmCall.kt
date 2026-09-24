@@ -33,6 +33,10 @@ import org.springframework.data.relational.core.mapping.Table
  * [servedProvider] is the upstream provider OpenRouter routed the request to, and [reasoningTokens]
  * how many of [outputTokens] were reasoning. Both are null where the response did not say, which
  * includes cache hits and failed requests.
+ *
+ * [generationId] is OpenRouter's id for the request, and the columns after it are OpenRouter's own
+ * account of it, fetched shortly after the request returned (see `GenerationStatsService`). They are
+ * written by a separate update rather than through this entity, so they stay null here on insert.
  */
 @Table("llm_calls")
 data class LlmCall(
@@ -54,5 +58,12 @@ data class LlmCall(
     val articleId: Long? = null,
     val servedProvider: String? = null,
     val reasoningTokens: Int? = null,
+    val generationId: String? = null,
+    val firstContentMs: Long? = null,
+    val generationTimeMs: Long? = null,
+    val nativeCompletionTokens: Int? = null,
+    val nativeReasoningTokens: Int? = null,
+    val finishReason: String? = null,
+    val providerAttemptsJson: String? = null,
     @Version val version: Long? = null
 )

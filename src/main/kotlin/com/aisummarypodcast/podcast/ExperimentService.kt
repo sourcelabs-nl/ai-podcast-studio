@@ -141,7 +141,8 @@ class ExperimentService(
                 composeDurationMs = completed.meanOf { it.composeDurationMs?.toDouble() },
                 composeCalls = completed.meanOf { it.composeCalls.toDouble() },
                 reasoningTokens = completed.meanOf { it.reasoningTokens?.toDouble() },
-                wordCount = completed.meanOf { it.wordCount?.toDouble() }
+                wordCount = completed.meanOf { it.wordCount?.toDouble() },
+                composeBreakdown = breakdownMeans(completed.mapNotNull { it.composeBreakdown })
             )
         )
     }
@@ -166,9 +167,19 @@ class ExperimentService(
             composeCalls = composeCalls.size,
             reasoningTokens = composeCalls.mapNotNull { it.reasoningTokens }.takeIf { it.isNotEmpty() }?.sum(),
             servedProviders = composeCalls.mapNotNull { it.servedProvider }.distinct(),
-            wordCount = if (composed) spokenWords(episode.scriptText) else null
+            wordCount = if (composed) spokenWords(episode.scriptText) else null,
+            composeBreakdown = ComposeBreakdown.of(composeCalls)
         )
     }
+
+    private fun breakdownMeans(breakdowns: List<ComposeBreakdown>) = ComposeBreakdownMeans(
+        startupMs = breakdowns.meanOf { it.startupMs?.toDouble() },
+        reasoningMs = breakdowns.meanOf { it.reasoningMs?.toDouble() },
+        writingMs = breakdowns.meanOf { it.writingMs?.toDouble() },
+        reasoningShare = breakdowns.meanOf { it.reasoningShare },
+        tokensPerSecond = breakdowns.meanOf { it.tokensPerSecond },
+        fallbackAttempts = breakdowns.meanOf { it.fallbackAttempts.toDouble() }
+    )
 
     private fun wallTimeMs(calls: List<LlmCallRow>): Long? {
         if (calls.isEmpty()) return null

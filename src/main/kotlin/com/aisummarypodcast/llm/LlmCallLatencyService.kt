@@ -50,7 +50,9 @@ class LlmCallLatencyService(
                 outcome = it.outcome,
                 cacheHit = it.cacheHit,
                 servedProvider = it.servedProvider,
-                reasoningTokens = it.reasoningTokens
+                reasoningTokens = it.reasoningTokens,
+                generationStats = it.generationStats,
+                phases = it.generationStats?.phases()
             )
         }
         return EpisodeLlmCallsResponse(

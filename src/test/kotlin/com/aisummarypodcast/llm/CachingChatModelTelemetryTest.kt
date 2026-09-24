@@ -60,7 +60,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } returns response()
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         model.call(prompt)
 
@@ -74,6 +74,44 @@ class CachingChatModelTelemetryTest {
     }
 
     @Test
+    fun `an OpenRouter request records its generation id and has its stats looked up`() {
+        val statsService = mockk<GenerationStatsService>(relaxed = true)
+        val lookup = GenerationStatsLookup("https://openrouter.ai/api", "sk-test")
+        val tracked = CachingChatModel(
+            delegate, llmCacheRepository, resolvedModel, llmCallLogService,
+            generationStats = GenerationStatsTracker(statsService, lookup)
+        )
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
+        every { delegate.call(prompt) } returns ChatResponse(
+            listOf(Generation(AssistantMessage("A script"))),
+            ChatResponseMetadata.builder().id("gen-1").usage(DefaultUsage(200, 50)).build()
+        )
+        val recorded = slot<LlmCallRecord>()
+        every { llmCallLogService.record(capture(recorded)) } returns 9L
+
+        tracked.call(prompt)
+
+        assertEquals("gen-1", recorded.captured.generationId)
+        verify { statsService.schedule(9L, "gen-1", lookup) }
+    }
+
+    @Test
+    fun `a cache hit has no generation stats looked up`() {
+        val statsService = mockk<GenerationStatsService>(relaxed = true)
+        val tracked = CachingChatModel(
+            delegate, llmCacheRepository, resolvedModel, llmCallLogService,
+            generationStats = GenerationStatsTracker(statsService, GenerationStatsLookup("https://openrouter.ai/api", "sk-test"))
+        )
+        every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns
+            LlmCache(promptHash = "h", model = "test-model", response = "cached", createdAt = "2026-09-24T10:00:00Z")
+        every { llmCallLogService.record(any()) } returns 9L
+
+        tracked.call(prompt)
+
+        verify(exactly = 0) { statsService.schedule(any(), any(), any()) }
+    }
+
+    @Test
     fun `a cache hit is recorded as a hit and never reaches the provider`() {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns LlmCache(
             promptHash = "hash",
@@ -84,7 +122,7 @@ class CachingChatModelTelemetryTest {
             outputTokens = 50
         )
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         model.call(prompt)
 
@@ -97,7 +135,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } throws SocketTimeoutException("timeout")
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         assertThrows(SocketTimeoutException::class.java) { model.call(prompt) }
 
@@ -112,7 +150,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } throws IllegalStateException("provider refused")
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         assertThrows(IllegalStateException::class.java) { model.call(prompt) }
 
@@ -134,7 +172,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(any<Prompt>()) } returnsMany listOf(pending, response())
         val recorded = mutableListOf<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         model.call(prompt)
         model.call(prompt)
@@ -148,7 +186,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } returns response()
         val success = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(success)) } returns Unit
+        every { llmCallLogService.record(capture(success)) } returns 1L
         model.call(prompt)
         assertEquals(42L, success.captured.attribution.episodeId)
 
@@ -161,14 +199,14 @@ class CachingChatModelTelemetryTest {
             outputTokens = 50
         )
         val hit = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(hit)) } returns Unit
+        every { llmCallLogService.record(capture(hit)) } returns 1L
         model.call(prompt)
         assertEquals(42L, hit.captured.attribution.episodeId)
 
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } throws SocketTimeoutException("timeout")
         val failure = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(failure)) } returns Unit
+        every { llmCallLogService.record(capture(failure)) } returns 1L
         assertThrows(SocketTimeoutException::class.java) { model.call(prompt) }
         assertEquals(42L, failure.captured.attribution.episodeId)
     }
@@ -180,7 +218,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } returns response()
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         unattributed.call(prompt)
 
@@ -198,7 +236,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } returns response()
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         withContext(Dispatchers.IO) { model.call(prompt) }
 
@@ -219,7 +257,7 @@ class CachingChatModelTelemetryTest {
             ChatResponseMetadata.builder().usage(DefaultUsage(200, 50, 250, nativeUsage)).keyValue("provider", "Anthropic").build()
         )
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
 
         model.call(prompt)
 
@@ -232,7 +270,7 @@ class CachingChatModelTelemetryTest {
         every { llmCacheRepository.findByPromptHashAndModel(any(), any()) } returns null
         every { delegate.call(prompt) } returns response()
         val recorded = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(recorded)) } returns Unit
+        every { llmCallLogService.record(capture(recorded)) } returns 1L
         val planModel = CachingChatModel(
             delegate, llmCacheRepository,
             resolvedModel.copy(stage = PipelineStage.FILTER, telemetryStage = RESEARCH_PLAN_STAGE),

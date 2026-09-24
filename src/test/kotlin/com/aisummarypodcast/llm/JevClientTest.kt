@@ -240,7 +240,7 @@ class JevClientTest {
     @Test
     fun `a successful call is recorded as one request`() {
         val record = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(record)) } returns Unit
+        every { llmCallLogService.record(capture(record)) } returns 1L
         mockServer.expect(requestTo(URL)).andRespond(
             withSuccess(
                 """
@@ -274,7 +274,7 @@ class JevClientTest {
     @Test
     fun `a retried transient failure is recorded once per attempt`() {
         val records = mutableListOf<LlmCallRecord>()
-        every { llmCallLogService.record(capture(records)) } returns Unit
+        every { llmCallLogService.record(capture(records)) } returns 1L
         // Rebuilt with a wait long enough to show up in a duration that wrongly included it.
         client = JevClient(
             providerConfigService,
@@ -309,7 +309,7 @@ class JevClientTest {
     @Test
     fun `a rejected request is recorded as a failure carrying its kind`() {
         val record = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(record)) } returns Unit
+        every { llmCallLogService.record(capture(record)) } returns 1L
         mockServer.expect(requestTo(URL)).andRespond(withBadRequest())
 
         client.ask("u1", emptyMap<String, String>(), questions("a1"), endpoint, CALLER)
@@ -347,7 +347,7 @@ class JevClientTest {
     @Test
     fun `a question asked outside an episode is recorded without one`() {
         val record = slot<LlmCallRecord>()
-        every { llmCallLogService.record(capture(record)) } returns Unit
+        every { llmCallLogService.record(capture(record)) } returns 1L
         mockServer.expect(requestTo(URL)).andRespond(
             withSuccess("""{"answers": {"a1": {"type": "noul", "noul": 0.9}}}""", MediaType.APPLICATION_JSON)
         )

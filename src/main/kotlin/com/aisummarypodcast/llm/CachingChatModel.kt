@@ -36,6 +36,9 @@ import kotlin.time.TimeSource
  * per call site, so it is per-generation without being shared, and it reaches the recorded row
  * without depending on which thread issues the request. The scoring stage builds one per article,
  * so each of its requests names the article it scored.
+ *
+ * [generationStats] is set for OpenRouter models: each answered, non-cached request then has
+ * OpenRouter's account of it fetched afterwards and written onto its record.
  */
 class CachingChatModel(
     private val delegate: ChatModel,
@@ -43,7 +46,8 @@ class CachingChatModel(
     private val resolvedModel: ResolvedModel,
     private val llmCallLogService: LlmCallLogService,
     private val cacheEnabled: Boolean = true,
-    private val attribution: LlmCallAttribution = LlmCallAttribution.NONE
+    private val attribution: LlmCallAttribution = LlmCallAttribution.NONE,
+    private val generationStats: GenerationStatsTracker? = null
 ) : ChatModel {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -139,7 +143,8 @@ class CachingChatModel(
      */
     private fun recordCall(startedAt: Instant, elapsed: Duration, response: ChatResponse, cacheHit: Boolean) {
         val usage = TokenUsage.fromChatResponse(response)
-        llmCallLogService.record(
+        val generationId = response.metadata?.id?.takeIf { !cacheHit && it.isNotBlank() }
+        val callId = llmCallLogService.record(
             LlmCallRecord(
                 startedAt = startedAt,
                 stage = resolvedModel.telemetryStage,
@@ -152,9 +157,11 @@ class CachingChatModel(
                 cacheHit = cacheHit,
                 attribution = attribution,
                 servedProvider = servedProviderOf(response),
-                reasoningTokens = usage.reasoningTokens
+                reasoningTokens = usage.reasoningTokens,
+                generationId = generationId
             )
         )
+        if (callId != null && generationId != null) generationStats?.track(callId, generationId)
     }
 
     /**

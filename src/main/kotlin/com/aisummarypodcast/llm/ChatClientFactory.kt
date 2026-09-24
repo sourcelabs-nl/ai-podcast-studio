@@ -3,6 +3,7 @@ package com.aisummarypodcast.llm
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.ApiKeyCategory
 import com.aisummarypodcast.store.LlmCacheRepository
+import com.aisummarypodcast.user.ProviderConfig
 import com.aisummarypodcast.user.UserProviderConfigService
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.ai.openai.OpenAiChatModel
@@ -14,6 +15,7 @@ class ChatClientFactory(
     private val providerConfigService: UserProviderConfigService,
     private val llmCacheRepository: LlmCacheRepository,
     private val llmCallLogService: LlmCallLogService,
+    private val generationStatsService: GenerationStatsService,
     private val appProperties: AppProperties
 ) {
 
@@ -61,6 +63,16 @@ class ChatClientFactory(
         val chatModel = OpenAiChatModel.builder()
             .openAiClient(openAiClient)
             .build()
-        return CachingChatModel(chatModel, llmCacheRepository, resolvedModel, llmCallLogService, useCache, attribution)
+        return CachingChatModel(
+            chatModel, llmCacheRepository, resolvedModel, llmCallLogService, useCache, attribution,
+            generationStatsTracker(resolvedModel, config)
+        )
+    }
+
+    /** Only OpenRouter reports per-request generation stats, and only a configured key can ask for them. */
+    private fun generationStatsTracker(resolvedModel: ResolvedModel, config: ProviderConfig): GenerationStatsTracker? {
+        if (resolvedModel.provider != OpenRouterRouting.PROVIDER) return null
+        val apiKey = config.apiKey?.takeIf { it.isNotBlank() } ?: return null
+        return GenerationStatsTracker(generationStatsService, GenerationStatsLookup(config.baseUrl, apiKey))
     }
 }

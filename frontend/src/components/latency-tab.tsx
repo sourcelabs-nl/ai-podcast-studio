@@ -116,6 +116,28 @@ function RequestOutcome({ request }: { request: LlmCall }) {
   return <span className="text-muted-foreground">ok</span>;
 }
 
+/**
+ * The serving provider, and every upstream attempt when OpenRouter had to fall back: a request that
+ * first stalled on one provider reads as slow without any of it being generation.
+ */
+function RequestProvider({ request }: { request: LlmCall }) {
+  const attempts = request.generationStats?.attempts ?? [];
+  const provider = request.servedProvider ?? request.generationStats?.servedProvider;
+  if (!provider) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div>
+      <div>{provider}</div>
+      {attempts.length > 1 && (
+        <div className="text-xs text-muted-foreground">
+          {attempts
+            .map((a) => `${a.provider ?? "?"} ${a.status ?? "?"} (${formatMs(a.latencyMs)})`)
+            .join(" → ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RequestList({ requests }: { requests: LlmCall[] }) {
   // Newest first, so the requests read in the order a run made them, most recent on top.
   const sorted = [...requests].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -127,12 +149,20 @@ function RequestList({ requests }: { requests: LlmCall[] }) {
           <TableHead>Stage</TableHead>
           <TableHead>Model</TableHead>
           <TableHead className="text-right">Duration</TableHead>
+          <TableHead className="text-right">Startup</TableHead>
+          <TableHead className="text-right">Reasoning</TableHead>
+          <TableHead className="text-right">Writing</TableHead>
+          <TableHead className="text-right">Tokens/s</TableHead>
+          <TableHead>Provider</TableHead>
           <TableHead className="text-right">Outcome</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sorted.map((request, index) => (
-          <TableRow key={`${request.startedAt}-${index}`}>
+        {sorted.map((request, index) => {
+          const phases = request.phases ?? null;
+          const speed = phases?.tokensPerSecond ?? null;
+          return (
+            <TableRow key={`${request.startedAt}-${index}`}>
             <TableCell className="tabular-nums text-muted-foreground">
               {formatTime(request.startedAt)}
             </TableCell>
@@ -141,11 +171,19 @@ function RequestList({ requests }: { requests: LlmCall[] }) {
             <TableCell className="text-right tabular-nums">
               {request.cacheHit ? "—" : formatMs(request.durationMs)}
             </TableCell>
+            <TableCell className="text-right tabular-nums">{formatMs(phases?.startupMs ?? null)}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatMs(phases?.reasoningMs ?? null)}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatMs(phases?.writingMs ?? null)}</TableCell>
+            <TableCell className="text-right tabular-nums">{speed != null ? Math.round(speed) : "—"}</TableCell>
+            <TableCell>
+              <RequestProvider request={request} />
+            </TableCell>
             <TableCell className="text-right">
               <RequestOutcome request={request} />
             </TableCell>
-          </TableRow>
-        ))}
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

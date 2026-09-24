@@ -51,7 +51,11 @@ clears the temperature for `openai/` models: see
 
 **Provider sort only reorders what the floor lets through.** A run can set
 `provider.sort` (`price`, `throughput`, `latency`) and
-`preferred_min_throughput`; neither widens the floor. On 2026-09-23 every
+`preferred_min_throughput`; neither widens the floor. This `latency` is a
+request-side sort key, not the same thing as the `latency` field OpenRouter
+returns from `/api/v1/generation`, which is time to the first answer token
+after reasoning rather than a per-endpoint attempt time: see
+[[openrouter-generation-stats]]. On 2026-09-23 every
 DeepSeek compose run was served by Novita whether sorted by throughput or not,
 because few endpoints clear the floor: see [[pipeline-experiments-2026-09]].
 Which endpoint the default price order lands on moves with the provider mix:

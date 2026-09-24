@@ -30,3 +30,5 @@ change behaviour behind an unchanged name.
   Read when an openai/ model returns 404 "No endpoints found that can handle the requested parameters".
 - [Spring AI 2.0.1 caps every OpenAI request at 60 seconds unless the call options carry a timeout](spring-ai-2-0-1-per-request-timeout.md)  
   Read when LLM requests fail at exactly 60s with "Error reading response" / InterruptedIOException timeout, or when upgrading Spring AI.
+- [OpenRouter's generation stats split a request into startup, reasoning and writing, but its "latency" is not time to first token](openrouter-generation-stats.md)  
+  Read when a single LLM request was slow and you need to know whether it queued, reasoned, generated slowly or fell back between providers; or when reading OpenRouter's /api/v1/generation fields.

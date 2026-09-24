@@ -32,7 +32,14 @@ data class LlmCallResponse(
     /** The upstream provider OpenRouter served the request from; null when unreported. */
     val servedProvider: String? = null,
     /** How many of the request's output tokens were reasoning; null when unreported. */
-    val reasoningTokens: Int? = null
+    val reasoningTokens: Int? = null,
+    /**
+     * OpenRouter's account of where the request's time went; null until fetched (shortly after the
+     * request) and for every other provider, cache hits and failures.
+     */
+    val generationStats: GenerationStats? = null,
+    /** [generationStats] split into startup, reasoning and writing; null whenever it is. */
+    val phases: RequestPhases? = null
 )
 
 /**

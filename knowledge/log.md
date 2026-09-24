@@ -7,6 +7,29 @@ screen.
 
 ## [2026-09-24] Lint
 
+Checked whether `compose-reasoning-and-routing-2026-09` or any other entry
+describes OpenRouter's response `latency` field as time to first token, since
+the new `openrouter-generation-stats` entry corrects that reading. No entry
+does: the only other uses of the word "latency" are `openrouter-routing`'s
+`provider.sort: "latency"` request option and the Jev entries' own measured
+HTTP round-trip times, neither of which is the same field. Cross-referenced
+`openrouter-routing` and `openrouter-generation-stats` both ways so the two
+senses of "latency" do not get conflated later. Full pass over all 36 entries
+otherwise found no missing frontmatter, no dangling wikilinks, no expired
+`stale_after`, no em-dashes, no entry narrating its own edit history, and every
+entry listed in its section index. Left open, as before: `PromptVarietyPicker`
+and the `ScriptJudge`/`AttentionScoring` split still have no entry of their
+own.
+
+## [2026-09-24] Record
+
+Added `models-and-apis/openrouter-generation-stats.md`: OpenRouter's generation
+stats arrive 10-20 s after a request, `generation_time` spans the whole request,
+`latency` is the time to the first answer token after reasoning, and the attempt
+latencies give the startup wait. Episode 276's slow compose was reasoning, not queueing.
+
+## [2026-09-24] Lint
+
 Repaired this file's own header again: adding the 2026-09-24 Record entry had
 spliced it into the middle of the "Each entry begins with..." header paragraph,
 the same failure mode fixed on 2026-09-22. Normalized `[[evals/structured-output-for-scripts]]`
