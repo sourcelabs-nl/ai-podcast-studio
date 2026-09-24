@@ -403,10 +403,9 @@ class LlmPipeline(
         // article those values are summed; the rest are estimated from the SUM of their tokens
         // (per-article integer cents lose sub-cent precision).
         val candidates = candidateOutcomes(eligible, dedupResult.dropped, composeArticles)
-        val scored = eligible.filter { it.id != null }
-        val scoreInputTokens = scored.sumOf { it.llmInputTokens ?: 0 }
-        val scoreOutputTokens = scored.sumOf { it.llmOutputTokens ?: 0 }
-        val scoreCost = scoreStageCost(scored, filterModelDef)
+        val scoreInputTokens = eligible.sumOf { it.llmInputTokens ?: 0 }
+        val scoreOutputTokens = eligible.sumOf { it.llmOutputTokens ?: 0 }
+        val scoreCost = scoreStageCost(eligible, filterModelDef)
 
         return DedupStageResult(
             filteredArticles = composeArticles,

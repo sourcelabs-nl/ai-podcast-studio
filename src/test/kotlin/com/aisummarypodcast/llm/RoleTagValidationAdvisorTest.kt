@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import tools.jackson.databind.json.JsonMapper
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
@@ -44,7 +45,7 @@ class RoleTagValidationAdvisorTest {
 
         val result = buildChatClient(chatModel).prompt()
             .user("Write a script.")
-            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
             .call()
             .content()
 
@@ -62,7 +63,7 @@ class RoleTagValidationAdvisorTest {
 
         val result = buildChatClient(chatModel).prompt()
             .user("Write a script.")
-            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
             .call()
             .content()
 
@@ -85,7 +86,7 @@ class RoleTagValidationAdvisorTest {
             ChatResponse(listOf(Generation(AssistantMessage("Hi there, no tags."))), metadata(1000, 10000)),
             ChatResponse(listOf(Generation(AssistantMessage("<interviewer>Hi</interviewer><expert>Hello</expert>"))), metadata(1100, 9000))
         )
-        val advisor = RoleTagValidationAdvisor(allowedRoles)
+        val advisor = RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build()))
 
         val response = buildChatClient(chatModel).prompt()
             .user("Write a script.")
@@ -112,7 +113,7 @@ class RoleTagValidationAdvisorTest {
         try {
             buildChatClient(chatModel).prompt()
                 .user("Write a script.")
-                .advisors(RoleTagValidationAdvisor(allowedRoles))
+                .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
                 .call()
                 .content()
         } finally {
@@ -135,7 +136,7 @@ class RoleTagValidationAdvisorTest {
 
         val result = buildChatClient(chatModel).prompt()
             .user("Write a script.")
-            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
             .call()
             .content()
 
@@ -158,7 +159,7 @@ class RoleTagValidationAdvisorTest {
 
         val result = buildChatClient(chatModel).prompt()
             .user("Write a script.")
-            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
             .call()
             .content()
 
@@ -174,7 +175,7 @@ class RoleTagValidationAdvisorTest {
         val ex = assertThrows(IllegalStateException::class.java) {
             buildChatClient(chatModel).prompt()
                 .user("Write a script.")
-                .advisors(RoleTagValidationAdvisor(allowedRoles, maxRetries = 2))
+                .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build()), maxRetries = 2))
                 .call()
                 .content()
         }
@@ -192,7 +193,7 @@ class RoleTagValidationAdvisorTest {
         val ex = assertThrows(IllegalStateException::class.java) {
             buildChatClient(chatModel).prompt()
                 .user("Write a script.")
-                .advisors(RoleTagValidationAdvisor(allowedRoles, maxRetries = 2))
+                .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build()), maxRetries = 2))
                 .call()
                 .content()
         }
@@ -213,7 +214,7 @@ class RoleTagValidationAdvisorTest {
 
         buildChatClient(chatModel).prompt()
             .user("Write a script.")
-            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
             .call()
             .content()
 
@@ -231,7 +232,7 @@ class RoleTagValidationAdvisorTest {
 
         val result = buildChatClient(chatModel).prompt()
             .user("Write a script.")
-            .advisors(RoleTagValidationAdvisor(allowedRoles))
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
             .call()
             .content()
 
@@ -250,7 +251,7 @@ class RoleTagValidationAdvisorTest {
         val error = assertThrows(IllegalStateException::class.java) {
             buildChatClient(chatModel).prompt()
                 .user("Write a script.")
-                .advisors(RoleTagValidationAdvisor(allowedRoles))
+                .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
                 .call()
                 .content()
         }

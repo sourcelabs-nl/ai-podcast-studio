@@ -9,6 +9,8 @@ import java.time.format.DateTimeFormatter
 
 data class TwitterFetchResult(val posts: List<Post>, val resolvedXUserId: String?)
 
+data class LastSeenCursor(val xUserId: String?, val sinceId: String?)
+
 @Component
 class TwitterFetcher(
     private val xTokenManager: XTokenManager,
@@ -76,13 +78,13 @@ class TwitterFetcher(
         return cleaned.removePrefix("@")
     }
 
-    internal fun parseLastSeenId(lastSeenId: String?): Pair<String?, String?> {
-        if (lastSeenId == null) return Pair(null, null)
+    internal fun parseLastSeenId(lastSeenId: String?): LastSeenCursor {
+        if (lastSeenId == null) return LastSeenCursor(null, null)
         val parts = lastSeenId.split(":", limit = 2)
         return if (parts.size == 2) {
-            Pair(parts[0], parts[1].ifEmpty { null })
+            LastSeenCursor(parts[0], parts[1].ifEmpty { null })
         } else {
-            Pair(null, null)
+            LastSeenCursor(null, null)
         }
     }
 

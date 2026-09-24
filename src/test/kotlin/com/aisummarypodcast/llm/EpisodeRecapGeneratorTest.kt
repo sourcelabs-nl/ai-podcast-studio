@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import tools.jackson.databind.json.JsonMapper
 import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
 import com.aisummarypodcast.llm.ResolvedModel
@@ -21,7 +22,7 @@ import org.springframework.ai.chat.model.Generation
 class EpisodeRecapGeneratorTest {
 
     private val chatClientFactory = mockk<ChatClientFactory>()
-    private val generator = EpisodeRecapGenerator(chatClientFactory)
+    private val generator = EpisodeRecapGenerator(chatClientFactory, CoveredTopicsExtractor(JsonMapper.builder().build()))
 
     private val podcast = Podcast(id = "p1", userId = "u1", name = "Tech Daily", topic = "tech")
     private val filterModelDef = ResolvedModel(provider = "openrouter", model = "anthropic/claude-haiku-4.5", cost = null, stage = PipelineStage.FILTER)

@@ -37,6 +37,7 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain
  */
 class RoleTagValidationAdvisor(
     private val allowedRoles: Set<String>,
+    private val topicOrderExtractor: TopicOrderExtractor,
     private val maxRetries: Int = 2
 ) : CallAdvisor {
 
@@ -115,7 +116,7 @@ class RoleTagValidationAdvisor(
         // topic-order block is stripped first, as the composers do, or the clean-up reports it as
         // discarded untagged text on every script.
         val structureProblem = findTurnStructureProblem(
-            cleanUpComposedScript(TopicOrderExtractor.extract(text).script, allowedRoles), allowedRoles
+            cleanUpComposedScript(topicOrderExtractor.extract(text).script, allowedRoles), allowedRoles
         ) ?: return null
 
         return TagProblem(

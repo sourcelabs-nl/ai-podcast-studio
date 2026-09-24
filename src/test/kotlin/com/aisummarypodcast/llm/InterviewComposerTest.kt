@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import tools.jackson.databind.json.JsonMapper
 import com.aisummarypodcast.research.PreComposeResearch
 
 import com.aisummarypodcast.research.BackgroundSource
@@ -29,7 +30,7 @@ class InterviewComposerTest {
         encryption = EncryptionProperties(masterKey = "test-key")
     )
 
-    private val composer = InterviewComposer(appProperties, mockk(), mockk(), PromptVarietyPicker())
+    private val composer = InterviewComposer(appProperties, mockk(), mockk(), PromptVarietyPicker(), TopicOrderExtractor(JsonMapper.builder().build()))
 
     private val podcast = Podcast(
         id = "p1", userId = "u1", name = "Tech Talk", topic = "tech",

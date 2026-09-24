@@ -24,7 +24,8 @@ class BriefingComposer(
     private val appProperties: AppProperties,
     private val modelResolver: ModelResolver,
     private val chatClientFactory: ChatClientFactory,
-    private val varietyPicker: PromptVarietyPicker
+    private val varietyPicker: PromptVarietyPicker,
+    private val topicOrderExtractor: TopicOrderExtractor
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -62,7 +63,7 @@ class BriefingComposer(
                 ?: throw IllegalStateException("Empty response from LLM for briefing composition")
 
             val cleaned = stripSectionHeaders(rawScript)
-            val extraction = TopicOrderExtractor.extract(cleaned)
+            val extraction = topicOrderExtractor.extract(cleaned)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             CompositionResult(
                 script = stripLeadingMetaCommentary(extraction.script),

@@ -4,7 +4,7 @@ import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.SourceType
 import com.aisummarypodcast.store.Subtopics
 import com.aisummarypodcast.store.TtsProviderType
-import tools.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.databind.json.JsonMapper
 import tools.jackson.module.kotlin.readValue
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -45,24 +45,24 @@ open class SqliteDialectConfig : AbstractJdbcConfiguration() {
     }
 
     @Bean
-    fun jdbcCustomConversions(dialect: JdbcDialect): JdbcCustomConversions {
+    fun jdbcCustomConversions(dialect: JdbcDialect, jsonMapper: JsonMapper): JdbcCustomConversions {
         return JdbcCustomConversions.of(
             dialect,
             listOf(
                 IntegerToBooleanConverter(),
                 BooleanToIntegerConverter(),
-                StringToMapConverter(),
-                MapToStringConverter(),
-                StringToLlmModelOverridesConverter(),
-                LlmModelOverridesToStringConverter(),
+                StringToMapConverter(jsonMapper),
+                MapToStringConverter(jsonMapper),
+                StringToLlmModelOverridesConverter(jsonMapper),
+                LlmModelOverridesToStringConverter(jsonMapper),
                 StringToPodcastStyleConverter(),
                 PodcastStyleToStringConverter(),
                 StringToTtsProviderTypeConverter(),
                 TtsProviderTypeToStringConverter(),
                 StringToSourceTypeConverter(),
                 SourceTypeToStringConverter(),
-                StringToSubtopicsConverter(),
-                SubtopicsToStringConverter()
+                StringToSubtopicsConverter(jsonMapper),
+                SubtopicsToStringConverter(jsonMapper)
             )
         )
     }
@@ -78,27 +78,23 @@ open class SqliteDialectConfig : AbstractJdbcConfiguration() {
     }
 
     @ReadingConverter
-    class StringToMapConverter : Converter<String, Map<String, String>> {
-        private val objectMapper = jacksonObjectMapper()
-        override fun convert(source: String): Map<String, String> = objectMapper.readValue(source)
+    class StringToMapConverter(private val jsonMapper: JsonMapper) : Converter<String, Map<String, String>> {
+        override fun convert(source: String): Map<String, String> = jsonMapper.readValue(source)
     }
 
     @WritingConverter
-    class MapToStringConverter : Converter<Map<String, String>, String> {
-        private val objectMapper = jacksonObjectMapper()
-        override fun convert(source: Map<String, String>): String = objectMapper.writeValueAsString(source)
+    class MapToStringConverter(private val jsonMapper: JsonMapper) : Converter<Map<String, String>, String> {
+        override fun convert(source: Map<String, String>): String = jsonMapper.writeValueAsString(source)
     }
 
     @ReadingConverter
-    class StringToLlmModelOverridesConverter : Converter<String, LlmModelOverrides> {
-        private val objectMapper = jacksonObjectMapper()
-        override fun convert(source: String): LlmModelOverrides = LlmModelOverrides(objectMapper.readValue(source))
+    class StringToLlmModelOverridesConverter(private val jsonMapper: JsonMapper) : Converter<String, LlmModelOverrides> {
+        override fun convert(source: String): LlmModelOverrides = LlmModelOverrides(jsonMapper.readValue(source))
     }
 
     @WritingConverter
-    class LlmModelOverridesToStringConverter : Converter<LlmModelOverrides, String> {
-        private val objectMapper = jacksonObjectMapper()
-        override fun convert(source: LlmModelOverrides): String = objectMapper.writeValueAsString(source.stages)
+    class LlmModelOverridesToStringConverter(private val jsonMapper: JsonMapper) : Converter<LlmModelOverrides, String> {
+        override fun convert(source: LlmModelOverrides): String = jsonMapper.writeValueAsString(source.stages)
     }
 
     // Enum converters below are required because these enums use custom `value` fields
@@ -139,14 +135,12 @@ open class SqliteDialectConfig : AbstractJdbcConfiguration() {
     }
 
     @ReadingConverter
-    class StringToSubtopicsConverter : Converter<String, Subtopics> {
-        private val objectMapper = jacksonObjectMapper()
-        override fun convert(source: String): Subtopics = Subtopics(objectMapper.readValue(source))
+    class StringToSubtopicsConverter(private val jsonMapper: JsonMapper) : Converter<String, Subtopics> {
+        override fun convert(source: String): Subtopics = Subtopics(jsonMapper.readValue(source))
     }
 
     @WritingConverter
-    class SubtopicsToStringConverter : Converter<Subtopics, String> {
-        private val objectMapper = jacksonObjectMapper()
-        override fun convert(source: Subtopics): String = objectMapper.writeValueAsString(source.weights)
+    class SubtopicsToStringConverter(private val jsonMapper: JsonMapper) : Converter<Subtopics, String> {
+        override fun convert(source: Subtopics): String = jsonMapper.writeValueAsString(source.weights)
     }
 }

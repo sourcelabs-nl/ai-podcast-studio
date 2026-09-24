@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import tools.jackson.databind.json.JsonMapper
 import com.aisummarypodcast.research.PreComposeResearch
 
 import com.aisummarypodcast.research.BackgroundSource
@@ -37,7 +38,7 @@ class BriefingComposerTest {
     private val modelResolver = mockk<ModelResolver>()
     private val chatClientFactory = mockk<ChatClientFactory>()
     private val varietyPicker = PromptVarietyPicker()
-    private val composer = BriefingComposer(appProperties, modelResolver, chatClientFactory, varietyPicker)
+    private val composer = BriefingComposer(appProperties, modelResolver, chatClientFactory, varietyPicker, TopicOrderExtractor(JsonMapper.builder().build()))
 
     @Test
     fun `stripSectionHeaders removes Opening header line`() {

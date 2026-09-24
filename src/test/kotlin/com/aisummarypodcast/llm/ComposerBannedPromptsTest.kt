@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import tools.jackson.databind.json.JsonMapper
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BriefingProperties
 import com.aisummarypodcast.config.EncryptionProperties
@@ -79,13 +80,13 @@ class ComposerBannedPromptsTest {
         )
         return when (style) {
             PodcastStyle.DIALOGUE ->
-                DialogueComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
+                DialogueComposer(appProperties, mockk(), mockk(), varietyPicker, TopicOrderExtractor(JsonMapper.builder().build())).buildPrompt(sampleArticles, podcast, context)
 
             PodcastStyle.INTERVIEW ->
-                InterviewComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
+                InterviewComposer(appProperties, mockk(), mockk(), varietyPicker, TopicOrderExtractor(JsonMapper.builder().build())).buildPrompt(sampleArticles, podcast, context)
 
             else ->
-                BriefingComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
+                BriefingComposer(appProperties, mockk(), mockk(), varietyPicker, TopicOrderExtractor(JsonMapper.builder().build())).buildPrompt(sampleArticles, podcast, context)
         }
     }
 

@@ -20,7 +20,8 @@ data class RecapResult(
 
 @Component
 class EpisodeRecapGenerator(
-    private val chatClientFactory: ChatClientFactory
+    private val chatClientFactory: ChatClientFactory,
+    private val coveredTopicsExtractor: CoveredTopicsExtractor
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -53,7 +54,7 @@ class EpisodeRecapGenerator(
             val rawResponse = chatResponse?.result?.output?.text
                 ?: throw IllegalStateException("Empty response from LLM for episode recap generation")
 
-            val extraction = CoveredTopicsExtractor.extract(rawResponse)
+            val extraction = coveredTopicsExtractor.extract(rawResponse)
             val usage = TokenUsage.fromChatResponse(chatResponse)
             val resolvedCost = CostEstimator.resolveLlmCost(usage, filterModelDef.cost)
             RecapResult(

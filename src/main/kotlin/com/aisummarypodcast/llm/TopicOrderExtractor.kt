@@ -1,21 +1,18 @@
 package com.aisummarypodcast.llm
 
-import tools.jackson.databind.ObjectMapper
-import tools.jackson.module.kotlin.jacksonObjectMapper
 import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
+import tools.jackson.databind.json.JsonMapper
 
 data class TopicOrderExtractionResult(
     val script: String,
     val topicOrder: List<String>
 )
 
-object TopicOrderExtractor {
-
-    private val log = LoggerFactory.getLogger(javaClass)
-    private val objectMapper: ObjectMapper = jacksonObjectMapper()
-
-    private const val START_DELIMITER = "|||TOPIC_ORDER|||"
-    private const val END_DELIMITER = "|||END_TOPIC_ORDER|||"
+@Component
+class TopicOrderExtractor(
+    private val jsonMapper: JsonMapper
+) {
 
     fun extract(rawResponse: String): TopicOrderExtractionResult {
         val startIndex = rawResponse.indexOf(START_DELIMITER)
@@ -32,11 +29,17 @@ object TopicOrderExtractor {
         val script = rawResponse.substring(0, startIndex).trimEnd()
 
         return try {
-            val topicOrder: List<String> = objectMapper.readValue(jsonContent, objectMapper.typeFactory.constructCollectionType(List::class.java, String::class.java))
+            val topicOrder: List<String> = jsonMapper.readValue(jsonContent, jsonMapper.typeFactory.constructCollectionType(List::class.java, String::class.java))
             TopicOrderExtractionResult(script, topicOrder)
         } catch (e: Exception) {
             log.warn("Failed to parse topic order JSON: {}", e.message)
             TopicOrderExtractionResult(script, emptyList())
         }
+    }
+
+    companion object {
+        private val log = LoggerFactory.getLogger(TopicOrderExtractor::class.java)
+        private const val START_DELIMITER = "|||TOPIC_ORDER|||"
+        private const val END_DELIMITER = "|||END_TOPIC_ORDER|||"
     }
 }

@@ -15,7 +15,8 @@ class DialogueComposer(
     private val appProperties: AppProperties,
     private val modelResolver: ModelResolver,
     private val chatClientFactory: ChatClientFactory,
-    private val varietyPicker: PromptVarietyPicker
+    private val varietyPicker: PromptVarietyPicker,
+    private val topicOrderExtractor: TopicOrderExtractor
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -33,7 +34,7 @@ class DialogueComposer(
         )
         val prompt = buildPrompt(articles, podcast, context)
 
-        val tagValidation = RoleTagValidationAdvisor(resolveSpeakerRoles(podcast))
+        val tagValidation = RoleTagValidationAdvisor(resolveSpeakerRoles(podcast), topicOrderExtractor)
 
         val (result, elapsed) = measureTimedValue {
             val chatResponse = withContext(Dispatchers.IO) {
@@ -48,7 +49,7 @@ class DialogueComposer(
             val rawScript = chatResponse?.result?.output?.text
                 ?: throw IllegalStateException("Empty response from LLM for dialogue composition")
 
-            val extraction = TopicOrderExtractor.extract(rawScript)
+            val extraction = topicOrderExtractor.extract(rawScript)
             // The attempts the tag validation discarded were paid for too.
             val usage = tagValidation.discardedUsage.fold(TokenUsage.fromChatResponse(chatResponse), TokenUsage::plus)
             CompositionResult(
