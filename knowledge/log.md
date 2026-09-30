@@ -5,6 +5,44 @@ so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
 months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
 screen.
 
+## [2026-09-30] Lint
+
+Full pass over all 39 entries. Shape, links, indexes, em-dashes and `stale_after`
+were clean. Fixed: `source-yield-2026-09` named two thresholds in one paragraph;
+`jev-decisions-endpoint` quoted spend ($0.56, $0.06) and a filter p50 (11.8 s)
+from no stated window, now the 30 days to 2026-09-30 ($1.46 and $0.25, p50
+2.2 s), and links to `source-yield-2026-09`; `jev-as-a-judge` said Jev lost the
+scoring question without saying it works as an excerpt gate; edit-history
+wording removed from nine entries; four missing cross-references added; two
+stale pointers (`curiosity-hooks-conflict`, `script-attention-scoring`)
+replaced. Left open, each needing a decision: merge or narrow
+`compose-reasoning-and-routing-2026-09` and `pipeline-experiments-2026-09`
+(same question); split `jev-decisions-endpoint` (scoring gate, dedup gate,
+endpoint); no entry for the dedup stage itself; `source-yield-2026-09` is a
+database finding in `evals/`, whose scope is experiments; compose and TTS cost
+figures in `structured-output-for-scripts` (8 and 50 cents) disagree with
+`pipeline-experiments-2026-09` and `episode-208-vs-209` and carry no date;
+`length-is-not-a-defect` is a loose target for the 1500-word overshoot link in
+`structured-output-for-scripts`.
+
+## [2026-09-30] Record
+
+Recorded `source-yield-2026-09`: scoring every source together cost about $1.80
+in 30 days and the dearest source about $0.50, so a source's LLM cost is never a
+reason to drop it. Sources are judged by articles used in an episode against the
+work they create; Google AI RSS and Bun placed none, while the noisiest large
+feed still placed 100.
+
+## [2026-09-30] Record
+
+Updated `jev-decisions-endpoint` with a relevance gate over the scoring stage
+that reads title plus an excerpt instead of the whole body, measured on 300
+random September articles. The earlier "barely pays" finding described a
+whole-body gate: 300 to 800 characters saves about 20% of scoring at roughly
+zero relevant articles lost, and the saving shrinks as more text is sent
+(6% with the whole body). Worth about $0.35 a month at current volume, so not
+built.
+
 ## [2026-09-24] Lint
 
 Checked whether `compose-reasoning-and-routing-2026-09` or any other entry

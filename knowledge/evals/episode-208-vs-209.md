@@ -32,4 +32,5 @@ double transition described in [[cliffhangers-must-defer]], the spoken "swea
 two" in [[initialisms-stay-capitalised]], and the repeated adjacent turns in
 [[adjacent-turns-must-not-repeat]].
 
-A real comparison waits on the scorer: OpenSpec change `script-attention-scoring`.
+The scored comparison is in [[judged-baseline-2026-09]], which places every
+archive episode on the same scorer (OpenSpec change `script-attention-scoring`).

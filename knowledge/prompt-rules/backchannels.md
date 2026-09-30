@@ -10,7 +10,7 @@ generated:
   at: 2026-09-15T00:00:00Z
 ---
 
-Between "take the floor" and "say nothing" the prompt had nothing. It asks for 4
+Between "take the floor" and "say nothing" the prompt offers no middle option. It asks for 4
 to 5 substantive interruptions an episode, so every handover costs a real
 exchange, and a thought that needs longer than one turn cannot get it without
 becoming a monologue.

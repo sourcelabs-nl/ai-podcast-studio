@@ -82,3 +82,7 @@ establish whether that is a prompt problem or a property of the format. Until
 then the repair in `ComposerUtils.repairMismatchedTurnClosers` is not a
 belt-and-braces measure but load-bearing, because the model emits the fault it
 corrects on every run.
+
+The length overshoot of free text against the 1500-word target matches the spread
+in [[structure-baseline-2026-09]], and [[length-is-not-a-defect]] records why
+episode length is judged by ear and not gated.

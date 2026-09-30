@@ -2,7 +2,7 @@
 okf_version: "0.2"
 type: experiment
 title: Compose reasoning effort, throughput routing and GPT-6 Luna on one article set
-answers: choosing compose's reasoning effort, provider sort or model, or reading an experiment comparison
+answers: choosing compose's reasoning effort, provider sort or model
 status: stable
 generated:
   by: claude-opus-5-5
@@ -69,7 +69,7 @@ over six. The difference is still inside the run-to-run spread, but it no longer
 points the way the first set did, so the evidence does not support moving the
 compose default off medium. The cost and time saving of none holds on both sets
 (about 60% of compose cost and a quarter to a third of the time). Medium's 281s
-run is why the compose timeout is now 10 minutes.
+run is why the compose timeout is 10 minutes.
 
 ## What it does not support
 

@@ -76,7 +76,9 @@ lowest-scoring episodes. Jev discriminates where a rubric level names something
 countable and present in one spot, not where it names a quality of the whole.
 
 This is the same boundary [[jev-decisions-endpoint]] found on articles, where
-the endpoint won the closed already-covered question and lost the scoring one.
+the endpoint won the closed already-covered question, lost as a replacement
+for the scoring call (which also has to write the summary), and works as a gate
+over an excerpt in front of that call.
 Nothing measured so far contradicts the rule that Jev is for closed questions
 over state the caller has already assembled.
 

@@ -35,5 +35,5 @@ run is false on every row written today, since disabling the read is exactly wha
 guarantees the bypass holds. It is recorded so a run stays interpretable, not as
 a live check.
 
-The baseline this unblocks is [[judged-baseline-2026-09]]. The first question
-queued for it is the [[curiosity-hooks-conflict]] ablation.
+The baseline this unblocks is [[judged-baseline-2026-09]]. The curiosity hooks
+ablation was run under it: [[curiosity-hooks-ablation]].

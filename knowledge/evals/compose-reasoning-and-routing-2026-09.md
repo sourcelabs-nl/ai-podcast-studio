@@ -44,7 +44,7 @@ throughput or not, was served by Novita. See [[openrouter-routing]]. OpenRouter'
 and `preferred_min_throughput` combine with `quantizations` and
 `require_parameters` to express a throughput-first route.
 
-**Tool calls added a second full-price round trip.** Under the old flow,
+**Tool calls added a second full-price round trip.** In the flow where compose ran its own tool calls,
 episode 227's first round (searchPastEpisodes x2, webSearch x2) took 126
 seconds wall clock, but the tool calls themselves were about 1 second combined;
 the second round, which re-sent the full conversation, took 1045 seconds against
@@ -55,13 +55,13 @@ that took 106.5 seconds with 2,994 reasoning tokens (provider DeepInfra), plus a
 1.8-second research-plan call, for a 121-second total recompose.
 
 **The compose timeout is a wall-clock ceiling, not an idle timeout.** callTimeout
-is 10 minutes; it was 20 while compose ran its own tool calls. Because a non-streamed response sends no bytes until it
+is 10 minutes (the flow where compose ran its own tool calls used 20). Because a non-streamed response sends no bytes until it
 completes, an okhttp readTimeout on that connection would not behave as an idle
 timeout unless compose were switched to streaming.
 
 **A related false alarm.** The "Discarded ... untagged text |||TOPIC_ORDER|||"
 warning seen around this period was not a real defect: the advisor step already
-cleaned the text before topic-order extraction ran. Fixed in commit cb9e14b.
+cleaned the text before topic-order extraction ran. The cause is addressed in commit cb9e14b.
 
 **Effect on script quality.** Measured in [[pipeline-experiments-2026-09]]:
 reasoning effort none to high and throughput sort all scored within run-to-run
@@ -69,3 +69,6 @@ spread on the judge. That is one article set of one podcast, so it does not yet
 justify changing the compose default.
 
 Related: [[pipeline-experiments-2026-09]], [[spring-ai-2-0-1-per-request-timeout]]
+
+[[openrouter-generation-stats]] explains how to split a single slow request into
+startup, reasoning and writing time.

@@ -21,7 +21,7 @@ change behaviour behind an unchanged name.
 - [What a Narro RSS feed carries, and what it does not](narro-feed-format.md)  
   Read when changing how threads are reconstructed from Narro-sourced X content.
 - [What Jev can decide for this pipeline, and what it cannot](jev-decisions-endpoint.md)  
-  Read when deciding where Jev can carry a call in this pipeline and where it cannot.
+  Read when deciding where Jev can carry a call in this pipeline and where it cannot, including whether to gate the scoring stage with it.
 - [Jev as a script judge, measured against this project's own judge](jev-as-a-judge.md)  
   Read when considering Jev in place of, or alongside, ScriptJudge.
 - [The SQLite driver returns no generated keys from a batch](generated-keys-from-a-batch.md)  

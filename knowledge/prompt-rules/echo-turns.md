@@ -34,8 +34,8 @@ of the other speaker. See [[adjacent-turns-must-not-repeat]] for why neither is
 detected structurally.
 
 `ScriptMetrics.backchannelCandidates` had already flagged the turn, at index 3,
-one word. Nothing surfaced it until the dashboard grew a tab that does, which is
-what the finding actually cost.
+one word. Only the dashboard tab that lists such candidates surfaces it; no other check
+does.
 
 Proposal and reasoning: OpenSpec change `forbid-echo-turns`.
 

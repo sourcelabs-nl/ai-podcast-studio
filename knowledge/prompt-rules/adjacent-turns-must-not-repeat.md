@@ -21,7 +21,7 @@ two, not the fact that one speaker held the floor twice. Two consecutive turns
 by one speaker are acceptable.
 
 That distinction decides where the fix belongs. The overlap is a writing defect
-and is addressed in the prompt: the parking turn of a cliffhanger now hands the
+and is addressed in the prompt: the parking turn of a cliffhanger hands the
 floor back instead of also announcing the next topic, which is what made the
 model perform the same transition twice. See [[cliffhangers-must-defer]].
 

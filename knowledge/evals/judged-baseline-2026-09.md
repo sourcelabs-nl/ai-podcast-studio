@@ -17,7 +17,7 @@ generated:
 ---
 
 What the judge finds across the whole archive, against which any prompt change
-is now measurable. Every figure is derived in Kotlin from turn anchors; none of
+is measurable. Every figure is derived in Kotlin from turn anchors; none of
 it was asked of the model. See [[judge-calibration-episode-209]] for the check
 that the anchors match a hand audit.
 
@@ -42,7 +42,7 @@ defer nothing, while the median episode that defers at all defers by 14 turns.
 Promises are made (median 1, up to 14 in one episode) and mostly paid off, with
 only 17 episodes leaving any promise unpaid, so the defect is the distance, not
 the honesty: the model promises and answers in the next breath. This is the
-reading episode 208 suggested, now measured across the archive.
+reading episode 208 suggested, measured across the archive.
 
 **The teaser is the device that mostly works.** Its median score is 1.00, though
 69 episodes still name fewer than the three topics the rule asks for.
@@ -56,4 +56,6 @@ prompt's effect from the composer's own variance, and the archive spans many
 prompt revisions, so the spread here mixes change over time with change between
 episodes. Setting `app.eval.judge.norm` from the median would gate on a figure
 this bundle cannot yet defend; an ablation that repeats one variant under
-[[evaluation-run-cache-bypass]] is what makes a difference attributable.
+[[evaluation-run-cache-bypass]] is what makes a difference attributable. That ablation was run for the curiosity hooks
+rule: [[curiosity-hooks-ablation]]. The routing and reasoning experiments that
+use this judge are in [[pipeline-experiments-2026-09]].

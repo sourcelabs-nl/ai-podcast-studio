@@ -49,8 +49,8 @@ has to be computed from the native counts, which are the provider's own.
 
 These values are stored per request on `llm_calls` and shown as startup, reasoning
 and writing phases in the episode's latency tab and in the experiment comparison
-(OpenSpec change `openrouter-generation-stats`). Requests from before that change
-carry no generation id and cannot be looked up after the fact.
+(OpenSpec change `openrouter-generation-stats`). A request with no stored generation id cannot be looked up after the fact; those
+are the requests made before that change.
 
 This `latency` field is a response value describing what already happened, not
 the same thing as the `provider.sort: "latency"` request option: see
