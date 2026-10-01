@@ -5,6 +5,9 @@ import org.springframework.ai.chat.client.ChatClientRequest
 import org.springframework.ai.chat.client.ChatClientResponse
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain
+import org.springframework.ai.chat.messages.AssistantMessage
+import org.springframework.ai.chat.messages.UserMessage
+import org.springframework.ai.chat.prompt.Prompt
 
 /**
  * Fails closed on a multi-speaker script that does not carry usable speaker tags, mirroring Spring
@@ -13,7 +16,7 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain
  * can't use `validateSchema()` directly because it only validates typed/JSON output, and forcing
  * a ~1000-word creative script into JSON to get it would risk truncation/escaping failures.
  *
- * Three ways a script fails validation:
+ * Four ways a script fails validation:
  *  - a tag outside [allowedRoles], such as a leaked tool-call artifact (`<function_results>`).
  *    Without this check that tag rides all the way to the TTS provider before failing with an
  *    opaque "no voice configured for role" error, the failure that took down episode 163.
@@ -26,6 +29,11 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain
  *    mismatched pair does not fail: the match runs on to the next matching closer and swallows
  *    every turn in between into one. Both earlier checks pass on the result, which is how episode
  *    222 shipped with the whole back half attributed to the wrong speaker.
+ *  - fewer than two speakers, such as a single tagged turn in which the model talks about the task
+ *    instead of performing it (episode 280).
+ *
+ * A retry carries the rejected response back as the model's own turn, followed by the correction,
+ * so "rewrite the script" refers to something the model can see.
  *
  * Validation runs on the script as [cleanUpComposedScript] will leave it, not on the raw response,
  * so a fault the repairs in `ComposerUtils` already handle never spends a second compose call. Only
@@ -65,7 +73,8 @@ class RoleTagValidationAdvisor(
             val chatResponse = response.chatResponse()
             if (chatResponse == null) return response
 
-            val problem = validate(chatResponse.result?.output?.text.orEmpty()) ?: return response
+            val responseText = chatResponse.result?.output?.text.orEmpty()
+            val problem = validate(responseText) ?: return response
 
             if (attempt >= maxRetries) {
                 throw IllegalStateException(
@@ -77,7 +86,7 @@ class RoleTagValidationAdvisor(
             discarded += TokenUsage.fromChatResponse(chatResponse)
             log.warn("Compose LLM {}; retrying (attempt {}/{})", problem.summary, attempt + 1, maxRetries)
             currentRequest = currentRequest.mutate()
-                .prompt(currentRequest.prompt().augmentUserMessage(problem.correction))
+                .prompt(withRejectedAttempt(currentRequest.prompt(), responseText, problem.correction))
                 .build()
             attempt++
         }
@@ -115,9 +124,9 @@ class RoleTagValidationAdvisor(
         // What the pipeline will actually store, so a repairable fault is not re-prompted. The
         // topic-order block is stripped first, as the composers do, or the clean-up reports it as
         // discarded untagged text on every script.
-        val structureProblem = findTurnStructureProblem(
-            cleanUpComposedScript(topicOrderExtractor.extract(text).script, allowedRoles), allowedRoles
-        ) ?: return null
+        val cleaned = cleanUpComposedScript(topicOrderExtractor.extract(text).script, allowedRoles)
+        val structureProblem = findTurnStructureProblem(cleaned, allowedRoles)
+            ?: return findMissingSpeakersProblem(cleaned)
 
         return TagProblem(
             summary = "produced a script whose speaker tags do not pair up ($structureProblem)",
@@ -136,6 +145,35 @@ class RoleTagValidationAdvisor(
      * and [closeUnterminatedFinalTurn] the latter, so treating either as "no tags" would retry a
      * script the pipeline can already use.
      */
+    /**
+     * Rejects a script in which fewer than two speakers ever talk. Episode 280 shipped as a single
+     * `<expert>` turn in which the model asked for "the original script": correctly tagged and
+     * correctly paired, so every other check passed and a 10-second refusal was voiced and
+     * published. A real dialogue or interview always has at least two speakers taking turns.
+     */
+    private fun findMissingSpeakersProblem(cleaned: String): TagProblem? {
+        val speakers = SPEAKER_TURN_PATTERN.findAll(cleaned).map { it.groupValues[1] }.toSet()
+        val required = minOf(MIN_SPEAKERS, allowedRoles.size)
+        if (speakers.size >= required) return null
+
+        return TagProblem(
+            summary = "produced a script with only ${speakers.size} speaker(s)",
+            correction = "Your response is not a usable episode script: only ${speakers.size} speaker(s) " +
+                "talk in it. Write the COMPLETE episode script from the source material in the first " +
+                "message, as a conversation in which the speakers ${allowedRoles.joinToString { "<$it>" }} " +
+                "take turns, with every turn wrapped in its speaker tag."
+        )
+    }
+
+    /**
+     * The retry prompt: the original conversation, the rejected response as the model's own turn,
+     * then the correction. The rejected response must be in the conversation, or a correction that
+     * says "rewrite the script" refers to a script the model cannot see; episode 280's model
+     * answered exactly that ("I don't have the original script") and the answer was voiced.
+     */
+    private fun withRejectedAttempt(prompt: Prompt, rejected: String, correction: String): Prompt =
+        Prompt(prompt.instructions + AssistantMessage(rejected) + UserMessage(correction), prompt.options)
+
     private fun hasSpeakerTag(text: String): Boolean =
         allowedRoles.any { text.contains("<$it>") || text.contains("[$it]") }
 
@@ -146,4 +184,8 @@ class RoleTagValidationAdvisor(
             .toSet()
 
     private data class TagProblem(val summary: String, val correction: String)
+
+    private companion object {
+        const val MIN_SPEAKERS = 2
+    }
 }

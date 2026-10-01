@@ -202,6 +202,47 @@ class RoleTagValidationAdvisorTest {
         verify(exactly = 3) { chatModel.call(any<Prompt>()) } // 1 initial + 2 retries
     }
 
+    @Test
+    fun `a retry carries the rejected response before the correction`() {
+        val chatModel = mockk<ChatModel>()
+        val untagged = "Picture this. A pull request lands at Bloomberg."
+        val prompts = mutableListOf<Prompt>()
+        every { chatModel.call(capture(prompts)) } returnsMany
+            listOf(response(untagged), response("<interviewer>Hi</interviewer><expert>Hello</expert>"))
+
+        buildChatClient(chatModel).prompt()
+            .user("Write a script.")
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
+            .call()
+            .content()
+
+        // Episode 280: without the rejected script in the conversation, "rewrite the script" made
+        // the model ask for the script instead.
+        val retry = prompts[1].instructions
+        val rejectedIndex = retry.indexOfFirst { it is AssistantMessage && it.text == untagged }
+        assertTrue(rejectedIndex >= 0, retry.joinToString { "${it.messageType}: ${it.text}" })
+        assertTrue(retry.drop(rejectedIndex + 1).single().text!!.contains("no speaker tags at all"))
+    }
+
+    @Test
+    fun `a single-speaker reply retries and self-corrects`() {
+        val chatModel = mockk<ChatModel>()
+        // Episode 280: a correctly tagged, correctly paired refusal that passed every other check.
+        val refusal = "<expert>I don't have the original script in this conversation. Please provide it.</expert>"
+        val valid = "<interviewer>Hi</interviewer><expert>Hello</expert>"
+        val prompts = mutableListOf<Prompt>()
+        every { chatModel.call(capture(prompts)) } returnsMany listOf(response(refusal), response(valid))
+
+        val result = buildChatClient(chatModel).prompt()
+            .user("Write a script.")
+            .advisors(RoleTagValidationAdvisor(allowedRoles, TopicOrderExtractor(JsonMapper.builder().build())))
+            .call()
+            .content()
+
+        assertEquals(valid, result)
+        assertTrue(prompts[1].instructions.last().text!!.contains("only 1 speaker(s)"))
+    }
+
     // --- Structure faults (episode 222) ---
 
     @Test
