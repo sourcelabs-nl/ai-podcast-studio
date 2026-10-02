@@ -70,4 +70,24 @@ class SourceTest {
     fun `per-source max backoff hours overrides the default`() {
         assertEquals(2880L, source(consecutiveFailures = 10, maxBackoffHours = 48).effectivePollIntervalMinutes(24))
     }
+
+    @Test
+    fun `a never polled source has no next poll time`() {
+        assertEquals(null, source().nextPollAt(24))
+    }
+
+    @Test
+    fun `the next poll is the last poll plus the backed-off interval`() {
+        // 30-minute interval, three failures: 30 * 2^3 = 240 minutes after the last poll.
+        val next = source(pollIntervalMinutes = 30, consecutiveFailures = 3, lastPolledMinutesAgo = 10).nextPollAt(24)
+
+        assertEquals(now.minus(10, ChronoUnit.MINUTES).plus(240, ChronoUnit.MINUTES), next)
+    }
+
+    @Test
+    fun `the next poll respects the backoff cap`() {
+        val next = source(pollIntervalMinutes = 60, consecutiveFailures = 10, lastPolledMinutesAgo = 0, maxBackoffHours = 2).nextPollAt(24)
+
+        assertEquals(now.plus(120, ChronoUnit.MINUTES), next)
+    }
 }

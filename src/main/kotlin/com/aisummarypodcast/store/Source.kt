@@ -31,10 +31,16 @@ data class Source(
 ) {
 
     /** Whether the source's effective poll interval has elapsed since it was last polled. */
-    fun isDue(defaultMaxBackoffHours: Int, now: Instant = Instant.now()): Boolean {
-        val lastPolled = lastPolled?.let { Instant.parse(it) } ?: return true
-        val effectiveInterval = effectivePollIntervalMinutes(defaultMaxBackoffHours)
-        return lastPolled.plus(effectiveInterval, ChronoUnit.MINUTES).isBefore(now)
+    fun isDue(defaultMaxBackoffHours: Int, now: Instant = Instant.now()): Boolean =
+        nextPollAt(defaultMaxBackoffHours)?.isBefore(now) ?: true
+
+    /**
+     * When the source is next due for a poll: its last poll plus the effective interval, which grows
+     * with consecutive failures. Null for a source that has never polled, which is due immediately.
+     */
+    fun nextPollAt(defaultMaxBackoffHours: Int): Instant? {
+        val lastPolled = lastPolled?.let { Instant.parse(it) } ?: return null
+        return lastPolled.plus(effectivePollIntervalMinutes(defaultMaxBackoffHours), ChronoUnit.MINUTES)
     }
 
     /** The poll interval after exponential backoff for consecutive failures, capped at the max backoff. */

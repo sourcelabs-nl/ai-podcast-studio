@@ -98,6 +98,54 @@ class BriefingGenerationSchedulerTest {
     }
 
     @Test
+    fun `a source in backoff that will not poll before the deadline does not hold generation back`() {
+        // Slot 00:00, deadline 00:30, now 00:05. Three failures at a 30-minute interval back the source
+        // off to four hours, so waiting for it can only delay the episode.
+        val podcast = duePodcast()
+        val episode = Episode(id = 10, podcastId = "p1", generatedAt = Instant.now().toString(), scriptText = "Script")
+        val backedOff = behindSource().copy(
+            pollIntervalMinutes = 30, consecutiveFailures = 3, lastPolled = "2026-02-22T23:55:00Z"
+        )
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returns listOf(backedOff)
+        coEvery { podcastService.generateBriefing(podcast, any()) } returns GenerateBriefingResult(episode = episode)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify { podcastService.generateBriefing(podcast, any()) }
+    }
+
+    @Test
+    fun `a source that will poll again before the deadline still holds generation back`() {
+        // One failure at a 5-minute interval doubles to 10 minutes: due at 00:10, inside the deadline.
+        val podcast = duePodcast()
+        val retrying = behindSource().copy(
+            pollIntervalMinutes = 5, consecutiveFailures = 1, lastPolled = "2026-02-23T00:00:00Z"
+        )
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returns listOf(retrying)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 0) { podcastService.generateBriefing(any(), any()) }
+    }
+
+    @Test
+    fun `one source worth waiting for holds generation back even when another is in backoff`() {
+        val podcast = duePodcast()
+        val backedOff = behindSource("s1").copy(
+            pollIntervalMinutes = 30, consecutiveFailures = 3, lastPolled = "2026-02-22T23:55:00Z"
+        )
+        val neverPolled = behindSource("s2")
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returns listOf(backedOff, neverPolled)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 0) { podcastService.generateBriefing(any(), any()) }
+    }
+
+    @Test
     fun `generation goes ahead after the coverage deadline even with a source behind`() {
         // The cron slot is midnight and the deadline is 30 minutes; it is now 00:45.
         val podcast = duePodcast()

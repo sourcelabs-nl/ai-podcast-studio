@@ -6,6 +6,7 @@ import com.aisummarypodcast.podcast.EpisodeWindowResolver
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
+import com.aisummarypodcast.store.Source
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -142,30 +143,47 @@ class BriefingGenerationScheduler(
      * the loop re-checks: nothing is created yet, so the slot stays due and no state is touched.
      * The deferral is bounded by [EpisodeProperties.pollCoverageDeadlineMinutes], after which the
      * episode is generated anyway and the sources still behind are named in the log, because an
-     * incomplete episode beats no episode at all.
+     * incomplete episode beats no episode at all. Only sources that will be polled again before that
+     * deadline hold generation back: a source in backoff cannot catch up by being waited for.
      */
     private fun isWindowCovered(podcast: Podcast, window: EpisodeWindow, slot: Instant): Boolean {
         val behind = sourceService.findSourcesBehindWindow(podcast.id, window.end)
         if (behind.isEmpty()) return true
 
         val deadline = slot.plus(appProperties.episode.pollCoverageDeadlineMinutes.toLong(), ChronoUnit.MINUTES)
-        val labels = behind.joinToString(", ") { it.label ?: it.url }
         if (clock.instant().isBefore(deadline)) {
-            log.info(
-                "[Pipeline] Deferring generation for podcast '{}' ({}): {} source(s) have not polled the " +
-                    "window {} yet ({}). Waiting until {}.",
-                podcast.name, podcast.id, behind.size, window, labels, deadline
+            // Only a source that will be polled again before the deadline is worth waiting for. One in
+            // backoff after repeated failures will not, so waiting for it only delays the episode.
+            val maxBackoffHours = appProperties.source.maxBackoffHours
+            val worthWaitingFor = behind.filter { source ->
+                source.nextPollAt(maxBackoffHours)?.isAfter(deadline) != true
+            }
+            if (worthWaitingFor.isNotEmpty()) {
+                log.info(
+                    "[Pipeline] Deferring generation for podcast '{}' ({}): {} source(s) have not polled the " +
+                        "window {} yet ({}). Waiting until {}.",
+                    podcast.name, podcast.id, worthWaitingFor.size, window, labelsOf(worthWaitingFor), deadline
+                )
+                return false
+            }
+            log.warn(
+                "[Pipeline] Generating for podcast '{}' ({}) without waiting: {} source(s) are behind window {} " +
+                    "but will not poll again before {}: {}. The episode may be missing their content.",
+                podcast.name, podcast.id, behind.size, window, deadline, labelsOf(behind)
             )
-            return false
+            return true
         }
 
         log.warn(
             "[Pipeline] Generating for podcast '{}' ({}) with {} source(s) still behind window {} after " +
                 "waiting until {}: {}. The episode may be missing their content.",
-            podcast.name, podcast.id, behind.size, window, deadline, labels
+            podcast.name, podcast.id, behind.size, window, deadline, labelsOf(behind)
         )
         return true
     }
+
+    private fun labelsOf(sources: List<Source>): String =
+        sources.joinToString(", ") { it.label ?: it.url }
 
     private suspend fun generateBriefing(podcast: Podcast, window: EpisodeWindow) {
         log.info("[Pipeline] Starting briefing generation for podcast '{}' ({}) over window {}",
