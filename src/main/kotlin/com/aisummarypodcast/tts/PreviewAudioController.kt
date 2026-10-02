@@ -1,5 +1,6 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.podcast.PodcastAccess
 import com.aisummarypodcast.podcast.SafeSseEmitter
 import com.aisummarypodcast.store.Podcast
@@ -63,9 +64,7 @@ class PreviewAudioController(
         @RequestBody request: PreviewAudioRequest
     ): ResponseEntity<Any> {
         val podcast = podcastAccess.podcast(userId, podcastId)
-        if (request.scriptText.isBlank()) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "scriptText must not be blank"))
-        }
+        if (request.scriptText.isBlank()) throw InvalidRequestException("scriptText must not be blank")
 
         val audio = previewAudioService.synthesizeSample(podcast, request.scriptText)
         return ResponseEntity.ok()
@@ -81,9 +80,7 @@ class PreviewAudioController(
         @RequestBody request: PreviewAudioRequest
     ): ResponseEntity<Any> {
         val podcast = podcastAccess.podcast(userId, podcastId)
-        if (request.scriptText.isBlank()) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "scriptText must not be blank"))
-        }
+        if (request.scriptText.isBlank()) throw InvalidRequestException("scriptText must not be blank")
         return ResponseEntity.ok(previewAudioService.estimate(podcast, request.scriptText).toResponse())
     }
 

@@ -4,6 +4,7 @@ import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.EpisodeSourcesGenerator
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.Podcast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -181,16 +182,27 @@ class SoundCloudPublisher(
         log.info("Deleted SoundCloud track {} after replacing episode {}'s audio", trackId, episode.id)
         delay(QUOTA_SETTLE_MILLIS)
 
-        val claimed = withContext(Dispatchers.IO) {
-            soundCloudClient.updateTrack(
-                accessToken = accessToken,
-                trackId = uploaded.externalId.toLong(),
-                permalink = buildPermalink(podcast.name, episodeDate(episode))
-            )
+        // The replacement is live and the old track is gone, so the new id must reach the caller even
+        // if claiming the canonical permalink fails: losing it leaves the episode pointing at a dead
+        // track, and the next publish uploads another track under a taken permalink (episode 202).
+        val claimed = try {
+            withContext(Dispatchers.IO) {
+                soundCloudClient.updateTrack(
+                    accessToken = accessToken,
+                    trackId = uploaded.externalId.toLong(),
+                    permalink = buildPermalink(podcast.name, episodeDate(episode))
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.warn("Replaced SoundCloud track {} with {} for episode {} but could not claim the canonical permalink: {}",
+                trackId, uploaded.externalId, episode.id, e.message)
+            null
         }
 
         log.info("Replaced SoundCloud track {} with {} for episode {}", trackId, uploaded.externalId, episode.id)
-        return uploaded.copy(externalUrl = claimed.permalinkUrl)
+        return if (claimed != null) uploaded.copy(externalUrl = claimed.permalinkUrl) else uploaded
     }
 
     private fun getPlaylistId(podcastId: String): Long? {

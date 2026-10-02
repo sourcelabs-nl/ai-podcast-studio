@@ -2,13 +2,12 @@
 
 Bevindingen uit de `/code-review all` van 1 en 2 oktober 2026 die bewust niet in de batches zijn opgepakt. Elke ronde van de review las meer bestanden en vond nieuwe punten, dus dit is een werklijst en geen nulmeting. De reviewer las ongeveer 190 van de 260 bestanden; de rest is alleen met patroonscans bekeken.
 
-Reeds opgelost in de commits `c2add9f` t/m de batch voor duplicatie: onderbroken unpublish, `CancellationException`, HTML-escaping, cache van correctie-retries, scheduler via `SourceService`, status-checks en validatie uit de controllers, OAuth-flow, queries naar de database, getypte API-fouten, afronding van een episode na audio, pipeline-status, aggregator-race, ownership-resolver, composer-skelet, thread-veilige SSE.
+Reeds opgelost in de commits `c2add9f` t/m de laatste opvolgronde (batch 6): onderbroken unpublish, `CancellationException`, HTML-escaping, cache van correctie-retries, scheduler via `SourceService`, status-checks en validatie uit de controllers, OAuth-flow, queries naar de database, getypte API-fouten, afronding van een episode na audio, pipeline-status, aggregator-race, ownership-resolver, composer-skelet, thread-veilige SSE, het verlies van de nieuwe track-id bij een mislukte permalink-claim, `ScriptJudge` op `Dispatchers.IO`, de scope van `AutoPublishListener`, de overige handgebouwde 400's.
 
 ## Verdient een eigen OpenSpec change
 
 - **`EpisodeService` is een god service** (ongeveer 1050 regels, 18 dependencies). Opsplitsen naar levenscyclus: generatie, review, publicatie, onderhoud. De vier kopieën van het opslaan van stage-totalen (`saveDedupResults`, `saveFocusSelection`, `saveComposeResult`, `generateAndStoreRecap`) en de dubbele logica in `createEpisodeFromPipelineResult` en `finalizeEpisode` (gate, TTS, markeren als verwerkt, `lastGeneratedAt`, event) horen daarbij. De KDoc van `Episode.kt` ("alleen `finalizeEpisode` schrijft deze totalen") klopt niet meer.
 - **`PipelineRunner` heeft nog een te brede try** (A9). Een fout in de stappen tussen audio en afronden zet het episode nog steeds op FAILED. De retry is nu goedkoop, maar de status blijft misleidend.
-- **`SoundCloudPublisher.update`** (A9): upload, verwijder de oude track, update. Faalt de laatste stap, dan is de nieuwe track-id kwijt en de track wees. Sla de nieuwe id direct na de upload op.
 - **`deletePodcastCascade`** verwijdert mp3-bestanden binnen een `@Transactional` methode. Een rollback laat rijen achter die naar verwijderde bestanden wijzen. Verwijder de bestanden na de commit.
 - **`generateAndStoreRecap`** geeft bij falen de episode van vóór het opslaan terug; een aanroeper die dat opslaat draait de recap terug.
 - **`PodcastService.update` valideert de samengevoegde podcast.** Een oude opgeslagen waarde kan daardoor een niet-gerelateerde update blokkeren. Valideer alleen de gewijzigde velden, of leg vast dat dit zo bedoeld is.
@@ -44,3 +43,24 @@ Reeds opgelost in de commits `c2add9f` t/m de batch voor duplicatie: onderbroken
 - `openspec/specs/pipeline-progress/spec.md` zegt dat het systeem `pipeline.progress` SSE-events uitstuurt; de code publiceert `episode.stage`. De frontend luistert nog naar beide.
 - De `spring-ai` skill noemt `createForCompose`, maar `ChatClientFactory` heeft alleen `createForModel`.
 - `.claude/rules/controllers.md` en `kotlin-main.md` kunnen `PodcastAccess` en de typed API-excepties noemen.
+
+## Uit de afsluitende review (2 oktober, na batch 5c)
+
+Naast wat hierboven staat:
+
+- **`SoundCloudPublisher` verwijdert tracks op een te losse titel.** Het vrijmaken van quota verwijdert elke track waarvan de titel met `podcast.name` begint. Op een gedeeld account verwijdert een podcast "Tech" dus tracks van "Tech Weekly". Match op het exacte prefix dat de klasse zelf genereert (`"${podcast.name} - "`), of op track-id's uit de publicatie-rijen. Dit is de enige bevinding uit de review die ik als destructief beschouw.
+- **`LlmPipeline.preview` omzeilt de kostenpoort** (`maxLlmCostCents`) en geeft geen `episodeId` mee, doordat het aggregeren, scoren en eligibility opnieuw implementeert in plaats van `aggregateScoreAndFilter` en `dedup` te hergebruiken. De compose-dispatch en de context-opbouw staan drie keer in dit bestand.
+- **Events binnen een transactie.** `createGeneratingEpisode`, `discardOnly` en `discardAndResetArticles` publiceren in `@Transactional`; listeners kunnen een toestand melden die daarna terugrolt. Publiceer na de commit.
+- **Stale snapshot (SB1).** `recordRun`, `updatePipelineStage`, `markRecomposing`, `clearPipelineStage`, `updateScript` en de twee approve-methoden laden een `Episode` en slaan een volledige `copy` op. `updatePipelineStage` vuurt uit progress-callbacks terwijl andere schrijvers de rij raken. Gebruik gerichte `@Modifying` updates, of valideer de status op `fresh`.
+- **`regenerateAllShowNotes`** heeft een dode catch (`generateSourcesFile` slikt zelf alle fouten), zodat `generatedSources++` mislukkingen meetelt. De logtekst zegt `sources.md` terwijl het bestand `sources.html` is.
+- **Schedulers.** `BriefingGenerationScheduler` leest `lastPollRoundCompletedAt` van `SourcePollingScheduler` en roept `pollPodcastSourcesNow` aan; catch-up polling en "is deze podcast aan de beurt" (cron-berekening) horen in services. `SourcePollingScheduler.pollSources` en `pollPodcastSourcesNow` kopiëren hetzelfde `supervisorScope`-mechanisme.
+- **Coroutine-scopes.** Tien klassen maken hun eigen `CoroutineScope(Dispatchers.IO + SupervisorJob())`; overweeg één gedeelde scope-bean.
+- **`PreviewAudioController`** bezit nog een eigen scope en orkestratie voor het volledige-audio-stream; verplaats naar een component naast `PreviewStreamer` en deel één `SseJobStreamer`.
+- **`EpisodeController.get`** bouwt de kostencontext uit meerdere services en bezit `stageCostFnFromModels`. Eén service-aanroep die het kostenbeeld teruggeeft.
+- **`PublishingService.listByPodcast`** geeft web-DTO's terug (`PodcastPublicationRow`) en negeert de sort van de `Pageable`; `PublishingService` injecteert `EpisodeRepository` rechtstreeks. `liveTargets` filtert in het geheugen.
+- **`deletePodcastCascade`**: de foreign keys in V1 en V6 hebben geen `ON DELETE CASCADE`, dus het cascade-verwijderen gebeurt met de hand.
+- **Dode code**: `TtsPipeline.generate` (alleen de test roept het aan), `SoundCloudClient.getPlaylist`, `PostArticleRepository.findByArticleId`, `EpisodeRepository.findByPodcastIdAndStatus` (alleen tests), `EpisodeService.findRawArticlesForEpisode` met `findRawArticlesByEpisodeId`.
+- **`AudioGenerationService`**: `generateAudioAsync` en `regenerateAudioAsync` hebben identieke bodies.
+- **`EpisodeController.retry`** bouwt een gebruikersbericht uit `resumePoint.name.lowercase().replace(...)`.
+- **Tests**: tien testbestanden gebruiken `runBlocking` in plaats van `runTest` (`PublishingServiceTest`, `FtpPublisherTest`, `SoundCloudPublisherTest`, `TaggedScriptComposerTest`, `LlmPipelineTest`, `PreviewAudioServiceTest`, `BriefingGenerationSchedulerTest`, de drie TTS-provider-tests).
+- **`ScriptJudge`**: geen `maxTokens`-cap en een handgebouwde `BeanOutputConverter`-lus in plaats van `validateSchema()`.

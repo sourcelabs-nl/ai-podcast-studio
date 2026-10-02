@@ -1,8 +1,8 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.PageParams
 import com.aisummarypodcast.podcast.PodcastAccess
 import com.aisummarypodcast.podcast.toResponse
-import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -27,10 +27,7 @@ class PodcastPublicationsController(
     ): ResponseEntity<Any> {
         podcastAccess.podcast(userId, podcastId)
 
-        if (page < 0) return ResponseEntity.badRequest().body(mapOf("error" to "page must be >= 0"))
-        if (pageSize < 1 || pageSize > 200) return ResponseEntity.badRequest().body(mapOf("error" to "pageSize must be in [1, 200]"))
-
-        val pageable = PageRequest.of(page, pageSize, Sort.by(Sort.Direction.DESC, "createdAt", "id"))
+        val pageable = PageParams.of(page, pageSize).toPageable(Sort.by(Sort.Direction.DESC, "createdAt", "id"))
         val result = publishingService.listByPodcast(podcastId, pageable)
         return ResponseEntity.ok(result.toResponse())
     }

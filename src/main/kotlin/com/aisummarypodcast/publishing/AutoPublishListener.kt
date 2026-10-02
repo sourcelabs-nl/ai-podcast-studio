@@ -7,6 +7,8 @@ import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.EpisodePurpose
 import kotlinx.coroutines.CancellationException
+import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,6 +46,11 @@ class AutoPublishListener(
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    @PreDestroy
+    fun onDestroy() {
+        scope.cancel()
+    }
 
     @EventListener
     fun onEpisodeGenerated(event: PodcastEvent) {

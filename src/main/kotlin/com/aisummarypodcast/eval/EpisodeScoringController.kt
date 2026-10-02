@@ -1,5 +1,6 @@
 package com.aisummarypodcast.eval
 
+import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.podcast.PodcastAccess
 import com.aisummarypodcast.store.EpisodeScore
 import com.aisummarypodcast.store.EvaluationRun
@@ -34,9 +35,7 @@ class EpisodeScoringController(
         @RequestParam(required = false, defaultValue = "50") limit: Int
     ): ResponseEntity<Any> {
         podcastAccess.podcast(userId, podcastId)
-        if (limit < 1 || limit > MAX_EPISODES) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "limit must be in [1, $MAX_EPISODES]"))
-        }
+        if (limit < 1 || limit > MAX_EPISODES) throw InvalidRequestException("limit must be in [1, $MAX_EPISODES]")
         return ResponseEntity.ok(episodeScoringService.scorePodcast(podcastId, limit))
     }
 

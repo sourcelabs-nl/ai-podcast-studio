@@ -1,5 +1,6 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.user.UserService
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
@@ -46,9 +47,7 @@ class SoundCloudOAuthController(
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         if (!oauthService.isConfigured(userId)) return integrationNotConfigured("SoundCloud")
 
-        if (!oauthService.deleteTrack(userId, trackId)) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "No SoundCloud connection"))
-        }
+        if (!oauthService.deleteTrack(userId, trackId)) throw InvalidRequestException("No SoundCloud connection")
         return ResponseEntity.ok(mapOf("deleted" to true, "trackId" to trackId))
     }
 

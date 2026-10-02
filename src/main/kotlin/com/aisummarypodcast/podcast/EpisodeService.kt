@@ -911,7 +911,10 @@ class EpisodeService(
         return episodeArticleRepository.findArticlesWithTopicsByEpisodeId(episodeId)
     }
 
-    @Transactional
+    /**
+     * NOT @Transactional: it only reads rows and writes a file, and a transaction would hold a SQLite
+     * connection across that I/O.
+     */
     fun regenerateSourcesHtml(episodeId: Long): String? {
         val episode = episodeRepository.findByIdOrNull(episodeId) ?: return null
         val podcast = podcastRepository.findByIdOrNull(episode.podcastId) ?: return null

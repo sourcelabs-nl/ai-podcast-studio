@@ -1,5 +1,6 @@
 package com.aisummarypodcast.backup
 
+import com.aisummarypodcast.api.InvalidRequestException
 import org.springframework.http.ResponseEntity
 import org.springframework.scheduling.support.CronExpression
 import org.springframework.web.bind.annotation.GetMapping
@@ -22,12 +23,8 @@ class BackupController(
 
     @PutMapping("/settings")
     fun updateSettings(@RequestBody request: UpdateBackupSettingsRequest): ResponseEntity<Any> {
-        if (!CronExpression.isValidExpression(request.cron)) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "Invalid cron expression: ${request.cron}"))
-        }
-        if (request.retentionCount < 1) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "retentionCount must be at least 1"))
-        }
+        if (!CronExpression.isValidExpression(request.cron)) throw InvalidRequestException("Invalid cron expression: ${request.cron}")
+        if (request.retentionCount < 1) throw InvalidRequestException("retentionCount must be at least 1")
         val updated = backupSettingsService.update(request.enabled, request.cron, request.retentionCount)
         backupScheduler.reschedule()
         return ResponseEntity.ok(updated.toResponse())

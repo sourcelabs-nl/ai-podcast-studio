@@ -1,5 +1,6 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.store.ApiKeyCategory
 import com.aisummarypodcast.user.UserProviderConfigService
 import com.aisummarypodcast.user.UserService
@@ -47,7 +48,7 @@ class PublishingTestController(
         @PathVariable target: String
     ): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported target: $target"))
+        throw InvalidRequestException("Unsupported target: $target")
     }
 
     private fun resolveStoredFtpPassword(userId: String): String? {

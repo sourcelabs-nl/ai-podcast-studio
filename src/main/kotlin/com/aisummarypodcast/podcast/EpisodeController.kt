@@ -1,11 +1,12 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.api.InvalidRequestException
+import com.aisummarypodcast.api.PageParams
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeStatus
 import org.springframework.core.io.FileSystemResource
 import org.springframework.core.io.Resource
-import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
@@ -37,16 +38,15 @@ class EpisodeController(
     ): ResponseEntity<Any> {
         podcastAccess.podcast(userId, podcastId)
 
-        if (page < 0) return ResponseEntity.badRequest().body(mapOf("error" to "page must be >= 0"))
-        if (pageSize < 1 || pageSize > 200) return ResponseEntity.badRequest().body(mapOf("error" to "pageSize must be in [1, 200]"))
+        val pageParams = PageParams.of(page, pageSize)
 
         val statuses = (status ?: emptyList()).map {
             try { EpisodeStatus.valueOf(it) } catch (_: IllegalArgumentException) {
-                return ResponseEntity.badRequest().body(mapOf("error" to "Invalid status: $it. Valid values: ${EpisodeStatus.entries.joinToString()}"))
+                throw InvalidRequestException("Invalid status: $it. Valid values: ${EpisodeStatus.entries.joinToString()}")
             }
         }
 
-        val pageable = PageRequest.of(page, pageSize, Sort.by(Sort.Direction.DESC, "generatedAt", "id"))
+        val pageable = pageParams.toPageable(Sort.by(Sort.Direction.DESC, "generatedAt", "id"))
         // A query too short to search falls through to the plain listing rather than erroring,
         // so the list stays usable while the user is still typing.
         if (EpisodeSearchService.isSearchable(q)) {
@@ -104,9 +104,7 @@ class EpisodeController(
         val podcast = podcastAccess.podcast(userId, podcastId)
         val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
-        if (request.feedback.isBlank()) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "feedback must not be blank"))
-        }
+        if (request.feedback.isBlank()) throw InvalidRequestException("feedback must not be blank")
 
         val updated = podcastService.recomposeFocusEpisodeAsync(episode, podcast, request.feedback.trim())
         return ResponseEntity.accepted().body(updated.toResponse())

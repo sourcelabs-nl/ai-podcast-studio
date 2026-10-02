@@ -1,11 +1,13 @@
 package com.aisummarypodcast.backup
 
+import com.aisummarypodcast.api.InvalidRequestException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class BackupControllerTest {
 
@@ -16,18 +18,22 @@ class BackupControllerTest {
 
     @Test
     fun `update rejects invalid cron with 400 and does not persist or reschedule`() {
-        val response = controller.updateSettings(UpdateBackupSettingsRequest(true, "not a cron", 7))
+        val e = assertThrows<InvalidRequestException> {
+            controller.updateSettings(UpdateBackupSettingsRequest(true, "not a cron", 7))
+        }
 
-        assertEquals(400, response.statusCode.value())
+        assertEquals("Invalid cron expression: not a cron", e.message)
         verify(exactly = 0) { settingsService.update(any(), any(), any()) }
         verify(exactly = 0) { scheduler.reschedule() }
     }
 
     @Test
     fun `update rejects retentionCount below 1`() {
-        val response = controller.updateSettings(UpdateBackupSettingsRequest(true, "0 0 2 * * *", 0))
+        val e = assertThrows<InvalidRequestException> {
+            controller.updateSettings(UpdateBackupSettingsRequest(true, "0 0 2 * * *", 0))
+        }
 
-        assertEquals(400, response.statusCode.value())
+        assertEquals("retentionCount must be at least 1", e.message)
         verify(exactly = 0) { settingsService.update(any(), any(), any()) }
     }
 

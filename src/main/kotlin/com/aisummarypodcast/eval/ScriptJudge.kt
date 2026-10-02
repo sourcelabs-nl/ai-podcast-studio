@@ -9,6 +9,9 @@ import com.aisummarypodcast.llm.withRoutingAndReasoning
 import com.aisummarypodcast.tts.DialogueScriptParser
 import io.github.resilience4j.kotlin.retry.executeSuspendFunction
 import io.github.resilience4j.retry.RetryRegistry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.ai.converter.BeanOutputConverter
@@ -56,7 +59,11 @@ class ScriptJudge(
         return retryRegistry.retry("script-judge").executeSuspendFunction {
             attempt++
             try {
-                judgeOnce(chatClient, promptForAttempt(prompt, attempt, previousFailure), evalModel, numbered.size)
+                withContext(Dispatchers.IO) {
+                    judgeOnce(chatClient, promptForAttempt(prompt, attempt, previousFailure), evalModel, numbered.size)
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 previousFailure = e.message
                 throw e

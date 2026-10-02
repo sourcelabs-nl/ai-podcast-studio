@@ -271,6 +271,20 @@ class SoundCloudPublisherTest {
     }
 
     @Test
+    fun `update still returns the new track id when claiming the permalink fails`() = runTest {
+        // The old track is already deleted by then, so dropping the new id would leave the episode
+        // pointing at a dead track.
+        every { tokenManager.getValidAccessToken("user1") } returns "access-token"
+        every { soundCloudClient.deleteTrack("access-token", 999) } returns Unit
+        every { soundCloudClient.uploadTrack("access-token", any()) } returns trackResponse
+        every { soundCloudClient.updateTrack("access-token", 456, any(), any()) } throws RuntimeException("SoundCloud 503")
+
+        val result = publisher.update(episode, podcast, "user1", "999")
+
+        assertEquals("456", result.externalId)
+    }
+
+    @Test
     fun `update claims the same canonical permalink for the replacement`() = runTest {
         // The old track holds the canonical slug while the replacement is uploaded, so SoundCloud
         // gives the upload a suffixed variant. Once the old track is deleted the slug is free and
