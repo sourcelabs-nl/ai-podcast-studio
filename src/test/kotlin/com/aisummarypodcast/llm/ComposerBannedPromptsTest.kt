@@ -80,10 +80,10 @@ class ComposerBannedPromptsTest {
         )
         return when (style) {
             PodcastStyle.DIALOGUE ->
-                DialogueComposer(appProperties, mockk(), mockk(), varietyPicker, TopicOrderExtractor(JsonMapper.builder().build())).buildPrompt(sampleArticles, podcast, context)
+                DialogueComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
 
             PodcastStyle.INTERVIEW ->
-                InterviewComposer(appProperties, mockk(), mockk(), varietyPicker, TopicOrderExtractor(JsonMapper.builder().build())).buildPrompt(sampleArticles, podcast, context)
+                InterviewComposer(appProperties, mockk(), mockk(), varietyPicker).buildPrompt(sampleArticles, podcast, context)
 
             else ->
                 BriefingComposer(appProperties, mockk(), mockk(), varietyPicker, TopicOrderExtractor(JsonMapper.builder().build())).buildPrompt(sampleArticles, podcast, context)

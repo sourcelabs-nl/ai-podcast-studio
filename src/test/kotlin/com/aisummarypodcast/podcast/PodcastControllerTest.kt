@@ -44,6 +44,9 @@ class PodcastControllerTest {
     private lateinit var episodeService: EpisodeService
 
     @MockkBean(relaxed = true)
+    private lateinit var previewStreamer: PreviewStreamer
+
+    @MockkBean(relaxed = true)
     private lateinit var sourceAggregator: SourceAggregator
 
     private val userId = "user-1"

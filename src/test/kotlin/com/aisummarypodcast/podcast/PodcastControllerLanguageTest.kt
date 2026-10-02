@@ -37,6 +37,9 @@ class PodcastControllerLanguageTest {
     private lateinit var episodeService: EpisodeService
 
     @MockkBean(relaxed = true)
+    private lateinit var previewStreamer: PreviewStreamer
+
+    @MockkBean(relaxed = true)
     private lateinit var appProperties: AppProperties
 
     @MockkBean(relaxed = true)

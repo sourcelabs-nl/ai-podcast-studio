@@ -1,22 +1,10 @@
 package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.user.UserService
-import kotlinx.coroutines.CancellationException
-import tools.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
-import jakarta.annotation.PreDestroy
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import java.net.URI
 
 @RestController
@@ -26,18 +14,11 @@ class PodcastController(
     private val userService: UserService,
     private val podcastAccess: PodcastAccess,
     private val episodeService: EpisodeService,
-    private val objectMapper: ObjectMapper,
+    private val previewStreamer: PreviewStreamer,
     private val podcastValidator: PodcastValidator
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
-
-    private val previewScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-    @PreDestroy
-    fun onDestroy() {
-        previewScope.cancel()
-    }
 
     @PostMapping
     fun create(@PathVariable userId: String, @RequestBody request: CreatePodcastRequest): ResponseEntity<Any> {
@@ -146,83 +127,6 @@ class PodcastController(
     }
 
     @GetMapping("/{podcastId}/preview", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
-    fun preview(@PathVariable userId: String, @PathVariable podcastId: String): Any {
-        val podcast = podcastAccess.podcast(userId, podcastId)
-
-        val emitter = SseEmitter(600_000L)
-
-        emitter.onCompletion { log.debug("Preview SSE completed for podcast {}", podcastId) }
-        emitter.onTimeout { log.warn("Preview SSE timed out for podcast {}", podcastId) }
-        emitter.onError { e -> log.error("Preview SSE error for podcast {}: {}", podcastId, e.message) }
-
-        log.info("Preview SSE requested for podcast {}", podcastId)
-
-        previewScope.launch {
-            val heartbeat = launch {
-                while (isActive) {
-                    delay(15_000L)
-                    try {
-                        emitter.send(SseEmitter.event().name("heartbeat").data("{}"))
-                    } catch (e: Exception) {
-                        log.debug("Heartbeat send failed for podcast {}: {}", podcastId, e.message)
-                        break
-                    }
-                }
-            }
-            try {
-                val result = podcastService.previewBriefing(podcast) { stage, detail ->
-                    try {
-                        emitter.send(
-                            SseEmitter.event()
-                                .name("progress")
-                                .data(objectMapper.writeValueAsString(mapOf("stage" to stage) + detail))
-                        )
-                    } catch (e: Exception) {
-                        log.debug("Failed to send progress event: {}", e.message)
-                    }
-                }
-
-                if (result != null) {
-                    emitter.send(
-                        SseEmitter.event()
-                            .name("result")
-                            .data(objectMapper.writeValueAsString(mapOf(
-                                "scriptText" to result.script,
-                                "style" to podcast.style.value,
-                                "articleIds" to result.articleIds
-                            )))
-                    )
-                } else {
-                    emitter.send(
-                        SseEmitter.event()
-                            .name("result")
-                            .data(objectMapper.writeValueAsString(mapOf(
-                                "message" to "No relevant articles available for preview"
-                            )))
-                    )
-                }
-
-                emitter.send(SseEmitter.event().name("complete").data(""))
-                emitter.complete()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.error("Preview pipeline failed for podcast {}: {}", podcastId, e.message, e)
-                try {
-                    emitter.send(
-                        SseEmitter.event()
-                            .name("error")
-                            .data(objectMapper.writeValueAsString(mapOf("message" to (e.message ?: "Preview generation failed"))))
-                    )
-                    emitter.complete()
-                } catch (sendError: Exception) {
-                    emitter.completeWithError(e)
-                }
-            } finally {
-                heartbeat.cancelAndJoin()
-            }
-        }
-
-        return emitter
-    }
+    fun preview(@PathVariable userId: String, @PathVariable podcastId: String): Any =
+        previewStreamer.stream(podcastAccess.podcast(userId, podcastId))
 }

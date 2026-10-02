@@ -3,73 +3,33 @@ package com.aisummarypodcast.llm
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.Podcast
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.slf4j.LoggerFactory
-import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
-import kotlin.time.measureTimedValue
 
 @Component
 class DialogueComposer(
     private val appProperties: AppProperties,
     private val modelResolver: ModelResolver,
-    private val chatClientFactory: ChatClientFactory,
-    private val varietyPicker: PromptVarietyPicker,
-    private val topicOrderExtractor: TopicOrderExtractor
+    private val taggedScriptComposer: TaggedScriptComposer,
+    private val varietyPicker: PromptVarietyPicker
 ) {
-
-    private val log = LoggerFactory.getLogger(javaClass)
 
     suspend fun compose(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): CompositionResult {
         val composeModelDef = modelResolver.resolve(context.runConfigFor(podcast, appProperties), PipelineStage.COMPOSE)
         return compose(articles, podcast, composeModelDef, context)
     }
 
-    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult {
-        log.info("[LLM] Composing dialogue from {} articles for podcast '{}' ({})", articles.size, podcast.name, podcast.id)
-        val chatClient = chatClientFactory.createForModel(
-            podcast.userId, composeModelDef,
-            useCache = !context.bypassLlmCache, attribution = LlmCallAttribution(episodeId = context.episodeId)
-        )
-        val prompt = buildPrompt(articles, podcast, context)
-
-        val tagValidation = RoleTagValidationAdvisor(resolveSpeakerRoles(podcast), topicOrderExtractor)
-
-        val (result, elapsed) = measureTimedValue {
-            val chatResponse = withContext(Dispatchers.IO) {
-                chatClient.prompt()
-                    .user(prompt)
-                    .options(buildComposeOptions(composeModelDef, podcast, appProperties))
-                    .advisors(tagValidation)
-                    .call()
-                    .chatResponse()
-            }
-
-            val rawScript = chatResponse?.result?.output?.text
-                ?: throw IllegalStateException("Empty response from LLM for dialogue composition")
-
-            val extraction = topicOrderExtractor.extract(rawScript)
-            // The attempts the tag validation discarded were paid for too.
-            val usage = tagValidation.discardedUsage.fold(TokenUsage.fromChatResponse(chatResponse), TokenUsage::plus)
-            CompositionResult(
-                script = cleanUpComposedScript(extraction.script, resolveSpeakerRoles(podcast)),
-                usage = usage,
-                topicOrder = extraction.topicOrder,
-                provenance = EvaluationRunProvenance.of(
-                    context = context,
-                    prompt = prompt,
-                    composeModel = composeModelDef.model,
-                    temperature = resolveTemperature(podcast, appProperties),
-                    variety = varietyPicker.pick(podcast.id, context.episodeDate),
-                    usage = usage
-                )
+    suspend fun compose(articles: List<Article>, podcast: Podcast, composeModelDef: ResolvedModel, context: ComposeContext = ComposeContext()): CompositionResult =
+        taggedScriptComposer.compose(
+            TaggedComposeRequest(
+                kind = "dialogue",
+                roles = resolveSpeakerRoles(podcast),
+                articles = articles,
+                podcast = podcast,
+                model = composeModelDef,
+                context = context,
+                prompt = buildPrompt(articles, podcast, context)
             )
-        }
-
-        log.info("[LLM] Dialogue composed for podcast '{}' ({}) — {} words in {}", podcast.name, podcast.id, result.script.split("\\s+".toRegex()).size, elapsed)
-        return result
-    }
+        )
 
     internal fun buildPrompt(articles: List<Article>, podcast: Podcast, context: ComposeContext = ComposeContext()): String {
         val targetWords = context.runConfigFor(podcast, appProperties).targetWords

@@ -1,6 +1,5 @@
 package com.aisummarypodcast.llm
 
-import tools.jackson.databind.json.JsonMapper
 import com.aisummarypodcast.research.PreComposeResearch
 
 import com.aisummarypodcast.research.BackgroundSource
@@ -30,7 +29,7 @@ class DialogueComposerTest {
         encryption = EncryptionProperties(masterKey = "test-key")
     )
 
-    private val composer = DialogueComposer(appProperties, mockk(), mockk(), PromptVarietyPicker(), TopicOrderExtractor(JsonMapper.builder().build()))
+    private val composer = DialogueComposer(appProperties, mockk(), mockk(), PromptVarietyPicker())
 
     private val podcast = Podcast(
         id = "p1", userId = "u1", name = "Tech Talk", topic = "tech",

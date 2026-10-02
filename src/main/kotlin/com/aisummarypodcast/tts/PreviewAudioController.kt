@@ -1,6 +1,7 @@
 package com.aisummarypodcast.tts
 
 import com.aisummarypodcast.podcast.PodcastAccess
+import com.aisummarypodcast.podcast.SafeSseEmitter
 import com.aisummarypodcast.store.Podcast
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
@@ -102,7 +103,7 @@ class PreviewAudioController(
         emitter.onTimeout { log.warn("Preview audio SSE timed out for podcast {}", podcastId) }
         emitter.onError { e -> log.error("Preview audio SSE error for podcast {}: {}", podcastId, e.message) }
 
-        previewAudioScope.launch { streamFullAudio(emitter, podcast, request.scriptText) }
+        previewAudioScope.launch { streamFullAudio(SafeSseEmitter(emitter), podcast, request.scriptText) }
         return emitter
     }
 
@@ -122,16 +123,14 @@ class PreviewAudioController(
             .body(FileSystemResource(file))
     }
 
-    private suspend fun streamFullAudio(emitter: SseEmitter, podcast: Podcast, script: String) {
+    private suspend fun streamFullAudio(emitter: SafeSseEmitter, podcast: Podcast, script: String) {
         // Inworld synthesizes chunks concurrently, so completions arrive from several coroutines at
-        // once. SseEmitter is not safe for concurrent send(), so every write to this stream —
-        // progress, result, and heartbeat alike — goes through one lock.
-        val sendLock = Any()
+        // once, next to the heartbeat. The safe emitter serializes every write to this stream.
         val heartbeat = previewAudioScope.launch {
             while (isActive) {
                 delay(HEARTBEAT_INTERVAL_MS)
                 try {
-                    synchronized(sendLock) { emitter.send(SseEmitter.event().name("heartbeat").data("{}")) }
+                    emitter.send("heartbeat", "{}")
                 } catch (e: Exception) {
                     log.debug("Heartbeat send failed for podcast {}: {}", podcast.id, e.message)
                     break
@@ -142,26 +141,20 @@ class PreviewAudioController(
             val audioId = previewAudioService.generateFullAudio(podcast, script) { completed, total ->
                 // A dropped progress event must not abort a synthesis run that is minutes in.
                 try {
-                    synchronized(sendLock) {
-                        send(emitter, "progress", mapOf("stage" to "synthesizing", "chunk" to completed, "total" to total))
-                    }
+                    send(emitter, "progress", mapOf("stage" to "synthesizing", "chunk" to completed, "total" to total))
                 } catch (e: Exception) {
                     log.debug("Failed to send preview audio progress event: {}", e.message)
                 }
             }
-            synchronized(sendLock) {
-                send(emitter, "result", mapOf("audioId" to audioId))
-                emitter.send(SseEmitter.event().name("complete").data(""))
-            }
+            send(emitter, "result", mapOf("audioId" to audioId))
+            emitter.send("complete", "")
             emitter.complete()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.error("Preview audio generation failed for podcast {}: {}", podcast.id, e.message, e)
             try {
-                synchronized(sendLock) {
-                    send(emitter, "error", mapOf("message" to (e.message ?: "Preview audio generation failed")))
-                }
+                send(emitter, "error", mapOf("message" to (e.message ?: "Preview audio generation failed")))
                 emitter.complete()
             } catch (_: Exception) {
                 emitter.completeWithError(e)
@@ -171,7 +164,7 @@ class PreviewAudioController(
         }
     }
 
-    private fun send(emitter: SseEmitter, name: String, payload: Map<String, Any>) {
-        emitter.send(SseEmitter.event().name(name).data(objectMapper.writeValueAsString(payload)))
+    private fun send(emitter: SafeSseEmitter, name: String, payload: Map<String, Any>) {
+        emitter.send(name, objectMapper.writeValueAsString(payload))
     }
 }

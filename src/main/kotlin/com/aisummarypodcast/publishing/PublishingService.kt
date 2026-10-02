@@ -37,7 +37,21 @@ class PublishingService(
     suspend fun publish(episode: Episode, podcast: Podcast, userId: String, target: String): EpisodePublication {
         val publisher = publisherRegistry.getPublisher(target)
             ?: throw IllegalArgumentException("Unsupported publish target: $target")
+        requirePublishable(episode, podcast, target)
 
+        val existing = publicationRepository.findByEpisodeIdAndTarget(episode.id!!, target)
+        if (existing?.status == PublicationStatus.PUBLISHED && existing.externalId != null) {
+            return updateExisting(publisher, episode, podcast, userId, existing)
+        }
+
+        replaceSameDayPublications(publisher, episode, podcast, userId, target)
+        val claim = claimPublication(episode, target, existing)
+        val result = upload(publisher, episode, podcast, userId, claim)
+        return recordPublished(publisher, episode, podcast, userId, claim, result)
+    }
+
+    /** Throws when the target is not enabled for the podcast or the episode is not in a state to be published. */
+    private fun requirePublishable(episode: Episode, podcast: Podcast, target: String) {
         val publicationTarget = targetService.get(podcast.id, target)
         if (publicationTarget == null || !publicationTarget.enabled) {
             throw TargetNotConfiguredException("Publication target '$target' is not configured or enabled for this podcast")
@@ -58,16 +72,20 @@ class PublishingService(
         if (episode.audioFilePath == null) {
             throw IllegalStateException("Episode has no audio file")
         }
+    }
 
-        val existing = publicationRepository.findByEpisodeIdAndTarget(episode.id!!, target)
-
-        if (existing?.status == PublicationStatus.PUBLISHED && existing.externalId != null) {
-            return updateExisting(publisher, episode, podcast, userId, existing)
-        }
-
-        // Replace any existing publication from another episode of the same kind with the same date
-        // (regenerated episodes). A focus episode is an extra next to the regular one, so the two never
-        // replace each other.
+    /**
+     * Replaces any existing publication from another episode of the same kind with the same date
+     * (regenerated episodes). A focus episode is an extra next to the regular one, so the two never
+     * replace each other.
+     */
+    private suspend fun replaceSameDayPublications(
+        publisher: EpisodePublisher,
+        episode: Episode,
+        podcast: Podcast,
+        userId: String,
+        target: String
+    ) {
         val episodeDate = episode.generatedAt.substring(0, 10) // YYYY-MM-DD
         val previousPublications = publicationRepository.findPublishedByPodcastIdAndTarget(podcast.id, target)
         for (prev in previousPublications) {
@@ -95,22 +113,34 @@ class PublishingService(
                 log.info("Replaced same-day publication (episode {}, externalId={}) on {}", prev.episodeId, prev.externalId, target)
             }
         }
+    }
 
-        val now = Instant.now().toString()
-        val publication = publicationRepository.save(
+    /** Saves the PENDING row that marks this publish as in flight, reusing the id and creation time of an earlier attempt. */
+    private fun claimPublication(episode: Episode, target: String, existing: EpisodePublication?): EpisodePublication =
+        publicationRepository.save(
             EpisodePublication(
                 id = existing?.id,
-                episodeId = episode.id,
+                episodeId = episode.id!!,
                 target = target,
                 status = PublicationStatus.PENDING,
-                createdAt = existing?.createdAt ?: now
+                createdAt = existing?.createdAt ?: Instant.now().toString()
             )
         )
 
-        // Only the upload itself decides whether this publication failed. Everything after it runs
-        // outside the catch, so a broken side effect can no longer stamp FAILED over a row that
-        // holds a live external id.
-        val result = try {
+    /**
+     * Only the upload itself decides whether this publication failed. Everything after it runs
+     * outside the catch, so a broken side effect can no longer stamp FAILED over a row that
+     * holds a live external id.
+     */
+    private suspend fun upload(
+        publisher: EpisodePublisher,
+        episode: Episode,
+        podcast: Podcast,
+        userId: String,
+        claim: EpisodePublication
+    ): PublishResult {
+        val target = claim.target
+        return try {
             log.info("Publishing episode {} to {}", episode.id, target)
             publisher.publish(episode, podcast, userId)
         } catch (e: CancellationException) {
@@ -121,7 +151,7 @@ class PublishingService(
         } catch (e: Exception) {
             log.error("Failed to publish episode {} to {}: {}", episode.id, target, e.message, e)
             publicationRepository.save(
-                publication.copy(
+                claim.copy(
                     status = PublicationStatus.FAILED,
                     errorMessage = e.message
                 )
@@ -132,9 +162,20 @@ class PublishingService(
             )
             throw e
         }
+    }
 
+    /** Marks the claim PUBLISHED with the upload's external id, then runs the side effects and announces it. */
+    private suspend fun recordPublished(
+        publisher: EpisodePublisher,
+        episode: Episode,
+        podcast: Podcast,
+        userId: String,
+        claim: EpisodePublication,
+        result: PublishResult
+    ): EpisodePublication {
+        val target = claim.target
         val published = publicationRepository.save(
-            publication.copy(
+            claim.copy(
                 status = PublicationStatus.PUBLISHED,
                 externalId = result.externalId,
                 externalUrl = result.externalUrl,
