@@ -66,4 +66,11 @@ class SourceRepositoryFilterTest {
     fun `the unfiltered finder still returns both`() {
         assertEquals(5, sourceRepository.findByPodcastId("p1").size)
     }
+
+    @Test
+    fun `findByEnabledTrue returns enabled sources across podcasts`() {
+        val found = sourceRepository.findByEnabledTrue()
+
+        assertEquals(listOf("live-1", "live-2", "other-podcast"), found.map { it.id }.sorted())
+    }
 }

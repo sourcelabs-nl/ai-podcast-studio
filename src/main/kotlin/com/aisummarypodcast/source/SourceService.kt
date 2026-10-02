@@ -155,6 +155,17 @@ class SourceService(
         if (enabled == null) sourceRepository.findByPodcastId(podcastId)
         else sourceRepository.findByPodcastIdAndEnabled(podcastId, enabled)
 
+    fun findEnabled(): List<Source> = sourceRepository.findByEnabledTrue()
+
+    fun findEnabledByPodcastId(podcastId: String): List<Source> = findByPodcastId(podcastId, enabled = true)
+
+    /**
+     * Persists a synthetic `lastPolled` on [source] so a restart does not make every never-polled
+     * source due in the same round.
+     */
+    fun applyStartupJitter(source: Source, syntheticLastPolled: Instant): Source =
+        sourceRepository.save(source.copy(lastPolled = syntheticLastPolled.toString()))
+
     fun findById(sourceId: String): Source? = sourceRepository.findByIdOrNull(sourceId)
 
     fun update(sourceId: String, type: SourceType, url: String, config: SourceConfig): Source? {

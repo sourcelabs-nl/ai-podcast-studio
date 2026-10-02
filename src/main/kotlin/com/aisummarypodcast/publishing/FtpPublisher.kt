@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.net.ftp.FTPClient
 import org.slf4j.LoggerFactory
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 import java.io.ByteArrayInputStream
@@ -61,7 +62,7 @@ class FtpPublisher(
             ?.let { if (it.endsWith("/")) it else "$it/" }
         val podcastPublicUrl = publicUrl?.let { "${it}${podcastPath.trimStart('/')}" }
 
-        val user = userRepository.findById(podcast.userId).orElse(null) ?: return
+        val user = userRepository.findByIdOrNull(podcast.userId) ?: return
         val baseUrl = podcastPublicUrl ?: appProperties.feed.staticBaseUrl ?: appProperties.feed.baseUrl
         val feedXml = feedGenerator.generate(podcast, user, baseUrl, podcastPublicUrl, publishedTarget = TARGET_NAME)
 

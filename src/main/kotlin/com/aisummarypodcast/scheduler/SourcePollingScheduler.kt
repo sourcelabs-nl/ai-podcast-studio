@@ -7,7 +7,6 @@ import com.aisummarypodcast.source.extractSourceHost
 import com.aisummarypodcast.source.SourceHostBreaker
 import com.aisummarypodcast.source.SourcePoller
 import com.aisummarypodcast.source.SourceService
-import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
@@ -27,13 +26,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import kotlin.math.min
 import kotlin.random.Random
 
 @Component
 class SourcePollingScheduler(
     private val sourcePoller: SourcePoller,
-    private val sourceRepository: SourceRepository,
     private val sourceService: SourceService,
     private val appProperties: AppProperties,
     private val podcastService: PodcastService,
@@ -79,7 +76,7 @@ class SourcePollingScheduler(
     suspend fun pollSources() {
         cleanupOldArticles()
 
-        val allSources = sourceRepository.findAll().filter { it.enabled }
+        val allSources = sourceService.findEnabled()
         log.info("[Polling] Checking {} enabled sources", allSources.count())
 
         val effectiveSources = if (firstCycle) {
@@ -89,7 +86,7 @@ class SourcePollingScheduler(
             allSources
         }
 
-        val dueSources = effectiveSources.filter { isDue(it) }
+        val dueSources = effectiveSources.filter { it.isDue(appProperties.source.maxBackoffHours) }
         log.info("[Polling] {} sources are due for polling", dueSources.size)
 
         val sourcesByPodcast = allSources.groupBy { it.podcastId }
@@ -138,7 +135,7 @@ class SourcePollingScheduler(
      * generation when polling has gone stale (e.g. the machine was asleep through the cron time).
      */
     suspend fun pollPodcastSourcesNow(podcastId: String) {
-        val sources = sourceRepository.findByPodcastId(podcastId).filter { it.enabled }
+        val sources = sourceService.findEnabledByPodcastId(podcastId)
         if (sources.isEmpty()) {
             log.info("[Polling] Catch-up poll requested for podcast {} but it has no enabled sources", podcastId)
             return
@@ -232,25 +229,11 @@ class SourcePollingScheduler(
 
             val jitterMinutes = Random.nextInt(0, source.pollIntervalMinutes + 1)
             val syntheticLastPolled = now.minus(jitterMinutes.toLong(), ChronoUnit.MINUTES)
-            val updated = source.copy(lastPolled = syntheticLastPolled.toString())
-            sourceRepository.save(updated)
+            val updated = sourceService.applyStartupJitter(source, syntheticLastPolled)
             log.info("[Polling] Applied startup jitter to source {}: synthetic lastPolled = {} ({} min ago)",
                 source.id, syntheticLastPolled, jitterMinutes)
             updated
         }
-    }
-
-    private fun isDue(source: Source): Boolean {
-        val lastPolled = source.lastPolled?.let { Instant.parse(it) } ?: return true
-        val effectiveInterval = effectivePollIntervalMinutes(source)
-        return lastPolled.plus(effectiveInterval, ChronoUnit.MINUTES).isBefore(Instant.now())
-    }
-
-    internal fun effectivePollIntervalMinutes(source: Source): Long {
-        if (source.consecutiveFailures == 0) return source.pollIntervalMinutes.toLong()
-        val maxBackoffMinutes = (source.maxBackoffHours ?: appProperties.source.maxBackoffHours).toLong() * 60
-        val backoff = source.pollIntervalMinutes.toLong() * (1L shl min(source.consecutiveFailures, 30))
-        return min(backoff, maxBackoffMinutes)
     }
 
     private fun cleanupOldArticles() {

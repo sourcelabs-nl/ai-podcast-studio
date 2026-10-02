@@ -5,6 +5,7 @@ import com.aisummarypodcast.publishing.PodcastPublicationTargetService
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.UserRepository
 import org.slf4j.LoggerFactory
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 import java.nio.file.Files
@@ -23,7 +24,7 @@ class StaticFeedExporter(
 
     fun export(podcast: Podcast) {
         try {
-            val user = userRepository.findById(podcast.userId).orElse(null)
+            val user = userRepository.findByIdOrNull(podcast.userId)
             if (user == null) {
                 log.warn("Cannot export static feed for podcast {}: user {} not found", podcast.id, podcast.userId)
                 return

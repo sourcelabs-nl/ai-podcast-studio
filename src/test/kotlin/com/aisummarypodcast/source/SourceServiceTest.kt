@@ -341,4 +341,32 @@ class SourceServiceTest {
 
         assertEquals(retired, service.findByPodcastId("p1", enabled = false))
     }
+
+    @Test
+    fun `findEnabled returns the enabled sources from the derived query`() {
+        val live = listOf(enabledSource("s1", true), enabledSource("s2", true))
+        every { sourceRepository.findByEnabledTrue() } returns live
+
+        assertEquals(live, service.findEnabled())
+    }
+
+    @Test
+    fun `findEnabledByPodcastId narrows the query to the podcast's enabled sources`() {
+        val live = listOf(enabledSource("s1", true))
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", true) } returns live
+
+        assertEquals(live, service.findEnabledByPodcastId("p1"))
+        verify(exactly = 0) { sourceRepository.findByPodcastId(any()) }
+    }
+
+    @Test
+    fun `applyStartupJitter saves the source with the synthetic lastPolled`() {
+        val synthetic = Instant.parse("2026-01-01T10:00:00Z")
+
+        val result = service.applyStartupJitter(source("s1", "https://example.com/rss"), synthetic)
+
+        assertEquals("2026-01-01T10:00:00Z", result.lastPolled)
+        assertEquals("2026-01-01T10:00:00Z", sourceSlot.captured.lastPolled)
+        assertEquals("s1", sourceSlot.captured.id)
+    }
 }

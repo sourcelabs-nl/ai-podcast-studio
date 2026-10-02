@@ -10,16 +10,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
-
-/** How long to wait before the first lookup, between lookups, and in total before giving up. */
-data class GenerationStatsRetry(
-    val initialDelay: Duration = 5.seconds,
-    val interval: Duration = 10.seconds,
-    val giveUpAfter: Duration = 3.minutes
-)
 
 /** Lookups run on few threads: they are cheap GETs, and a scoring fan-out must not start dozens at once. */
 private const val LOOKUP_PARALLELISM = 4

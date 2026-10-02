@@ -12,12 +12,6 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.client.RestClient
 
-data class ResearchTestResult(
-    val success: Boolean,
-    val message: String,
-    val resultCount: Int? = null
-)
-
 @RestController
 @RequestMapping("/users/{userId}/research/test")
 class ResearchTestController(

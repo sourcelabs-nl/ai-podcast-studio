@@ -17,7 +17,6 @@ import com.aisummarypodcast.source.SourcePoller
 import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.Source
-import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -40,10 +39,10 @@ class SourcePollingSchedulerTest {
         // PollFailure, which the host breaker records and acts on.
         every { poll(any(), any(), any(), any()) } returns null
     }
-    private val sourceRepository = mockk<SourceRepository> {
-        every { findAll() } returns emptyList()
+    private val sourceService = mockk<SourceService>(relaxed = true) {
+        every { findEnabled() } returns emptyList()
+        every { applyStartupJitter(any(), any()) } answers { firstArg<Source>().copy(lastPolled = secondArg<Instant>().toString()) }
     }
-    private val sourceService = mockk<SourceService>(relaxed = true)
     private val podcastService = mockk<PodcastService> {
         coEvery { scoreReadySources(any()) } returns Unit
     }
@@ -76,7 +75,7 @@ class SourcePollingSchedulerTest {
     ): SourcePollingScheduler {
         val props = appProperties(maxArticleAgeDays, pollDelaySeconds, hostOverrides)
         return SourcePollingScheduler(
-            sourcePoller, sourceRepository, sourceService, props, podcastService,
+            sourcePoller, sourceService, props, podcastService,
             PollDelayResolver(props), SourceHostBreaker(circuitBreakerRegistry)
         )
     }
@@ -92,7 +91,7 @@ class SourcePollingSchedulerTest {
     @Test
     fun `sources on a host with an open breaker are skipped`() = runTest {
         val dead = (1..5).map { deadSource("s$it", "nitter.net") }
-        every { sourceRepository.findAll() } returns dead
+        every { sourceService.findEnabled() } returns dead
         every { podcastService.findById("p1") } returns podcast
         circuitBreakerRegistry.openBreakerFor("nitter.net")
 
@@ -104,7 +103,7 @@ class SourcePollingSchedulerTest {
     @Test
     fun `repeated permanent failures open the breaker mid-round and skip the remainder`() = runTest {
         val dead = (1..10).map { deadSource("s$it", "nitter.net") }
-        every { sourceRepository.findAll() } returns dead
+        every { sourceService.findEnabled() } returns dead
         every { podcastService.findById("p1") } returns podcast
         every { sourcePoller.poll(any(), any(), any(), any()) } returns PollFailure.Permanent("HTTP 403 Forbidden")
 
@@ -117,7 +116,7 @@ class SourcePollingSchedulerTest {
     @Test
     fun `a successful poll while the breaker is tripped restores the rest of the host`() = runTest {
         val dead = (1..4).map { deadSource("s$it", "nitter.net") }
-        every { sourceRepository.findAll() } returns dead
+        every { sourceService.findEnabled() } returns dead
         every { podcastService.findById("p1") } returns podcast
         every { sourcePoller.poll(any(), any(), any(), any()) } returns null
         circuitBreakerRegistry.openBreakerFor("nitter.net")
@@ -134,7 +133,7 @@ class SourcePollingSchedulerTest {
     @Test
     fun `a failing probe leaves the host untouched`() = runTest {
         val dead = (1..4).map { deadSource("s$it", "nitter.net") }
-        every { sourceRepository.findAll() } returns dead
+        every { sourceService.findEnabled() } returns dead
         every { podcastService.findById("p1") } returns podcast
         every { sourcePoller.poll(any(), any(), any(), any()) } returns PollFailure.Permanent("HTTP 403 Forbidden")
         circuitBreakerRegistry.openBreakerFor("nitter.net")
@@ -153,7 +152,7 @@ class SourcePollingSchedulerTest {
                 lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
             )
         }
-        every { sourceRepository.findAll() } returns healthy
+        every { sourceService.findEnabled() } returns healthy
         every { podcastService.findById("p1") } returns podcast
 
         scheduler().pollSources()
@@ -164,7 +163,7 @@ class SourcePollingSchedulerTest {
     @Test
     fun `transient failures across a host never open the breaker`() = runTest {
         val flaky = (1..10).map { deadSource("s$it", "example.com") }
-        every { sourceRepository.findAll() } returns flaky
+        every { sourceService.findEnabled() } returns flaky
         every { podcastService.findById("p1") } returns podcast
         every { sourcePoller.poll(any(), any(), any(), any()) } returns PollFailure.Transient("Socket timeout")
 
@@ -180,7 +179,7 @@ class SourcePollingSchedulerTest {
             id = "h1", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/feed",
             lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
         )
-        every { sourceRepository.findAll() } returns dead + healthy
+        every { sourceService.findEnabled() } returns dead + healthy
         every { podcastService.findById("p1") } returns podcast
         circuitBreakerRegistry.openBreakerFor("nitter.net")
 
@@ -203,7 +202,7 @@ class SourcePollingSchedulerTest {
             lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
         )
 
-        every { sourceRepository.findAll() } returns listOf(twitterSource)
+        every { sourceService.findEnabled() } returns listOf(twitterSource)
         every { podcastService.findById("p1") } returns podcast
 
         scheduler().pollSources()
@@ -219,7 +218,7 @@ class SourcePollingSchedulerTest {
             lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
         )
 
-        every { sourceRepository.findAll() } returns listOf(rssSource)
+        every { sourceService.findEnabled() } returns listOf(rssSource)
         every { podcastService.findById("p1") } returns podcast
 
         scheduler().pollSources()
@@ -232,8 +231,6 @@ class SourcePollingSchedulerTest {
     @Test
     fun `applyStartupJitter sets synthetic lastPolled for sources with null lastPolled`() = runTest {
         val source = Source(id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/rss", pollIntervalMinutes = 60)
-        val saved = slot<Source>()
-        every { sourceRepository.save(capture(saved)) } answers { saved.captured }
 
         val result = scheduler().applyStartupJitter(listOf(source))
 
@@ -243,7 +240,7 @@ class SourcePollingSchedulerTest {
         val now = Instant.now()
         assertTrue(syntheticLastPolled.isBefore(now.plusSeconds(1)))
         assertTrue(syntheticLastPolled.isAfter(now.minus(61, ChronoUnit.MINUTES)))
-        verify(exactly = 1) { sourceRepository.save(any()) }
+        verify(exactly = 1) { sourceService.applyStartupJitter(source, any()) }
     }
 
     @Test
@@ -257,21 +254,20 @@ class SourcePollingSchedulerTest {
             lastPolled = null, pollIntervalMinutes = 60
         )
         every { podcastService.findById("p1") } returns podcast
-        every { sourceRepository.save(any()) } answers { firstArg() }
 
         val scheduler = scheduler()
 
         // First cycle: only the existing source is present, jitter applied to it would be a no-op (already has lastPolled).
-        every { sourceRepository.findAll() } returns listOf(existing)
+        every { sourceService.findEnabled() } returns listOf(existing)
         scheduler.pollSources()
 
         // Mid-run: a new source is added with lastPolled = null. It must be polled on the next cycle
         // without jitter consuming the first interval.
-        every { sourceRepository.findAll() } returns listOf(existing, newlyAdded)
+        every { sourceService.findEnabled() } returns listOf(existing, newlyAdded)
         scheduler.pollSources()
 
         verify(exactly = 1) { sourcePoller.poll(newlyAdded, null, 7, listOf("s1", "s2")) }
-        verify(exactly = 0) { sourceRepository.save(match { it.id == "s2" }) }
+        verify(exactly = 0) { sourceService.applyStartupJitter(match { it.id == "s2" }, any()) }
     }
 
     @Test
@@ -286,7 +282,7 @@ class SourcePollingSchedulerTest {
 
         assertEquals(1, result.size)
         assertEquals(existingLastPolled, result[0].lastPolled)
-        verify(exactly = 0) { sourceRepository.save(any()) }
+        verify(exactly = 0) { sourceService.applyStartupJitter(any(), any()) }
     }
 
     // --- 5.2 Parallel host grouping tests ---
@@ -305,7 +301,7 @@ class SourcePollingSchedulerTest {
             id = "s3", podcastId = "p1", type = SourceType.RSS, url = "https://reddit.com/feed",
             lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString()
         )
-        every { sourceRepository.findAll() } returns listOf(source1, source2, source3)
+        every { sourceService.findEnabled() } returns listOf(source1, source2, source3)
         every { podcastService.findById("p1") } returns podcast
 
         scheduler().pollSources()
@@ -327,7 +323,7 @@ class SourcePollingSchedulerTest {
             id = "s2", podcastId = "p1", type = SourceType.RSS, url = "https://working-host.net/rss",
             lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString()
         )
-        every { sourceRepository.findAll() } returns listOf(source1, source2)
+        every { sourceService.findEnabled() } returns listOf(source1, source2)
         every { podcastService.findById("p1") } returns podcast
         every { sourcePoller.poll(source1, null, 7, listOf("s1", "s2")) } throws RuntimeException("Host down")
 
@@ -396,7 +392,7 @@ class SourcePollingSchedulerTest {
             lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
         )
         val podcast2 = Podcast(id = "p2", userId = "owner-2", name = "Test 2", topic = "ai")
-        every { sourceRepository.findAll() } returns listOf(s1, s2)
+        every { sourceService.findEnabled() } returns listOf(s1, s2)
         every { podcastService.findById("p1") } returns podcast
         every { podcastService.findById("p2") } returns podcast2
 
@@ -417,7 +413,7 @@ class SourcePollingSchedulerTest {
             lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString(), enabled = true
         )
         val podcast2 = Podcast(id = "p2", userId = "owner-2", name = "Test 2", topic = "ai")
-        every { sourceRepository.findAll() } returns listOf(s1, s2)
+        every { sourceService.findEnabled() } returns listOf(s1, s2)
         every { podcastService.findById("p1") } returns podcast
         every { podcastService.findById("p2") } returns podcast2
         coEvery { podcastService.scoreReadySources(podcast) } throws RuntimeException("boom")
@@ -435,7 +431,7 @@ class SourcePollingSchedulerTest {
         val disabled = Source(
             id = "s3", podcastId = "p1", type = SourceType.RSS, url = "https://disabled.com/feed", enabled = false
         )
-        every { sourceRepository.findByPodcastId("p1") } returns listOf(rss, disabled)
+        every { sourceService.findEnabledByPodcastId("p1") } returns listOf(rss)
         every { podcastService.findById("p1") } returns podcast
 
         scheduler().pollPodcastSourcesNow("p1")

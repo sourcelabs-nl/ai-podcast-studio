@@ -4,6 +4,7 @@ import com.aisummarypodcast.store.PodcastRepository
 import tools.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.context.event.EventListener
+import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.util.concurrent.ConcurrentHashMap
@@ -88,6 +89,6 @@ class SseEventBroadcaster(
     }
 
     private fun resolveUserId(podcastId: String): String? {
-        return podcastRepository.findById(podcastId).orElse(null)?.userId
+        return podcastRepository.findByIdOrNull(podcastId)?.userId
     }
 }
