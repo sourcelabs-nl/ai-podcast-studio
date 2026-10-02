@@ -69,6 +69,12 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
 
     fun findByPodcastIdAndStatus(podcastId: String, status: EpisodeStatus): List<Episode>
 
+    /** The newest episode of the podcast in [status] that has recorded a pipeline stage. */
+    fun findFirstByPodcastIdAndStatusAndPipelineStageIsNotNullOrderByGeneratedAtDescIdDesc(
+        podcastId: String,
+        status: EpisodeStatus
+    ): Episode?
+
     fun findByPodcastIdAndStatusInAndPurposeNot(
         podcastId: String,
         statuses: Collection<EpisodeStatus>,

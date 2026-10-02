@@ -18,6 +18,24 @@ interface ArticleRepository : CrudRepository<Article, Long>, ArticleRepositoryCu
 
     fun findBySourceIdAndContentHash(sourceId: String, contentHash: String): Article?
 
+    /**
+     * Stores an aggregated article unless one with the same `(source_id, content_hash)` exists. The
+     * conflict is resolved inside SQLite rather than by catching an exception: an exception that
+     * passes through a repository call marks the surrounding transaction rollback-only, so the
+     * caller could not recover from it and its commit would fail.
+     */
+    @Modifying
+    @Query("INSERT OR IGNORE INTO articles (source_id, title, body, url, published_at, author, content_hash) VALUES (:sourceId, :title, :body, :url, :publishedAt, :author, :contentHash)")
+    fun insertIgnore(
+        sourceId: String,
+        title: String,
+        body: String,
+        url: String,
+        publishedAt: String?,
+        author: String?,
+        contentHash: String
+    )
+
     fun deleteBySourceId(sourceId: String)
 
     @Modifying

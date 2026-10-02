@@ -48,9 +48,6 @@ class PodcastControllerLanguageTest {
     @MockkBean(relaxed = true)
     private lateinit var sourceAggregator: SourceAggregator
 
-    @MockkBean(relaxed = true)
-    private lateinit var pipelineStateTracker: PipelineStateTracker
-
     private val userId = "user-1"
     private val user = User(id = userId, name = "Test User")
     private val podcastId = "podcast-1"

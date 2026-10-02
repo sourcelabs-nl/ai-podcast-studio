@@ -7,6 +7,7 @@ import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeRepository
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.Podcast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -55,7 +56,7 @@ class TtsPipeline(
         )
 
         log.info("[TTS] Episode generated for podcast '{}' ({}): {} ({} seconds)", podcast.name, podcast.id, audioOutput.path.fileName, audioOutput.durationSeconds)
-        withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
+        exportFeedAfterAudio(podcast, episode.id)
         return episode
     }
 
@@ -81,8 +82,22 @@ class TtsPipeline(
         )
 
         log.info("[TTS] Episode {} audio generated for podcast '{}' ({}): {} ({} seconds)", episode.id, podcast.name, podcast.id, audioOutput.path.fileName, audioOutput.durationSeconds)
-        withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
+        exportFeedAfterAudio(podcast, episode.id)
         return updated
+    }
+
+    /**
+     * The audio is saved and the episode exists by now, so a failing feed export is logged rather than
+     * propagated: it must not make an episode with finished audio look as though generation failed.
+     */
+    private suspend fun exportFeedAfterAudio(podcast: Podcast, episodeId: Long?) {
+        try {
+            withContext(Dispatchers.IO) { staticFeedExporter.export(podcast) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.warn("[TTS] Static feed export failed after generating audio for episode {}: {}", episodeId, e.message)
+        }
     }
 
     private suspend fun callProvider(script: String, podcast: Podcast): TtsResult =

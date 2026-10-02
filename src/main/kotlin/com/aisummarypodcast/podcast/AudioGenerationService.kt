@@ -68,10 +68,6 @@ class AudioGenerationService(
             )
             ttsPipeline.generateForExistingEpisode(generatingEpisode, podcast)
             log.info("Async TTS generation complete for episode {} (podcast '{}' ({}))", episodeId, podcast.name, podcastId)
-            eventPublisher.publishEvent(
-                PodcastEvent(this, podcastId, "episode", episodeId, "episode.generated",
-                    mapOf("episodeNumber" to episodeId))
-            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -82,6 +78,17 @@ class AudioGenerationService(
                 PodcastEvent(this, podcastId, "episode", episodeId, "episode.failed",
                     mapOf("episodeNumber" to episodeId, "error" to (e.message ?: "Unknown error")))
             )
+            return
+        }
+
+        // Published outside the try: the audio exists, so a failing listener must not flip the episode to FAILED.
+        try {
+            eventPublisher.publishEvent(
+                PodcastEvent(this, podcastId, "episode", episodeId, "episode.generated",
+                    mapOf("episodeNumber" to episodeId))
+            )
+        } catch (e: Exception) {
+            log.warn("Listener failed on episode.generated for episode {}: {}", episodeId, e.message)
         }
     }
 }

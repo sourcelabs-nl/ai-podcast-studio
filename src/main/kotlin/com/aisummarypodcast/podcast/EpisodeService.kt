@@ -245,11 +245,16 @@ class EpisodeService(
             podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
         }
 
+        // A notification: a failing listener must not fail an episode that is already complete.
         val eventName = if (requireReview) "episode.created" else "episode.generated"
-        eventPublisher.publishEvent(
-            PodcastEvent(this, podcast.id, "episode", finalEpisode.id!!, eventName,
-                mapOf("episodeNumber" to finalEpisode.id))
-        )
+        try {
+            eventPublisher.publishEvent(
+                PodcastEvent(this, podcast.id, "episode", finalEpisode.id!!, eventName,
+                    mapOf("episodeNumber" to finalEpisode.id))
+            )
+        } catch (e: Exception) {
+            log.warn("Listener failed on {} for episode {}: {}", eventName, finalEpisode.id, e.message)
+        }
 
         return finalEpisode
     }
@@ -594,6 +599,10 @@ class EpisodeService(
         // Set status: PENDING_REVIEW or trigger TTS
         val withStatus = if (requireReview) {
             episodeRepository.save(fresh.copy(status = EpisodeStatus.PENDING_REVIEW, pipelineStage = null, publishApproved = publishApproved))
+        } else if (fresh.audioFilePath != null && java.io.File(fresh.audioFilePath).exists()) {
+            // A retry resuming after the audio was already produced (a later step failed): keep that
+            // audio rather than synthesizing, and paying for, the same script again.
+            episodeRepository.save(fresh.copy(status = EpisodeStatus.GENERATED, pipelineStage = null, errorMessage = null, publishApproved = publishApproved))
         } else {
             val generating = episodeRepository.save(fresh.copy(status = EpisodeStatus.GENERATING, pipelineStage = "tts", publishApproved = publishApproved))
             ttsPipeline.generateForExistingEpisode(generating, podcast).let {
@@ -620,11 +629,16 @@ class EpisodeService(
             podcastRepository.save(freshPodcast.copy(lastGeneratedAt = Instant.now().toString()))
         }
 
+        // A notification: a failing listener must not fail an episode that is already complete.
         val eventName = if (requireReview) "episode.created" else "episode.generated"
-        eventPublisher.publishEvent(
-            PodcastEvent(this, podcast.id, "episode", finalEpisode.id!!, eventName,
-                mapOf("episodeNumber" to finalEpisode.id))
-        )
+        try {
+            eventPublisher.publishEvent(
+                PodcastEvent(this, podcast.id, "episode", finalEpisode.id!!, eventName,
+                    mapOf("episodeNumber" to finalEpisode.id))
+            )
+        } catch (e: Exception) {
+            log.warn("Listener failed on {} for episode {}: {}", eventName, finalEpisode.id, e.message)
+        }
 
         return finalEpisode
     }
@@ -942,6 +956,16 @@ class EpisodeService(
     }
 
     fun findById(episodeId: Long): Episode? = episodeRepository.findByIdOrNull(episodeId)
+
+    /**
+     * The pipeline stage the podcast's running generation is in, or null when none is running. Read
+     * from the stage persisted on the GENERATING episode, so it survives a restart and disappears with
+     * an episode that is deleted for having nothing to compose.
+     */
+    fun activePipelineStage(podcastId: String): String? =
+        episodeRepository.findFirstByPodcastIdAndStatusAndPipelineStageIsNotNullOrderByGeneratedAtDescIdDesc(
+            podcastId, EpisodeStatus.GENERATING
+        )?.pipelineStage
 
     fun countArticles(episodeId: Long): Int = episodeArticleRepository.countByEpisodeId(episodeId)
 

@@ -85,4 +85,19 @@ class AudioGenerationServiceTest {
 
         verify(exactly = 0) { episodeRepository.save(match { it.status == EpisodeStatus.FAILED }) }
     }
+
+    @Test
+    fun `a failing listener on the generated event does not mark the episode FAILED`() = runTest {
+        val generatingEpisode = approvedEpisode.copy(status = EpisodeStatus.GENERATING_AUDIO)
+        val generatedEpisode = generatingEpisode.copy(status = EpisodeStatus.GENERATED, audioFilePath = "/audio.mp3", durationSeconds = 120)
+        every { episodeRepository.findById(1L) } returns Optional.of(approvedEpisode)
+        every { podcastRepository.findById("p1") } returns Optional.of(podcast)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+        coEvery { ttsPipeline.generateForExistingEpisode(generatingEpisode, podcast) } returns generatedEpisode
+        every { eventPublisher.publishEvent(match<PodcastEvent> { it.event == "episode.generated" }) } throws RuntimeException("listener down")
+
+        service.doGenerateAudio(1L, "p1")
+
+        verify(exactly = 0) { episodeRepository.save(match { it.status == EpisodeStatus.FAILED }) }
+    }
 }

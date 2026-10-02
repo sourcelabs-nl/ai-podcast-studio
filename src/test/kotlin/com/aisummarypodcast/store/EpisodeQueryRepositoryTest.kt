@@ -142,4 +142,19 @@ class EpisodeQueryRepositoryTest {
         assertEquals(1, episodeArticleRepository.countByEpisodeId(e2.id!!))
         assertEquals(0, episodeArticleRepository.countByEpisodeId(-1L))
     }
+
+    @Test
+    fun `the running generation's stage is the newest GENERATING episode with a recorded stage`() {
+        episodeRepository.save(episode(generatedAt = "2026-09-20T06:00:00Z", status = EpisodeStatus.GENERATING).copy(pipelineStage = "scoring"))
+        episodeRepository.save(episode(generatedAt = "2026-09-21T06:00:00Z", status = EpisodeStatus.GENERATING).copy(pipelineStage = "composing"))
+        episodeRepository.save(episode(generatedAt = "2026-09-22T06:00:00Z", status = EpisodeStatus.GENERATING))
+        episodeRepository.save(episode(podcastId = "p2", generatedAt = "2026-09-23T06:00:00Z", status = EpisodeStatus.GENERATING).copy(pipelineStage = "dedup"))
+        episodeRepository.save(episode(generatedAt = "2026-09-24T06:00:00Z", status = EpisodeStatus.FAILED).copy(pipelineStage = "tts"))
+
+        val running = episodeRepository.findFirstByPodcastIdAndStatusAndPipelineStageIsNotNullOrderByGeneratedAtDescIdDesc(
+            "p1", EpisodeStatus.GENERATING
+        )
+
+        assertEquals("composing", running?.pipelineStage)
+    }
 }

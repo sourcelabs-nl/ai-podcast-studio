@@ -6,7 +6,6 @@ import com.aisummarypodcast.store.Post
 import com.aisummarypodcast.store.PostArticleRepository
 import com.aisummarypodcast.store.Source
 import com.aisummarypodcast.store.SourceType
-import com.aisummarypodcast.util.isConstraintViolation
 import com.aisummarypodcast.util.sha256
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -62,23 +61,29 @@ class SourceAggregator(
 
     /**
      * Persists an article, returning the row already stored when this content was aggregated
-     * before. The insert can still lose a race on `UNIQUE(source_id, content_hash)` with a
-     * concurrent aggregation of the same posts, so a duplicate is resolved by re-reading rather
-     * than failing the run.
+     * before. The insert can lose a race on `UNIQUE(source_id, content_hash)` with a concurrent
+     * aggregation of the same posts, so it is an `INSERT OR IGNORE` followed by a re-read: the
+     * loser finds the winner's row instead of failing the run.
      *
-     * The violation is recognised by its SQLite error code rather than by catching
-     * `DataIntegrityViolationException`, which SQLite never produces here. See
-     * [isConstraintViolation]. A re-read that finds nothing means the failure was not this race,
-     * so the original exception is rethrown.
+     * The conflict must not surface as an exception. One that passes through a repository call
+     * marks this method's transaction rollback-only, and the commit then fails with
+     * `UnexpectedRollbackException` whatever the caller does with it. A re-read that finds nothing
+     * means the row was refused for another reason (a NOT NULL violation is ignored too), which is
+     * reported rather than hidden.
      */
     private fun saveOrFindArticle(article: Article, source: Source): Article {
         articleRepository.findBySourceIdAndContentHash(source.id, article.contentHash)?.let { return it }
-        return try {
-            articleRepository.save(article)
-        } catch (e: RuntimeException) {
-            if (!isConstraintViolation(e)) throw e
-            articleRepository.findBySourceIdAndContentHash(source.id, article.contentHash) ?: throw e
-        }
+        articleRepository.insertIgnore(
+            sourceId = source.id,
+            title = article.title,
+            body = article.body,
+            url = article.url,
+            publishedAt = article.publishedAt,
+            author = article.author,
+            contentHash = article.contentHash
+        )
+        return articleRepository.findBySourceIdAndContentHash(source.id, article.contentHash)
+            ?: error("Article for source ${source.id} was not stored: ${article.title}")
     }
 
     internal fun shouldAggregate(source: Source): Boolean {

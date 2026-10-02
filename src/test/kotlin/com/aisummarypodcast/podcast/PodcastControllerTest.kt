@@ -46,9 +46,6 @@ class PodcastControllerTest {
     @MockkBean(relaxed = true)
     private lateinit var sourceAggregator: SourceAggregator
 
-    @MockkBean(relaxed = true)
-    private lateinit var pipelineStateTracker: PipelineStateTracker
-
     private val userId = "user-1"
     private val user = User(id = userId, name = "Test User")
     private val podcastId = "podcast-1"
@@ -483,5 +480,25 @@ class PodcastControllerTest {
             .andExpect(status().isAccepted)
 
         io.mockk.verify { podcastService.generateBriefingAsync(any(), null) }
+    }
+
+    @Test
+    fun `pipeline status returns the stage of the running generation`() {
+        stubGenerate()
+        every { episodeService.activePipelineStage(podcastId) } returns "composing"
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/pipeline-status"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.stage").value("composing"))
+    }
+
+    @Test
+    fun `pipeline status is null when nothing is generating`() {
+        stubGenerate()
+        every { episodeService.activePipelineStage(podcastId) } returns null
+
+        mockMvc.perform(get("/users/$userId/podcasts/$podcastId/pipeline-status"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.stage").doesNotExist())
     }
 }

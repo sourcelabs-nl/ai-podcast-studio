@@ -179,6 +179,31 @@ class EpisodeServiceTest {
     }
 
     @Test
+    fun `a retry resuming after the audio exists keeps it and does not synthesize again`() = runTest {
+        val audio = java.nio.file.Files.createTempFile("episode", ".mp3")
+        try {
+            val resuming = Episode(
+                id = 5L, podcastId = "p1", generatedAt = "2026-10-01T06:00:00Z", scriptText = "Script",
+                status = EpisodeStatus.GENERATING, audioFilePath = audio.toString(), durationSeconds = 60
+            )
+            every { episodeRepository.findById(5L) } returns java.util.Optional.of(resuming)
+            every { episodeRepository.save(any()) } answers { firstArg() }
+            every { episodeArticleRepository.findByEpisodeId(5L) } returns emptyList()
+            every { podcastRepository.findById(podcast.id) } returns java.util.Optional.of(podcast)
+            every { podcastRepository.save(any()) } answers { firstArg() }
+            setupRecapMocks(podcast)
+
+            val result = episodeService.finalizeEpisode(resuming, podcast)
+
+            coVerify(exactly = 0) { ttsPipeline.generateForExistingEpisode(any(), any()) }
+            assertEquals(EpisodeStatus.GENERATED, result.status)
+            assertEquals(audio.toString(), result.audioFilePath)
+        } finally {
+            java.nio.file.Files.deleteIfExists(audio)
+        }
+    }
+
+    @Test
     fun `saves episode-article links for all processed articles`() = runTest {
         val reviewPodcast = podcast.copy(requireReview = true)
         val result = PipelineResult(

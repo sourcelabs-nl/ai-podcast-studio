@@ -17,6 +17,7 @@ class ArticleRepositoryTest {
     @Autowired lateinit var podcastRepository: PodcastRepository
     @Autowired lateinit var userRepository: UserRepository
     @Autowired lateinit var episodeRepository: EpisodeRepository
+    @Autowired lateinit var transactionTemplate: org.springframework.transaction.support.TransactionTemplate
 
     @BeforeEach
     fun setUp() {
@@ -180,5 +181,22 @@ class ArticleRepositoryTest {
         articleRepository.deleteOldUnprocessedArticles(cutoff)
 
         assertEquals(1, articleRepository.count())
+    }
+
+    @Test
+    fun `insertIgnore stores an article once and a duplicate inside a transaction commits cleanly`() {
+        // A duplicate that surfaced as an exception from a repository call would mark the
+        // surrounding transaction rollback-only and fail this commit.
+        transactionTemplate.execute {
+            repeat(2) {
+                articleRepository.insertIgnore("s1", "Title", "Body", "https://example.com/a", null, "@author", "dup-hash")
+            }
+        }
+
+        val stored = articleRepository.findBySourceIdAndContentHash("s1", "dup-hash")
+        assertEquals(1, articleRepository.count())
+        assertEquals("Title", stored?.title)
+        assertEquals("@author", stored?.author)
+        assertEquals(false, stored?.isProcessed)
     }
 }

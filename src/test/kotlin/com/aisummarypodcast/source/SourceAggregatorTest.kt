@@ -9,20 +9,26 @@ import com.aisummarypodcast.store.SourceType
 import com.aisummarypodcast.util.sha256
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import org.springframework.jdbc.UncategorizedSQLException
-import java.sql.SQLException
 
 class SourceAggregatorTest {
 
+    // The repository as SQLite behaves for the aggregator: a row is stored once per (source, content hash).
+    private val stored = mutableMapOf<String, Article>()
+    private var nextId = 1L
     private val articleRepository = mockk<ArticleRepository> {
-        every { findBySourceIdAndContentHash(any(), any()) } returns null
-        every { save(any()) } answers {
-            val article = firstArg<Article>()
-            article.copy(id = (Math.random() * 10000).toLong())
+        every { findBySourceIdAndContentHash(any(), any()) } answers { stored["${firstArg<String>()}|${secondArg<String>()}"] }
+        every { insertIgnore(any(), any(), any(), any(), any(), any(), any()) } answers {
+            val sourceId = firstArg<String>()
+            val hash = arg<String>(6)
+            stored.getOrPut("$sourceId|$hash") {
+                Article(
+                    id = nextId++, sourceId = sourceId, title = secondArg(), body = thirdArg(), url = arg(3),
+                    publishedAt = arg(4), author = arg(5), contentHash = hash
+                )
+            }
         }
     }
     private val postArticleRepository = mockk<PostArticleRepository> {
@@ -246,7 +252,7 @@ class SourceAggregatorTest {
         aggregator.aggregateAndPersist(posts, source())
 
         // 2 articles, 1 post each
-        verify(exactly = 2) { articleRepository.save(any()) }
+        verify(exactly = 2) { articleRepository.insertIgnore(any(), any(), any(), any(), any(), any(), any()) }
         verify(exactly = 2) { postArticleRepository.linkIfAbsent(any(), any()) }
     }
 
@@ -281,7 +287,7 @@ class SourceAggregatorTest {
         aggregator.aggregateAndPersist(posts, source(type = SourceType.RSS, url = "https://example.com/feed.xml"))
 
         verify(exactly = 2) { postArticleRepository.linkIfAbsent(any(), any()) }
-        verify(exactly = 2) { articleRepository.save(any()) }
+        verify(exactly = 2) { articleRepository.insertIgnore(any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -499,22 +505,19 @@ class SourceAggregatorTest {
 
     @Test
     fun `reuses the stored article when a concurrent run won the insert race`() {
-        // The losing writer sees SQLite's constraint failure, which Spring leaves uncategorized
-        // rather than translating to DataIntegrityViolationException. Catching the wrong type made
-        // this recovery unreachable, so the shape of the exception is the point of this test.
+        // The loser's INSERT OR IGNORE changes nothing and the re-read finds the winner's row. No
+        // exception is involved, so the surrounding transaction is never marked rollback-only.
         val source = source(type = SourceType.RSS, url = "https://example.com/rss", aggregate = false)
         val posts = listOf(post(id = 1L, body = "Only post"))
-        val stored = Article(
+        val winner = Article(
             id = 99L, sourceId = source.id, title = "Only post", body = "Only post",
             url = "https://example.com/1", contentHash = sha256("Only post")
         )
         var firstLookup = true
         every { articleRepository.findBySourceIdAndContentHash(any(), any()) } answers {
-            if (firstLookup) { firstLookup = false; null } else stored
+            if (firstLookup) { firstLookup = false; null } else winner
         }
-        every { articleRepository.save(any()) } throws UncategorizedSQLException(
-            "insert", "INSERT INTO articles", SQLException("UNIQUE constraint failed", "null", 19)
-        )
+        every { articleRepository.insertIgnore(any(), any(), any(), any(), any(), any(), any()) } returns Unit
 
         val result = aggregator.aggregateAndPersist(posts, source)
 
@@ -523,15 +526,13 @@ class SourceAggregatorTest {
     }
 
     @Test
-    fun `a constraint failure that is not the race still fails the run`() {
+    fun `an article that was refused for another reason fails the run`() {
         val source = source(type = SourceType.RSS, url = "https://example.com/rss", aggregate = false)
         val posts = listOf(post(id = 1L, body = "Only post"))
         every { articleRepository.findBySourceIdAndContentHash(any(), any()) } returns null
-        every { articleRepository.save(any()) } throws UncategorizedSQLException(
-            "insert", "INSERT INTO articles", SQLException("FOREIGN KEY constraint failed", "null", 19)
-        )
+        every { articleRepository.insertIgnore(any(), any(), any(), any(), any(), any(), any()) } returns Unit
 
-        assertThrows(UncategorizedSQLException::class.java) {
+        assertThrows(IllegalStateException::class.java) {
             aggregator.aggregateAndPersist(posts, source)
         }
     }

@@ -26,7 +26,6 @@ class PodcastController(
     private val userService: UserService,
     private val episodeService: EpisodeService,
     private val objectMapper: ObjectMapper,
-    private val pipelineStateTracker: PipelineStateTracker,
     private val podcastValidator: PodcastValidator
 ) {
 
@@ -93,7 +92,7 @@ class PodcastController(
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (podcast.userId != userId) return ResponseEntity.notFound().build()
 
-        val stage = pipelineStateTracker.getStage(podcastId)
+        val stage = episodeService.activePipelineStage(podcastId)
         return ResponseEntity.ok(mapOf("stage" to stage))
     }
 
