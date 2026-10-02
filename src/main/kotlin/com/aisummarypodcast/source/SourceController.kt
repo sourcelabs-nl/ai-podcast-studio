@@ -1,8 +1,7 @@
 package com.aisummarypodcast.source
 
-import com.aisummarypodcast.podcast.PodcastService
+import com.aisummarypodcast.podcast.PodcastAccess
 import com.aisummarypodcast.store.SourceType
-import com.aisummarypodcast.user.UserService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.net.URI
@@ -11,8 +10,7 @@ import java.net.URI
 @RequestMapping("/users/{userId}/podcasts/{podcastId}/sources")
 class SourceController(
     private val sourceService: SourceService,
-    private val podcastService: PodcastService,
-    private val userService: UserService
+    private val podcastAccess: PodcastAccess
 ) {
 
     @PostMapping
@@ -21,9 +19,7 @@ class SourceController(
         @PathVariable podcastId: String,
         @RequestBody request: CreateSourceRequest
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+        podcastAccess.podcast(userId, podcastId)
 
         val sourceType = SourceType.fromValue(request.type)
             ?: return ResponseEntity.badRequest().build()
@@ -38,9 +34,7 @@ class SourceController(
         @PathVariable podcastId: String,
         @RequestParam(required = false) enabled: Boolean?
     ): ResponseEntity<List<SourceResponse>> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
 
         val sources = sourceService.findByPodcastId(podcastId, enabled)
         val sourceIds = sources.map { it.id }
@@ -65,9 +59,7 @@ class SourceController(
         @PathVariable sourceId: String,
         @RequestBody request: UpdateSourceRequest
     ): ResponseEntity<SourceResponse> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+        podcastAccess.podcast(userId, podcastId)
 
         val source = sourceService.findById(sourceId) ?: return ResponseEntity.notFound().build()
         if (source.podcastId != podcastId) return ResponseEntity.notFound().build()
@@ -85,9 +77,7 @@ class SourceController(
         @PathVariable podcastId: String,
         @PathVariable sourceId: String
     ): ResponseEntity<Void> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+        podcastAccess.podcast(userId, podcastId)
 
         val source = sourceService.findById(sourceId) ?: return ResponseEntity.notFound().build()
         if (source.podcastId != podcastId) return ResponseEntity.notFound().build()

@@ -1,5 +1,8 @@
 package com.aisummarypodcast.source
 
+import com.aisummarypodcast.podcast.EpisodeService
+import com.aisummarypodcast.podcast.PodcastAccess
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.Podcast
@@ -24,12 +27,14 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
  * backend rather than in the browser: a podcast keeps every source it ever retired.
  */
 @WebMvcTest(SourceController::class)
+@Import(PodcastAccess::class)
 class SourceListFilterControllerTest {
 
     @Autowired private lateinit var mockMvc: MockMvc
 
     @MockkBean private lateinit var sourceService: SourceService
     @MockkBean private lateinit var podcastService: PodcastService
+    @MockkBean(relaxed = true) private lateinit var episodeService: EpisodeService
     @MockkBean private lateinit var userService: UserService
 
     // WebConfig sits in the sliced context and needs it; the controller itself does not use it.

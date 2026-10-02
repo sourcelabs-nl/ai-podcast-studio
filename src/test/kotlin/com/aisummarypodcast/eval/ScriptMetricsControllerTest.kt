@@ -1,5 +1,6 @@
 package com.aisummarypodcast.eval
 
+import com.aisummarypodcast.podcast.PodcastAccess
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastService
@@ -21,7 +22,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 @WebMvcTest(ScriptMetricsController::class)
-@Import(ScriptMetricsService::class)
+@Import(ScriptMetricsService::class, PodcastAccess::class)
 class ScriptMetricsControllerTest {
 
     @Autowired

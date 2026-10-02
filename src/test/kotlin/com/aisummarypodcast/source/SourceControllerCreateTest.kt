@@ -1,5 +1,8 @@
 package com.aisummarypodcast.source
 
+import com.aisummarypodcast.podcast.EpisodeService
+import com.aisummarypodcast.podcast.PodcastAccess
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.api.UnprocessableRequestException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
@@ -20,12 +23,14 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 @WebMvcTest(SourceController::class)
+@Import(PodcastAccess::class)
 class SourceControllerCreateTest {
 
     @Autowired private lateinit var mockMvc: MockMvc
 
     @MockkBean private lateinit var sourceService: SourceService
     @MockkBean private lateinit var podcastService: PodcastService
+    @MockkBean(relaxed = true) private lateinit var episodeService: EpisodeService
     @MockkBean private lateinit var userService: UserService
 
     // WebConfig sits in the sliced context and needs it; the controller itself does not use it.

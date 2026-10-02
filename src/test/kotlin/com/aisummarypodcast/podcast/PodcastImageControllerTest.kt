@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Podcast
@@ -18,6 +19,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 import java.nio.file.Path
 
 @WebMvcTest(PodcastImageController::class)
+@Import(PodcastAccess::class)
 class PodcastImageControllerTest {
 
     @Autowired
@@ -28,6 +30,8 @@ class PodcastImageControllerTest {
 
     @MockkBean
     private lateinit var podcastService: PodcastService
+    @MockkBean(relaxed = true)
+    private lateinit var episodeService: EpisodeService
 
     @MockkBean
     private lateinit var podcastImageService: PodcastImageService

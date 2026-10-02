@@ -1,5 +1,7 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.podcast.PodcastAccess
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastService
@@ -22,6 +24,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.async
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 
 @WebMvcTest(PublishingController::class)
+@Import(PodcastAccess::class)
 class PublishingControllerTest {
 
     @Autowired

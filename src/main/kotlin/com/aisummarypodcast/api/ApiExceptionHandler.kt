@@ -9,8 +9,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 
 /**
  * Maps the typed API exceptions to `{"error": message}` responses, keeping that web concern out of
- * the controllers (Rule SB8). It has the lowest precedence so the scoped handlers keep priority,
- * and it handles only these types: no catch-all, so every other error keeps Spring's default.
+ * the controllers (Rule SB8). [ResourceNotFoundException] is the exception: it answers a 404 with
+ * an empty body. It has the lowest precedence so the scoped handlers keep priority, and it handles
+ * only these five types: no catch-all, so every other error keeps Spring's default.
  */
 @RestControllerAdvice
 @Order(Ordered.LOWEST_PRECEDENCE)
@@ -29,6 +30,9 @@ class ApiExceptionHandler {
     @ExceptionHandler(OperationFailedException::class)
     fun handleOperationFailed(e: OperationFailedException): ResponseEntity<Any> =
         error(HttpStatus.INTERNAL_SERVER_ERROR, e)
+
+    @ExceptionHandler(ResourceNotFoundException::class)
+    fun handleNotFound(e: ResourceNotFoundException): ResponseEntity<Void> = ResponseEntity.notFound().build()
 
     private fun error(status: HttpStatus, e: Exception): ResponseEntity<Any> =
         ResponseEntity.status(status).body(mapOf("error" to e.message))

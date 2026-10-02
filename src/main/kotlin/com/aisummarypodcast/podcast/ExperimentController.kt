@@ -1,6 +1,5 @@
 package com.aisummarypodcast.podcast
 
-import com.aisummarypodcast.user.UserService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -16,9 +15,7 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/users/{userId}/podcasts/{podcastId}/episodes/{episodeId}/experiments")
 class ExperimentController(
-    private val podcastService: PodcastService,
-    private val userService: UserService,
-    private val episodeService: EpisodeService,
+    private val podcastAccess: PodcastAccess,
     private val experimentService: ExperimentService
 ) {
 
@@ -29,7 +26,8 @@ class ExperimentController(
         @PathVariable episodeId: Long,
         @RequestBody request: ExperimentRequest
     ): ResponseEntity<Any> {
-        val (podcast, episode) = ownedEpisode(userId, podcastId, episodeId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
         val started = experimentService.startExperiment(episode, podcast, request.toPlan())
         return ResponseEntity.accepted().body(started.toResponse())
     }
@@ -40,14 +38,7 @@ class ExperimentController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        val (_, episode) = ownedEpisode(userId, podcastId, episodeId) ?: return ResponseEntity.notFound().build()
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
         return ResponseEntity.ok(experimentService.compare(episode))
-    }
-
-    private fun ownedEpisode(userId: String, podcastId: String, episodeId: Long): OwnedEpisode? {
-        userService.findById(userId) ?: return null
-        val podcast = podcastService.findById(podcastId)?.takeIf { it.userId == userId } ?: return null
-        val episode = episodeService.findById(episodeId)?.takeIf { it.podcastId == podcastId } ?: return null
-        return OwnedEpisode(podcast, episode)
     }
 }

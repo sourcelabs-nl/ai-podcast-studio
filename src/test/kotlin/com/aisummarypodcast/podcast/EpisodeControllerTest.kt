@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Episode
@@ -25,6 +26,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.async
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 
 @WebMvcTest(EpisodeController::class)
+@Import(PodcastAccess::class)
 class EpisodeControllerTest {
 
     @Autowired

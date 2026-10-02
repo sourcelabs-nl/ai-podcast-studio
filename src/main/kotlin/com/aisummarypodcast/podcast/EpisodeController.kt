@@ -3,7 +3,6 @@ package com.aisummarypodcast.podcast
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeStatus
-import com.aisummarypodcast.user.UserService
 import org.springframework.core.io.FileSystemResource
 import org.springframework.core.io.Resource
 import org.springframework.data.domain.PageRequest
@@ -18,7 +17,7 @@ import java.io.File
 @RequestMapping("/users/{userId}/podcasts/{podcastId}/episodes")
 class EpisodeController(
     private val podcastService: PodcastService,
-    private val userService: UserService,
+    private val podcastAccess: PodcastAccess,
     private val episodeService: EpisodeService,
     private val episodeSearchService: EpisodeSearchService,
     private val episodeDiscardService: EpisodeDiscardService,
@@ -36,9 +35,7 @@ class EpisodeController(
         @RequestParam(required = false, defaultValue = "0") page: Int,
         @RequestParam(required = false, defaultValue = "20") pageSize: Int
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
+        podcastAccess.podcast(userId, podcastId)
 
         if (page < 0) return ResponseEntity.badRequest().body(mapOf("error" to "page must be >= 0"))
         if (pageSize < 1 || pageSize > 200) return ResponseEntity.badRequest().body(mapOf("error" to "pageSize must be in [1, 200]"))
@@ -66,13 +63,7 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<EpisodeResponse> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         return ResponseEntity.ok(episode.toResponse(
             EpisodeCostContext(
@@ -93,13 +84,7 @@ class EpisodeController(
         @PathVariable episodeId: Long,
         @RequestBody request: UpdateScriptRequest
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         val updated = episodeService.updateScript(episode, request.scriptText)
         return ResponseEntity.ok(updated.toResponse())
@@ -116,13 +101,8 @@ class EpisodeController(
         @PathVariable episodeId: Long,
         @RequestBody request: RegenerateScriptRequest
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         if (request.feedback.isBlank()) {
             return ResponseEntity.badRequest().body(mapOf("error" to "feedback must not be blank"))
@@ -138,13 +118,7 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<List<ResearchSourceResponse>> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        podcastAccess.episode(userId, podcastId, episodeId)
 
         return ResponseEntity.ok(episodeService.findResearchSources(episodeId).map { it.toResponse() })
     }
@@ -155,13 +129,8 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         episodeService.approveAndGenerateAudio(episode, podcast)
 
@@ -174,13 +143,8 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         val updated = episodeService.approveForPublication(episode, podcast)
         return ResponseEntity.ok(updated.toResponse())
@@ -192,13 +156,7 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         episodeDiscardService.discard(episode, podcastId)
         return ResponseEntity.ok(mapOf("message" to "Episode discarded"))
@@ -210,13 +168,8 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         val updated = episodeService.regenerateRecap(episode, podcast)
         return ResponseEntity.ok(updated.toResponse())
@@ -228,13 +181,8 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         val resumePoint = podcastService.retryEpisode(episode, podcast)
         return ResponseEntity.accepted().body(mapOf(
@@ -254,13 +202,8 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         val rerun = podcastService.rerunEpisodeAsync(episode, podcast)
         return ResponseEntity.accepted().body(rerun.toResponse())
@@ -272,13 +215,8 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         episodeService.regenerateAudio(episode, podcast)
         return ResponseEntity.accepted().body(mapOf("message" to "Audio regeneration started"))
@@ -290,13 +228,7 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Resource> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         val audioPath = episode.audioFilePath ?: return ResponseEntity.notFound().build()
         val file = File(audioPath)
@@ -315,13 +247,7 @@ class EpisodeController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<List<EpisodeArticleResponse>> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        podcastAccess.episode(userId, podcastId, episodeId)
 
         return ResponseEntity.ok(episodeService.findArticlesForEpisode(episodeId))
     }

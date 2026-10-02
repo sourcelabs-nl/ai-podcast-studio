@@ -1,5 +1,7 @@
 package com.aisummarypodcast.eval
 
+import com.aisummarypodcast.podcast.PodcastAccess
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.JudgeMode
 import com.aisummarypodcast.podcast.EpisodeService
@@ -27,6 +29,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 @WebMvcTest(EpisodeScoringController::class)
+@Import(PodcastAccess::class)
 class EpisodeScoringControllerTest {
 
     @Autowired

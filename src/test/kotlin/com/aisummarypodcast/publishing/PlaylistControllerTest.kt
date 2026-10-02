@@ -1,5 +1,8 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.podcast.EpisodeService
+import com.aisummarypodcast.podcast.PodcastAccess
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
@@ -19,12 +22,14 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 @WebMvcTest(PlaylistController::class)
+@Import(PodcastAccess::class)
 class PlaylistControllerTest {
 
     @Autowired private lateinit var mockMvc: MockMvc
 
     @MockkBean private lateinit var userService: UserService
     @MockkBean private lateinit var podcastService: PodcastService
+    @MockkBean(relaxed = true) private lateinit var episodeService: EpisodeService
     @MockkBean private lateinit var publishingService: PublishingService
 
     // WebConfig sits in the sliced context and needs it; the controller itself does not use it.

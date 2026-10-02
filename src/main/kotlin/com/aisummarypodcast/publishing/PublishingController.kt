@@ -1,17 +1,13 @@
 package com.aisummarypodcast.publishing
 
-import com.aisummarypodcast.podcast.EpisodeService
-import com.aisummarypodcast.podcast.PodcastService
-import com.aisummarypodcast.user.UserService
+import com.aisummarypodcast.podcast.PodcastAccess
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/users/{userId}/podcasts/{podcastId}/episodes/{episodeId}")
 class PublishingController(
-    private val userService: UserService,
-    private val podcastService: PodcastService,
-    private val episodeService: EpisodeService,
+    private val podcastAccess: PodcastAccess,
     private val publishingService: PublishingService
 ) {
 
@@ -22,13 +18,8 @@ class PublishingController(
         @PathVariable episodeId: Long,
         @PathVariable target: String
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         // SoundCloud quota is freed automatically inside the publisher; remaining publishing
         // failures are translated to HTTP by PublishingExceptionHandler (Rule SB8).
@@ -43,13 +34,8 @@ class PublishingController(
         @PathVariable episodeId: Long,
         @PathVariable target: String
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
+        val episode = podcastAccess.episode(userId, podcastId, episodeId)
 
         // Publishing failures are translated to HTTP by PublishingExceptionHandler (Rule SB8).
         val publication = publishingService.unpublish(episode, podcast, userId, target)
@@ -62,13 +48,7 @@ class PublishingController(
         @PathVariable podcastId: String,
         @PathVariable episodeId: Long
     ): ResponseEntity<Any> {
-        userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
-        if (podcast.userId != userId) return ResponseEntity.notFound().build()
-
-        val episode = episodeService.findById(episodeId)
-            ?: return ResponseEntity.notFound().build()
-        if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
+        podcastAccess.episode(userId, podcastId, episodeId)
 
         val publications = publishingService.getPublications(episodeId)
         return ResponseEntity.ok(publications.map { it.toResponse() })

@@ -1,5 +1,8 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.podcast.EpisodeService
+import com.aisummarypodcast.podcast.PodcastAccess
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
@@ -25,6 +28,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 @WebMvcTest(PreviewAudioController::class)
+@Import(PodcastAccess::class)
 class PreviewAudioControllerTest {
 
     @TempDir
@@ -35,6 +39,8 @@ class PreviewAudioControllerTest {
 
     @MockkBean
     private lateinit var podcastService: PodcastService
+    @MockkBean(relaxed = true)
+    private lateinit var episodeService: EpisodeService
 
     @MockkBean
     private lateinit var userService: UserService

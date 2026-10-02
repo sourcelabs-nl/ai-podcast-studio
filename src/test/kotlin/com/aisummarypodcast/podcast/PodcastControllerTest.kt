@@ -19,7 +19,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 
 @WebMvcTest(PodcastController::class)
-@Import(PodcastValidator::class)
+@Import(PodcastValidator::class, PodcastAccess::class)
 class PodcastControllerTest {
 
     @Autowired

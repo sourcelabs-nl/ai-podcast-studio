@@ -1,8 +1,6 @@
 package com.aisummarypodcast.podcast
 
 import com.aisummarypodcast.llm.RunOverrides
-import com.aisummarypodcast.store.Episode
-import com.aisummarypodcast.store.Podcast
 
 /** One configuration an experiment composes under; a variant with no overrides is the baseline. */
 data class ExperimentVariant(val name: String, val overrides: RunOverrides)
@@ -72,6 +70,3 @@ data class ExperimentComparison(
 
 /** Every experiment run against one source episode, oldest experiment first. */
 data class SourceEpisodeExperiments(val sourceEpisodeId: Long, val experiments: List<ExperimentComparison>)
-
-/** A podcast and one of its episodes, as resolved for the requesting user. */
-data class OwnedEpisode(val podcast: Podcast, val episode: Episode)

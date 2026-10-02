@@ -22,6 +22,9 @@ class ApiExceptionHandlerTest {
         @GetMapping("/upstream")
         fun upstream(): String = throw UpstreamServiceException("upstream text", RuntimeException("cause"))
 
+        @GetMapping("/missing")
+        fun missing(): String = throw ResourceNotFoundException()
+
         @GetMapping("/failed")
         fun failed(): String = throw OperationFailedException("failed text", RuntimeException("cause"))
     }
@@ -56,5 +59,12 @@ class ApiExceptionHandlerTest {
         mockMvc.perform(get("/failed"))
             .andExpect(status().isInternalServerError)
             .andExpect(content().json("""{"error":"failed text"}""", true))
+    }
+
+    @Test
+    fun `a missing resource maps to 404 with an empty body`() {
+        mockMvc.perform(get("/missing"))
+            .andExpect(status().isNotFound)
+            .andExpect(content().string(""))
     }
 }

@@ -1,8 +1,7 @@
 package com.aisummarypodcast.tts
 
-import com.aisummarypodcast.podcast.PodcastService
+import com.aisummarypodcast.podcast.PodcastAccess
 import com.aisummarypodcast.store.Podcast
-import com.aisummarypodcast.user.UserService
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -37,8 +36,7 @@ import tools.jackson.databind.ObjectMapper
 @RestController
 @RequestMapping("/users/{userId}/podcasts/{podcastId}/preview/audio")
 class PreviewAudioController(
-    private val podcastService: PodcastService,
-    private val userService: UserService,
+    private val podcastAccess: PodcastAccess,
     private val previewAudioService: PreviewAudioService,
     private val objectMapper: ObjectMapper
 ) {
@@ -63,7 +61,7 @@ class PreviewAudioController(
         @PathVariable podcastId: String,
         @RequestBody request: PreviewAudioRequest
     ): ResponseEntity<Any> {
-        val podcast = resolvePodcast(userId, podcastId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
         if (request.scriptText.isBlank()) {
             return ResponseEntity.badRequest().body(mapOf("error" to "scriptText must not be blank"))
         }
@@ -81,7 +79,7 @@ class PreviewAudioController(
         @PathVariable podcastId: String,
         @RequestBody request: PreviewAudioRequest
     ): ResponseEntity<Any> {
-        val podcast = resolvePodcast(userId, podcastId) ?: return ResponseEntity.notFound().build()
+        val podcast = podcastAccess.podcast(userId, podcastId)
         if (request.scriptText.isBlank()) {
             return ResponseEntity.badRequest().body(mapOf("error" to "scriptText must not be blank"))
         }
@@ -94,7 +92,7 @@ class PreviewAudioController(
         @PathVariable podcastId: String,
         @RequestBody request: PreviewAudioRequest
     ): Any {
-        val podcast = resolvePodcast(userId, podcastId) ?: return ResponseEntity.notFound().build<Any>()
+        val podcast = podcastAccess.podcast(userId, podcastId)
         // The handler produces text/event-stream, which no converter can render a JSON body into,
         // so a rejected request answers with a bare status.
         if (request.scriptText.isBlank()) return ResponseEntity.badRequest().build<Any>()
@@ -114,7 +112,7 @@ class PreviewAudioController(
         @PathVariable podcastId: String,
         @PathVariable audioId: String
     ): ResponseEntity<Resource> {
-        resolvePodcast(userId, podcastId) ?: return ResponseEntity.notFound().build()
+        podcastAccess.podcast(userId, podcastId)
         val file = previewAudioService.findStoredAudio(podcastId, audioId) ?: return ResponseEntity.notFound().build()
 
         return ResponseEntity.ok()
@@ -175,10 +173,5 @@ class PreviewAudioController(
 
     private fun send(emitter: SseEmitter, name: String, payload: Map<String, Any>) {
         emitter.send(SseEmitter.event().name(name).data(objectMapper.writeValueAsString(payload)))
-    }
-
-    private fun resolvePodcast(userId: String, podcastId: String): Podcast? {
-        userService.findById(userId) ?: return null
-        return podcastService.findById(podcastId)?.takeIf { it.userId == userId }
     }
 }

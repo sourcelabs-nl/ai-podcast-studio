@@ -1,5 +1,8 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.podcast.EpisodeService
+import com.aisummarypodcast.podcast.PodcastAccess
+import org.springframework.context.annotation.Import
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.Podcast
@@ -17,6 +20,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 
 @WebMvcTest(PodcastPublicationTargetController::class)
+@Import(PodcastAccess::class)
 class PodcastPublicationTargetControllerTest {
 
     @Autowired
@@ -27,6 +31,8 @@ class PodcastPublicationTargetControllerTest {
 
     @MockkBean
     private lateinit var podcastService: PodcastService
+    @MockkBean(relaxed = true)
+    private lateinit var episodeService: EpisodeService
 
     @MockkBean
     private lateinit var targetService: PodcastPublicationTargetService

@@ -16,3 +16,6 @@ class UpstreamServiceException(message: String, cause: Throwable? = null) : Runt
 
 /** The operation was accepted but failed on our side (500). */
 class OperationFailedException(message: String, cause: Throwable) : RuntimeException(message, cause)
+
+/** The resource does not exist or is not reachable by the caller, answered with an empty 404. */
+class ResourceNotFoundException : RuntimeException("Resource not found")
