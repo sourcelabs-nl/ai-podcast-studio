@@ -48,4 +48,16 @@ class PodcastExceptionHandler {
     fun handleNotExperimentable(e: EpisodeNotExperimentableException): ResponseEntity<Any> =
         ResponseEntity.status(HttpStatus.CONFLICT)
             .body(mapOf("error" to e.message, "code" to "episode_not_experimentable"))
+
+    @ExceptionHandler(EpisodeStatusNotAllowedException::class)
+    fun handleStatusConflict(e: EpisodeStatusNotAllowedException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to e.message))
+
+    @ExceptionHandler(InvalidPodcastException::class)
+    fun handleInvalidPodcast(e: InvalidPodcastException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to e.message))
+
+    @ExceptionHandler(InvalidComposeSettingsException::class)
+    fun handleInvalidComposeSettings(e: InvalidComposeSettingsException): ResponseEntity<Any> =
+        ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(mapOf("error" to e.message))
 }

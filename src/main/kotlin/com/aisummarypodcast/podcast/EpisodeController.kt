@@ -102,10 +102,6 @@ class EpisodeController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        if (episode.status != EpisodeStatus.PENDING_REVIEW) {
-            return ResponseEntity.status(409).body(mapOf("error" to "Episode is not in PENDING_REVIEW status"))
-        }
-
         val updated = episodeService.updateScript(episode, request.scriptText)
         return ResponseEntity.ok(updated.toResponse())
     }
@@ -168,10 +164,6 @@ class EpisodeController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        if (episode.status != EpisodeStatus.PENDING_REVIEW && episode.status != EpisodeStatus.FAILED) {
-            return ResponseEntity.status(409).body(mapOf("error" to "Episode is not in PENDING_REVIEW or FAILED status"))
-        }
-
         episodeService.approveAndGenerateAudio(episode, podcast)
 
         return ResponseEntity.accepted().body(mapOf("message" to "Episode approved, audio generation started"))
@@ -191,10 +183,6 @@ class EpisodeController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        if (episode.status != EpisodeStatus.GENERATED) {
-            return ResponseEntity.status(409).body(mapOf("error" to "Only GENERATED episodes can be approved for publication"))
-        }
-
         val updated = episodeService.approveForPublication(episode, podcast)
         return ResponseEntity.ok(updated.toResponse())
     }
@@ -212,11 +200,6 @@ class EpisodeController(
         val episode = episodeService.findById(episodeId)
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
-
-        if (episode.status != EpisodeStatus.PENDING_REVIEW && episode.status != EpisodeStatus.GENERATED && episode.status != EpisodeStatus.FAILED) {
-            val message = if (episode.status == EpisodeStatus.GENERATING_AUDIO) "Audio generation is in progress" else "Episode is not in a discardable status"
-            return ResponseEntity.status(409).body(mapOf("error" to message))
-        }
 
         episodeDiscardService.discard(episode, podcastId)
         return ResponseEntity.ok(mapOf("message" to "Episode discarded"))
@@ -259,10 +242,6 @@ class EpisodeController(
         val episode = episodeService.findById(episodeId)
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
-
-        if (episode.status != EpisodeStatus.FAILED) {
-            return ResponseEntity.status(409).body(mapOf("error" to "Episode is not in FAILED status"))
-        }
 
         val resumePoint = podcastService.retryEpisode(episode, podcast)
         return ResponseEntity.accepted().body(mapOf(
@@ -307,10 +286,6 @@ class EpisodeController(
         val episode = episodeService.findById(episodeId)
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
-
-        if (episode.status != EpisodeStatus.GENERATED) {
-            return ResponseEntity.status(409).body(mapOf("error" to "Episode is not in GENERATED status"))
-        }
 
         episodeService.regenerateAudio(episode, podcast)
         return ResponseEntity.accepted().body(mapOf("message" to "Audio regeneration started"))

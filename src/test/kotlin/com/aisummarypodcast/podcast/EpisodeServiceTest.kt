@@ -43,6 +43,7 @@ import com.aisummarypodcast.llm.EpisodeCandidate
 import com.aisummarypodcast.store.CandidateOutcome
 import org.springframework.data.repository.findByIdOrNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.util.*
 
 class EpisodeServiceTest {
@@ -974,5 +975,81 @@ class EpisodeServiceTest {
         )
 
         assertEquals(setOf(CostStage.COMPOSE), projected)
+    }
+
+    // --- status guards ---
+
+    private fun episodeIn(status: EpisodeStatus) =
+        Episode(id = 9L, podcastId = "p1", generatedAt = "2025-01-01T00:00:00Z", scriptText = "s", status = status)
+
+    private fun otherStatuses(vararg allowed: EpisodeStatus) = EpisodeStatus.entries.filter { it !in allowed }
+
+    @Test
+    fun `updateScript accepts a PENDING_REVIEW episode`() {
+        val episode = episodeIn(EpisodeStatus.PENDING_REVIEW)
+        every { episodeRepository.findById(9L) } returns Optional.of(episode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        assertEquals("new", episodeService.updateScript(episode, "new").scriptText)
+    }
+
+    @Test
+    fun `updateScript rejects every other status`() {
+        otherStatuses(EpisodeStatus.PENDING_REVIEW).forEach { status ->
+            val error = assertThrows<EpisodeStatusNotAllowedException> { episodeService.updateScript(episodeIn(status), "new") }
+            assertEquals("Episode is not in PENDING_REVIEW status", error.message)
+        }
+        verify(exactly = 0) { episodeRepository.save(any()) }
+    }
+
+    @Test
+    fun `approveAndGenerateAudio accepts PENDING_REVIEW and FAILED episodes`() {
+        listOf(EpisodeStatus.PENDING_REVIEW, EpisodeStatus.FAILED).forEach { status ->
+            val episode = episodeIn(status)
+            every { episodeRepository.findById(9L) } returns Optional.of(episode)
+            every { episodeRepository.save(any()) } answers { firstArg() }
+
+            episodeService.approveAndGenerateAudio(episode, podcast)
+
+            verify { audioGenerationService.generateAudioAsync(9L, "p1") }
+        }
+    }
+
+    @Test
+    fun `approveAndGenerateAudio rejects every other status`() {
+        otherStatuses(EpisodeStatus.PENDING_REVIEW, EpisodeStatus.FAILED).forEach { status ->
+            val error = assertThrows<EpisodeStatusNotAllowedException> {
+                episodeService.approveAndGenerateAudio(episodeIn(status), podcast)
+            }
+            assertEquals("Episode is not in PENDING_REVIEW or FAILED status", error.message)
+        }
+        verify(exactly = 0) { episodeRepository.save(any()) }
+    }
+
+    @Test
+    fun `approveForPublication rejects every status except GENERATED`() {
+        otherStatuses(EpisodeStatus.GENERATED).forEach { status ->
+            val error = assertThrows<EpisodeStatusNotAllowedException> {
+                episodeService.approveForPublication(episodeIn(status), podcast)
+            }
+            assertEquals("Only GENERATED episodes can be approved for publication", error.message)
+        }
+        verify(exactly = 0) { episodeRepository.save(any()) }
+    }
+
+    @Test
+    fun `regenerateAudio accepts a GENERATED episode`() {
+        episodeService.regenerateAudio(episodeIn(EpisodeStatus.GENERATED), podcast)
+
+        verify { audioGenerationService.regenerateAudioAsync(9L, "p1") }
+    }
+
+    @Test
+    fun `regenerateAudio rejects every other status`() {
+        otherStatuses(EpisodeStatus.GENERATED).forEach { status ->
+            val error = assertThrows<EpisodeStatusNotAllowedException> { episodeService.regenerateAudio(episodeIn(status), podcast) }
+            assertEquals("Episode is not in GENERATED status", error.message)
+        }
+        verify(exactly = 0) { audioGenerationService.regenerateAudioAsync(any(), any()) }
     }
 }

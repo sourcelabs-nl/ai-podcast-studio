@@ -1,15 +1,9 @@
 package com.aisummarypodcast.podcast
 
-import com.aisummarypodcast.config.LlmModelOverrides
-import com.aisummarypodcast.store.Podcast
-import com.aisummarypodcast.store.PodcastStyle
-import com.aisummarypodcast.store.Subtopics
-import com.aisummarypodcast.store.TtsProviderType
 import com.aisummarypodcast.user.UserService
 import kotlinx.coroutines.CancellationException
 import tools.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
-import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -24,7 +18,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.URI
-import java.time.ZoneId
 
 @RestController
 @RequestMapping("/users/{userId}/podcasts")
@@ -33,17 +26,13 @@ class PodcastController(
     private val userService: UserService,
     private val episodeService: EpisodeService,
     private val objectMapper: ObjectMapper,
-    private val pipelineStateTracker: PipelineStateTracker
+    private val pipelineStateTracker: PipelineStateTracker,
+    private val podcastValidator: PodcastValidator
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
     private val previewScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
-    private companion object {
-        /** Reasoning efforts OpenRouter documents, lowest to highest. */
-        val REASONING_EFFORTS = listOf("none", "minimal", "low", "medium", "high", "xhigh", "max")
-    }
 
     @PreDestroy
     fun onDestroy() {
@@ -53,71 +42,11 @@ class PodcastController(
     @PostMapping
     fun create(@PathVariable userId: String, @RequestBody request: CreatePodcastRequest): ResponseEntity<Any> {
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
-        val language = request.language ?: "en"
-        if (!SupportedLanguage.isSupported(language)) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported language: $language"))
-        }
-        val ttsProvider = request.ttsProvider?.let {
-            TtsProviderType.fromValue(it)
-                ?: return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported TTS provider: $it. Supported: ${TtsProviderType.entries.joinToString { e -> e.value }}"))
-        } ?: TtsProviderType.OPENAI
-        val style = request.style?.let {
-            PodcastStyle.fromValue(it)
-                ?: return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported style: $it. Supported: ${PodcastStyle.entries.joinToString { e -> e.value }}"))
-        } ?: PodcastStyle.NEWS_BRIEFING
-        podcastService.validateTtsConfig(ttsProvider, style, request.ttsVoices)?.let {
-            return ResponseEntity.badRequest().body(mapOf("error" to it))
-        }
-        if (request.timezone != null) {
-            try { ZoneId.of(request.timezone) } catch (_: Exception) {
-                return ResponseEntity.badRequest().body(mapOf("error" to "Invalid timezone: ${request.timezone}"))
-            }
-        }
-        if (request.fullBodyThreshold != null && request.fullBodyThreshold < 1) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "fullBodyThreshold must be at least 1"))
-        }
-        validateComposeSettings(request.composeSettings)?.let { return it }
-        validateSubtopics(request.subtopics)?.let { return it }
-        validateRapidFireThreshold(request.rapidFireWeightThreshold)?.let { return it }
-        validateRapidFireMaxItems(request.rapidFireMaxItems)?.let { return it }
-        val podcast = podcastService.create(
-            userId = userId,
-            name = request.name,
-            topic = request.topic,
-            podcast = Podcast(
-                id = "",
-                userId = userId,
-                name = request.name,
-                topic = request.topic,
-                language = language,
-                llmModels = request.llmModels?.let { LlmModelOverrides(it) },
-                ttsProvider = ttsProvider,
-                ttsVoices = request.ttsVoices,
-                ttsSettings = request.ttsSettings,
-                style = style,
-                targetWords = request.targetWords,
-                cron = request.cron ?: "0 0 6 * * *",
-                timezone = request.timezone ?: "UTC",
-                customInstructions = request.customInstructions,
-                relevanceThreshold = request.relevanceThreshold ?: 5,
-                requireReview = request.requireReview ?: false,
-                requirePublishApproval = request.requirePublishApproval ?: false,
-                maxLlmCostCents = request.maxLlmCostCents,
-                maxArticleAgeDays = request.maxArticleAgeDays,
-                speakerNames = request.speakerNames,
-                fullBodyThreshold = request.fullBodyThreshold,
-                sponsor = request.sponsor,
-                pronunciations = request.pronunciations,
-                recapLookbackEpisodes = request.recapLookbackEpisodes,
-                composeSettings = request.composeSettings,
-                deepDiveEnabled = request.deepDiveEnabled ?: false,
-                subtopics = request.subtopics?.takeIf { it.isNotEmpty() }?.let { Subtopics(it) },
-                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: 3,
-                rapidFireMaxItems = request.rapidFireMaxItems
-            )
-        )
-        return ResponseEntity.created(URI.create("/users/$userId/podcasts/${podcast.id}"))
-            .body(podcast.toResponse())
+        val podcast = request.toPodcast(userId)
+        podcastValidator.validate(podcast)
+        val created = podcastService.create(userId = userId, name = request.name, topic = request.topic, podcast = podcast)
+        return ResponseEntity.created(URI.create("/users/$userId/podcasts/${created.id}"))
+            .body(created.toResponse())
     }
 
     @GetMapping
@@ -143,65 +72,9 @@ class PodcastController(
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         val existing = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (existing.userId != userId) return ResponseEntity.notFound().build()
-        if (request.language != null && !SupportedLanguage.isSupported(request.language)) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported language: ${request.language}"))
-        }
-        val effectiveTtsProvider = request.ttsProvider?.let {
-            TtsProviderType.fromValue(it)
-                ?: return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported TTS provider: $it. Supported: ${TtsProviderType.entries.joinToString { e -> e.value }}"))
-        } ?: existing.ttsProvider
-        val effectiveStyle = request.style?.let {
-            PodcastStyle.fromValue(it)
-                ?: return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported style: $it. Supported: ${PodcastStyle.entries.joinToString { e -> e.value }}"))
-        } ?: existing.style
-        val effectiveVoices = request.ttsVoices.orKeep(existing.ttsVoices)
-        podcastService.validateTtsConfig(effectiveTtsProvider, effectiveStyle, effectiveVoices)?.let {
-            return ResponseEntity.badRequest().body(mapOf("error" to it))
-        }
-        if (request.timezone != null) {
-            try { ZoneId.of(request.timezone) } catch (_: Exception) {
-                return ResponseEntity.badRequest().body(mapOf("error" to "Invalid timezone: ${request.timezone}"))
-            }
-        }
-        if (request.fullBodyThreshold != null && request.fullBodyThreshold < 1) {
-            return ResponseEntity.badRequest().body(mapOf("error" to "fullBodyThreshold must be at least 1"))
-        }
-        validateComposeSettings(request.composeSettings)?.let { return it }
-        validateSubtopics(request.subtopics)?.let { return it }
-        validateRapidFireThreshold(request.rapidFireWeightThreshold)?.let { return it }
-        validateRapidFireMaxItems(request.rapidFireMaxItems)?.let { return it }
-        val updated = podcastService.update(
-            podcastId,
-            existing.copy(
-                name = request.name,
-                topic = request.topic,
-                language = request.language ?: existing.language,
-                llmModels = request.llmModels.toLlmModelOverrides(existing.llmModels),
-                ttsProvider = effectiveTtsProvider,
-                ttsVoices = request.ttsVoices.orKeep(existing.ttsVoices),
-                ttsSettings = request.ttsSettings.orKeep(existing.ttsSettings),
-                style = effectiveStyle,
-                targetWords = request.targetWords,
-                cron = request.cron ?: existing.cron,
-                timezone = request.timezone ?: existing.timezone,
-                customInstructions = request.customInstructions.orKeep(existing.customInstructions),
-                relevanceThreshold = request.relevanceThreshold ?: existing.relevanceThreshold,
-                requireReview = request.requireReview ?: existing.requireReview,
-                requirePublishApproval = request.requirePublishApproval ?: existing.requirePublishApproval,
-                maxLlmCostCents = request.maxLlmCostCents,
-                maxArticleAgeDays = request.maxArticleAgeDays,
-                speakerNames = request.speakerNames.orKeep(existing.speakerNames),
-                fullBodyThreshold = request.fullBodyThreshold,
-                sponsor = request.sponsor.orKeep(existing.sponsor),
-                pronunciations = request.pronunciations.orKeep(existing.pronunciations),
-                recapLookbackEpisodes = request.recapLookbackEpisodes,
-                composeSettings = request.composeSettings.orKeep(existing.composeSettings),
-                deepDiveEnabled = request.deepDiveEnabled ?: existing.deepDiveEnabled,
-                subtopics = request.subtopics.toSubtopics(existing.subtopics),
-                rapidFireWeightThreshold = request.rapidFireWeightThreshold ?: existing.rapidFireWeightThreshold,
-                rapidFireMaxItems = request.rapidFireMaxItems
-            )
-        ) ?: return ResponseEntity.notFound().build()
+        val merged = request.applyTo(existing)
+        podcastValidator.validate(merged)
+        val updated = podcastService.update(podcastId, merged) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(updated.toResponse())
     }
 
@@ -371,56 +244,4 @@ class PodcastController(
 
         return emitter
     }
-
-    private fun validateSubtopics(subtopics: Map<String, Int>?): ResponseEntity<Any>? {
-        if (subtopics == null) return null
-        for ((name, weight) in subtopics) {
-            if (name.isBlank()) {
-                return ResponseEntity.badRequest().body(mapOf("error" to "Subtopic name must not be empty"))
-            }
-            if (weight < 1 || weight > 10) {
-                return ResponseEntity.badRequest()
-                    .body(mapOf("error" to "Subtopic '$name' weight must be in [1, 10], got $weight"))
-            }
-        }
-        return null
-    }
-
-    private fun validateRapidFireThreshold(threshold: Int?): ResponseEntity<Any>? {
-        if (threshold == null) return null
-        if (threshold < 0 || threshold > 10) {
-            return ResponseEntity.badRequest()
-                .body(mapOf("error" to "rapidFireWeightThreshold must be in [0, 10], got $threshold"))
-        }
-        return null
-    }
-
-    private fun validateRapidFireMaxItems(maxItems: Int?): ResponseEntity<Any>? {
-        if (maxItems == null) return null
-        if (maxItems < 0 || maxItems > 50) {
-            return ResponseEntity.badRequest()
-                .body(mapOf("error" to "rapidFireMaxItems must be in [0, 50], got $maxItems"))
-        }
-        return null
-    }
-
-    private fun validateComposeSettings(composeSettings: Map<String, String>?): ResponseEntity<Any>? {
-        composeSettings?.get("reasoningEffort")?.takeIf { it.isNotBlank() }?.let { effort ->
-            if (effort !in REASONING_EFFORTS) {
-                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(
-                    mapOf("error" to "composeSettings.reasoningEffort must be one of ${REASONING_EFFORTS.joinToString()}")
-                )
-            }
-        }
-        val temperatureRaw = composeSettings?.get("temperature") ?: return null
-        val temperature = temperatureRaw.toDoubleOrNull()
-            ?: return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(mapOf("error" to "composeSettings.temperature must be a number"))
-        if (temperature < 0.0 || temperature > 2.0) {
-            return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(mapOf("error" to "composeSettings.temperature must be in [0.0, 2.0]"))
-        }
-        return null
-    }
-
 }

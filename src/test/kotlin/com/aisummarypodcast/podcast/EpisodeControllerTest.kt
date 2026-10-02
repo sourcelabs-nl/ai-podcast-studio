@@ -261,6 +261,8 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(2L) } returns generatedEpisode
+        every { episodeService.updateScript(generatedEpisode, "Updated script") } throws
+            EpisodeStatusNotAllowedException("Episode is not in PENDING_REVIEW status")
 
         mockMvc.perform(
             put("/users/$userId/podcasts/$podcastId/episodes/2/script")
@@ -268,7 +270,7 @@ class EpisodeControllerTest {
                 .content("""{"scriptText":"Updated script"}""")
         )
             .andExpect(status().isConflict)
-            .andExpect(jsonPath("$.error").exists())
+            .andExpect(content().json("""{"error":"Episode is not in PENDING_REVIEW status"}""", true))
     }
 
     @Test
@@ -301,9 +303,12 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(2L) } returns generatedEpisode
+        every { episodeService.approveAndGenerateAudio(generatedEpisode, podcast) } throws
+            EpisodeStatusNotAllowedException("Episode is not in PENDING_REVIEW or FAILED status")
 
         mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/approve"))
             .andExpect(status().isConflict)
+            .andExpect(content().json("""{"error":"Episode is not in PENDING_REVIEW or FAILED status"}""", true))
     }
 
     @Test
@@ -325,9 +330,12 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(1L) } returns pendingEpisode
+        every { episodeService.approveForPublication(pendingEpisode, podcast) } throws
+            EpisodeStatusNotAllowedException("Only GENERATED episodes can be approved for publication")
 
         mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/1/approve-publication"))
             .andExpect(status().isConflict)
+            .andExpect(content().json("""{"error":"Only GENERATED episodes can be approved for publication"}""", true))
     }
 
     @Test
@@ -369,9 +377,12 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(3L) } returns approvedEpisode
+        every { episodeDiscardService.discard(approvedEpisode, podcastId) } throws
+            EpisodeStatusNotAllowedException("Episode is not in a discardable status")
 
         mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/3/discard"))
             .andExpect(status().isConflict)
+            .andExpect(content().json("""{"error":"Episode is not in a discardable status"}""", true))
     }
 
     @Test
@@ -383,10 +394,12 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(4L) } returns generatingAudioEpisode
+        every { episodeDiscardService.discard(generatingAudioEpisode, podcastId) } throws
+            EpisodeStatusNotAllowedException("Audio generation is in progress")
 
         mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/4/discard"))
             .andExpect(status().isConflict)
-            .andExpect(jsonPath("$.error").value("Audio generation is in progress"))
+            .andExpect(content().json("""{"error":"Audio generation is in progress"}""", true))
     }
 
     // --- regenerate-recap tests ---
@@ -600,5 +613,31 @@ class EpisodeControllerTest {
                 .content("""{"feedback": "  "}""")
         )
             .andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `retry of a non-failed episode returns 409`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(1L) } returns pendingEpisode
+        every { podcastService.retryEpisode(pendingEpisode, podcast) } throws
+            EpisodeStatusNotAllowedException("Episode is not in FAILED status")
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/1/retry"))
+            .andExpect(status().isConflict)
+            .andExpect(content().json("""{"error":"Episode is not in FAILED status"}""", true))
+    }
+
+    @Test
+    fun `regenerate-audio of a non-generated episode returns 409`() {
+        every { userService.findById(userId) } returns user
+        every { podcastService.findById(podcastId) } returns podcast
+        every { episodeService.findById(1L) } returns pendingEpisode
+        every { episodeService.regenerateAudio(pendingEpisode, podcast) } throws
+            EpisodeStatusNotAllowedException("Episode is not in GENERATED status")
+
+        mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/1/regenerate-audio"))
+            .andExpect(status().isConflict)
+            .andExpect(content().json("""{"error":"Episode is not in GENERATED status"}""", true))
     }
 }

@@ -698,11 +698,17 @@ class EpisodeService(
     }
 
     fun updateScript(episode: Episode, scriptText: String): Episode {
+        if (episode.status != EpisodeStatus.PENDING_REVIEW) {
+            throw EpisodeStatusNotAllowedException("Episode is not in PENDING_REVIEW status")
+        }
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
         return episodeRepository.save(fresh.copy(scriptText = scriptText))
     }
 
     fun approveAndGenerateAudio(episode: Episode, podcast: Podcast) {
+        if (episode.status != EpisodeStatus.PENDING_REVIEW && episode.status != EpisodeStatus.FAILED) {
+            throw EpisodeStatusNotAllowedException("Episode is not in PENDING_REVIEW or FAILED status")
+        }
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
         episodeRepository.save(fresh.copy(status = EpisodeStatus.APPROVED, errorMessage = null))
         log.info("Episode {} approved, triggering async TTS generation", episode.id)
@@ -718,6 +724,9 @@ class EpisodeService(
      * approval; sets [Episode.publishApproved] so the Publish action is allowed.
      */
     fun approveForPublication(episode: Episode, podcast: Podcast): Episode {
+        if (episode.status != EpisodeStatus.GENERATED) {
+            throw EpisodeStatusNotAllowedException("Only GENERATED episodes can be approved for publication")
+        }
         val fresh = episodeRepository.findByIdOrNull(episode.id!!) ?: episode
         val saved = episodeRepository.save(fresh.copy(publishApproved = true))
         log.info("Episode {} approved for publication", episode.id)
@@ -764,6 +773,9 @@ class EpisodeService(
     }
 
     fun regenerateAudio(episode: Episode, podcast: Podcast) {
+        if (episode.status != EpisodeStatus.GENERATED) {
+            throw EpisodeStatusNotAllowedException("Episode is not in GENERATED status")
+        }
         log.info("Episode {} queued for audio regeneration", episode.id)
         audioGenerationService.regenerateAudioAsync(episode.id!!, podcast.id)
     }

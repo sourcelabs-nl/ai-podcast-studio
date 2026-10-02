@@ -255,6 +255,20 @@ class PodcastServiceTest {
         verify { eventPublisher.publishEvent(match<PodcastEvent> { it.event == "episode.retrying" && it.data["resumePoint"] == "POST_COMPOSE" }) }
     }
 
+    @Test
+    fun `retryEpisode rejects every status except FAILED`() {
+        (EpisodeStatus.entries - EpisodeStatus.FAILED).forEach { status ->
+            val episode = Episode(id = 5L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = status)
+
+            val error = org.junit.jupiter.api.assertThrows<EpisodeStatusNotAllowedException> {
+                podcastService.retryEpisode(episode, podcast)
+            }
+
+            assertEquals("Episode is not in FAILED status", error.message)
+        }
+        verify(exactly = 0) { episodeService.resetForRetry(any()) }
+    }
+
     // --- Regeneration guard --------------------------------------------------------------------
 
     private val window = EpisodeWindow(
@@ -269,6 +283,15 @@ class PodcastServiceTest {
         status = EpisodeStatus.FAILED, generatedAt = "2026-08-31T13:00:00Z",
         windowStart = window.startIso, windowEnd = window.endIso
     )
+
+    @Test
+    fun `create keeps the rapid-fire max items of the requested podcast`() {
+        every { podcastRepository.save(any<Podcast>()) } answers { firstArg() }
+
+        val created = podcastService.create("u1", "Test", "tech", podcast.copy(rapidFireMaxItems = 12))
+
+        assertEquals(12, created.rapidFireMaxItems)
+    }
 
     // --- Re-running a past window ---------------------------------------------------------------
 

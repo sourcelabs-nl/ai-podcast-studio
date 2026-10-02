@@ -55,4 +55,46 @@ class EpisodeDiscardServiceTest {
         verify { episodeService.discardAndResetArticles(episode, "p1") }
         verify(exactly = 0) { episodeService.discardOnly(any(), any()) }
     }
+
+    @Test
+    fun `discard accepts PENDING_REVIEW, GENERATED and FAILED episodes`() {
+        listOf(EpisodeStatus.PENDING_REVIEW, EpisodeStatus.GENERATED, EpisodeStatus.FAILED).forEach { status ->
+            val episode = Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = status)
+            every { publishingService.liveTargets(1L) } returns emptyList()
+            justRun { episodeService.discardOnly(any(), any()) }
+            justRun { episodeService.discardAndResetArticles(any(), any()) }
+
+            episodeDiscardService.discard(episode, "p1")
+        }
+    }
+
+    @Test
+    fun `discard rejects a GENERATING_AUDIO episode with the audio message`() {
+        val episode = Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.GENERATING_AUDIO)
+
+        val error = assertThrows<EpisodeStatusNotAllowedException> { episodeDiscardService.discard(episode, "p1") }
+
+        assertEquals("Audio generation is in progress", error.message)
+    }
+
+    @Test
+    fun `discard rejects every other non-discardable status`() {
+        val discardable = setOf(EpisodeStatus.PENDING_REVIEW, EpisodeStatus.GENERATED, EpisodeStatus.FAILED)
+        (EpisodeStatus.entries - discardable - EpisodeStatus.GENERATING_AUDIO).forEach { status ->
+            val episode = Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = status)
+
+            val error = assertThrows<EpisodeStatusNotAllowedException> { episodeDiscardService.discard(episode, "p1") }
+
+            assertEquals("Episode is not in a discardable status", error.message)
+        }
+    }
+
+    @Test
+    fun `discard checks the status before the published targets`() {
+        val episode = Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.APPROVED)
+
+        assertThrows<EpisodeStatusNotAllowedException> { episodeDiscardService.discard(episode, "p1") }
+
+        verify(exactly = 0) { publishingService.liveTargets(any()) }
+    }
 }

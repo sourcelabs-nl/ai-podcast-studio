@@ -9,7 +9,9 @@ import com.aisummarypodcast.store.CostStage
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeResearchSource
 import com.aisummarypodcast.store.Podcast
+import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.Subtopics
+import com.aisummarypodcast.store.TtsProviderType
 
 /**
  * Lazy cost lookup used by [Episode.toResponse]. Returns the cost cents for the given
@@ -63,6 +65,96 @@ internal fun Map<String, ModelReference>?.toLlmModelOverrides(existing: LlmModel
     this.isEmpty() -> null
     else -> LlmModelOverrides(this)
 }
+
+private fun String.toSupportedTtsProvider(): TtsProviderType =
+    TtsProviderType.fromValue(this)
+        ?: throw InvalidPodcastException(
+            "Unsupported TTS provider: $this. Supported: ${TtsProviderType.entries.joinToString { it.value }}"
+        )
+
+private fun String.toSupportedStyle(): PodcastStyle =
+    PodcastStyle.fromValue(this)
+        ?: throw InvalidPodcastException(
+            "Unsupported style: $this. Supported: ${PodcastStyle.entries.joinToString { it.value }}"
+        )
+
+private fun String.toSupportedLanguage(): String =
+    if (SupportedLanguage.isSupported(this)) this else throw InvalidPodcastException("Unsupported language: $this")
+
+/**
+ * Builds the podcast a create request describes, applying the defaults for absent fields.
+ * Throws [InvalidPodcastException] for an unsupported language, TTS provider or style.
+ */
+internal fun CreatePodcastRequest.toPodcast(userId: String): Podcast {
+    val language = (language ?: "en").toSupportedLanguage()
+    val ttsProvider = ttsProvider?.toSupportedTtsProvider() ?: TtsProviderType.OPENAI
+    val style = style?.toSupportedStyle() ?: PodcastStyle.NEWS_BRIEFING
+    return Podcast(
+        id = "",
+        userId = userId,
+        name = name,
+        topic = topic,
+        language = language,
+        llmModels = llmModels?.let { LlmModelOverrides(it) },
+        ttsProvider = ttsProvider,
+        ttsVoices = ttsVoices,
+        ttsSettings = ttsSettings,
+        style = style,
+        targetWords = targetWords,
+        cron = cron ?: Podcast.DEFAULT_CRON,
+        timezone = timezone ?: Podcast.DEFAULT_TIMEZONE,
+        customInstructions = customInstructions,
+        relevanceThreshold = relevanceThreshold ?: Podcast.DEFAULT_RELEVANCE_THRESHOLD,
+        requireReview = requireReview ?: false,
+        requirePublishApproval = requirePublishApproval ?: false,
+        maxLlmCostCents = maxLlmCostCents,
+        maxArticleAgeDays = maxArticleAgeDays,
+        speakerNames = speakerNames,
+        fullBodyThreshold = fullBodyThreshold,
+        sponsor = sponsor,
+        pronunciations = pronunciations,
+        recapLookbackEpisodes = recapLookbackEpisodes,
+        composeSettings = composeSettings,
+        deepDiveEnabled = deepDiveEnabled ?: false,
+        subtopics = subtopics?.takeIf { it.isNotEmpty() }?.let { Subtopics(it) },
+        rapidFireWeightThreshold = rapidFireWeightThreshold ?: Podcast.DEFAULT_RAPID_FIRE_WEIGHT_THRESHOLD,
+        rapidFireMaxItems = rapidFireMaxItems
+    )
+}
+
+/**
+ * Applies an update request to the existing podcast: an absent field keeps its stored value (see
+ * [orKeep]). Throws [InvalidPodcastException] for an unsupported language, TTS provider or style.
+ */
+internal fun UpdatePodcastRequest.applyTo(existing: Podcast): Podcast = existing.copy(
+    name = name,
+    topic = topic,
+    language = language?.toSupportedLanguage() ?: existing.language,
+    llmModels = llmModels.toLlmModelOverrides(existing.llmModels),
+    ttsProvider = ttsProvider?.toSupportedTtsProvider() ?: existing.ttsProvider,
+    ttsVoices = ttsVoices.orKeep(existing.ttsVoices),
+    ttsSettings = ttsSettings.orKeep(existing.ttsSettings),
+    style = style?.toSupportedStyle() ?: existing.style,
+    targetWords = targetWords,
+    cron = cron ?: existing.cron,
+    timezone = timezone ?: existing.timezone,
+    customInstructions = customInstructions.orKeep(existing.customInstructions),
+    relevanceThreshold = relevanceThreshold ?: existing.relevanceThreshold,
+    requireReview = requireReview ?: existing.requireReview,
+    requirePublishApproval = requirePublishApproval ?: existing.requirePublishApproval,
+    maxLlmCostCents = maxLlmCostCents,
+    maxArticleAgeDays = maxArticleAgeDays,
+    speakerNames = speakerNames.orKeep(existing.speakerNames),
+    fullBodyThreshold = fullBodyThreshold,
+    sponsor = sponsor.orKeep(existing.sponsor),
+    pronunciations = pronunciations.orKeep(existing.pronunciations),
+    recapLookbackEpisodes = recapLookbackEpisodes,
+    composeSettings = composeSettings.orKeep(existing.composeSettings),
+    deepDiveEnabled = deepDiveEnabled ?: existing.deepDiveEnabled,
+    subtopics = subtopics.toSubtopics(existing.subtopics),
+    rapidFireWeightThreshold = rapidFireWeightThreshold ?: existing.rapidFireWeightThreshold,
+    rapidFireMaxItems = rapidFireMaxItems
+)
 
 internal fun Podcast.toResponse() = PodcastResponse(
     id = id, userId = userId, name = name, topic = topic,

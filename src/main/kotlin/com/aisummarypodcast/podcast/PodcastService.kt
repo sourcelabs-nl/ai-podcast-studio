@@ -68,6 +68,9 @@ class PodcastService(
     }
 
     fun retryEpisode(episode: Episode, podcast: Podcast): ResumePoint {
+        if (episode.status != EpisodeStatus.FAILED) {
+            throw EpisodeStatusNotAllowedException("Episode is not in FAILED status")
+        }
         val resumePoint = detectResumePoint(episode)
         episodeService.resetForRetry(episode)
 
@@ -87,56 +90,14 @@ class PodcastService(
         return resumePoint
     }
 
-    fun validateTtsConfig(ttsProvider: TtsProviderType, style: PodcastStyle, ttsVoices: Map<String, String>?): String? {
-        val dialogueProviders = setOf(TtsProviderType.ELEVENLABS, TtsProviderType.INWORLD)
-        if (style == PodcastStyle.DIALOGUE && ttsProvider !in dialogueProviders) {
-            return "Dialogue style requires ElevenLabs or Inworld as TTS provider"
-        }
-        if (style == PodcastStyle.DIALOGUE && (ttsVoices == null || ttsVoices.size < 2)) {
-            return "Dialogue style requires at least two voice roles in ttsVoices (e.g., host and cohost)"
-        }
-        if (style == PodcastStyle.INTERVIEW && ttsProvider !in dialogueProviders) {
-            return "Interview style requires ElevenLabs or Inworld as TTS provider"
-        }
-        if (style == PodcastStyle.INTERVIEW && (ttsVoices == null || ttsVoices.size < 2)) {
-            return "Interview style requires at least two voice roles in ttsVoices (interviewer and expert)"
-        }
-        if (style == PodcastStyle.INTERVIEW && ttsVoices != null && ttsVoices.keys != setOf("interviewer", "expert")) {
-            return "Interview style requires exactly 'interviewer' and 'expert' voice roles"
-        }
-        return null
-    }
-
     fun create(userId: String, name: String, topic: String, podcast: Podcast? = null): Podcast {
-        val newPodcast = Podcast(
+        val newPodcast = (podcast ?: Podcast(id = "", userId = userId, name = name, topic = topic)).copy(
             id = UUID.randomUUID().toString(),
             userId = userId,
             name = name,
             topic = topic,
-            language = podcast?.language ?: "en",
-            llmModels = podcast?.llmModels,
-            ttsProvider = podcast?.ttsProvider ?: TtsProviderType.OPENAI,
-            ttsVoices = podcast?.ttsVoices,
-            ttsSettings = podcast?.ttsSettings,
-            style = podcast?.style ?: PodcastStyle.NEWS_BRIEFING,
-            targetWords = podcast?.targetWords,
-            cron = podcast?.cron ?: "0 0 6 * * *",
-            timezone = podcast?.timezone ?: "UTC",
-            customInstructions = podcast?.customInstructions,
-            relevanceThreshold = podcast?.relevanceThreshold ?: 5,
-            requireReview = podcast?.requireReview ?: false,
-            requirePublishApproval = podcast?.requirePublishApproval ?: false,
-            maxLlmCostCents = podcast?.maxLlmCostCents,
-            maxArticleAgeDays = podcast?.maxArticleAgeDays,
-            speakerNames = podcast?.speakerNames,
-            fullBodyThreshold = podcast?.fullBodyThreshold,
-            sponsor = podcast?.sponsor,
-            pronunciations = podcast?.pronunciations,
-            recapLookbackEpisodes = podcast?.recapLookbackEpisodes,
-            composeSettings = podcast?.composeSettings,
-            deepDiveEnabled = podcast?.deepDiveEnabled ?: false,
-            subtopics = podcast?.subtopics,
-            rapidFireWeightThreshold = podcast?.rapidFireWeightThreshold ?: 3
+            lastGeneratedAt = null,
+            version = null
         )
         return podcastRepository.save(newPodcast)
     }
@@ -155,34 +116,11 @@ class PodcastService(
 
     fun update(podcastId: String, updates: Podcast): Podcast? {
         val existing = findById(podcastId) ?: return null
-        val updated = existing.copy(
-            name = updates.name,
-            topic = updates.topic,
-            language = updates.language,
-            llmModels = updates.llmModels,
-            ttsProvider = updates.ttsProvider,
-            ttsVoices = updates.ttsVoices,
-            ttsSettings = updates.ttsSettings,
-            style = updates.style,
-            targetWords = updates.targetWords,
-            cron = updates.cron,
-            timezone = updates.timezone,
-            customInstructions = updates.customInstructions,
-            relevanceThreshold = updates.relevanceThreshold,
-            requireReview = updates.requireReview,
-            requirePublishApproval = updates.requirePublishApproval,
-            maxLlmCostCents = updates.maxLlmCostCents,
-            maxArticleAgeDays = updates.maxArticleAgeDays,
-            speakerNames = updates.speakerNames,
-            fullBodyThreshold = updates.fullBodyThreshold,
-            sponsor = updates.sponsor,
-            pronunciations = updates.pronunciations,
-            recapLookbackEpisodes = updates.recapLookbackEpisodes,
-            composeSettings = updates.composeSettings,
-            deepDiveEnabled = updates.deepDiveEnabled,
-            subtopics = updates.subtopics,
-            rapidFireWeightThreshold = updates.rapidFireWeightThreshold,
-            rapidFireMaxItems = updates.rapidFireMaxItems
+        val updated = updates.copy(
+            id = existing.id,
+            userId = existing.userId,
+            lastGeneratedAt = existing.lastGeneratedAt,
+            version = existing.version
         )
         return podcastRepository.save(updated)
     }

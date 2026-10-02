@@ -18,10 +18,10 @@ data class Podcast(
     val ttsSettings: Map<String, String>? = null,
     val style: PodcastStyle = PodcastStyle.NEWS_BRIEFING,
     val targetWords: Int? = null,
-    val cron: String = "0 0 6 * * *",
-    val timezone: String = "UTC",
+    val cron: String = DEFAULT_CRON,
+    val timezone: String = DEFAULT_TIMEZONE,
     val customInstructions: String? = null,
-    val relevanceThreshold: Int = 5,
+    val relevanceThreshold: Int = DEFAULT_RELEVANCE_THRESHOLD,
     val requireReview: Boolean = false,
     val requirePublishApproval: Boolean = false,
     val maxLlmCostCents: Int? = null,
@@ -34,8 +34,15 @@ data class Podcast(
     val composeSettings: Map<String, String>? = null,
     val deepDiveEnabled: Boolean = false,
     val subtopics: Subtopics? = null,
-    val rapidFireWeightThreshold: Int = 3,
+    val rapidFireWeightThreshold: Int = DEFAULT_RAPID_FIRE_WEIGHT_THRESHOLD,
     val rapidFireMaxItems: Int? = null,
     val lastGeneratedAt: String? = null,
     @Version val version: Long? = null
-)
+) {
+    companion object {
+        const val DEFAULT_CRON = "0 0 6 * * *"
+        const val DEFAULT_TIMEZONE = "UTC"
+        const val DEFAULT_RELEVANCE_THRESHOLD = 5
+        const val DEFAULT_RAPID_FIRE_WEIGHT_THRESHOLD = 3
+    }
+}

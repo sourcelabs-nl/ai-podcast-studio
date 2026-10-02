@@ -3,24 +3,23 @@ package com.aisummarypodcast.podcast
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.source.SourceAggregator
 import com.aisummarypodcast.store.Podcast
-import com.aisummarypodcast.store.PodcastStyle
-import com.aisummarypodcast.store.TtsProviderType
 import com.aisummarypodcast.store.User
 import com.aisummarypodcast.user.UserService
 import com.ninjasquad.springmockk.MockkBean
 import io.mockk.every
 import io.mockk.slot
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
+import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
 
 @WebMvcTest(PodcastController::class)
+@Import(PodcastValidator::class)
 class PodcastControllerTest {
 
     @Autowired
@@ -53,24 +52,6 @@ class PodcastControllerTest {
     private val userId = "user-1"
     private val user = User(id = userId, name = "Test User")
     private val podcastId = "podcast-1"
-
-    @BeforeEach
-    fun setupValidation() {
-        every { podcastService.validateTtsConfig(any(), any(), any()) } answers {
-            val ttsProvider = firstArg<TtsProviderType>()
-            val style = secondArg<PodcastStyle>()
-            val voices = thirdArg<Map<String, String>?>()
-            val dialogueProviders = setOf(TtsProviderType.ELEVENLABS, TtsProviderType.INWORLD)
-            when {
-                style == PodcastStyle.DIALOGUE && ttsProvider !in dialogueProviders -> "Dialogue style requires ElevenLabs or Inworld as TTS provider"
-                style == PodcastStyle.DIALOGUE && (voices == null || voices.size < 2) -> "Dialogue style requires at least two voice roles in ttsVoices (e.g., host and cohost)"
-                style == PodcastStyle.INTERVIEW && ttsProvider !in dialogueProviders -> "Interview style requires ElevenLabs or Inworld as TTS provider"
-                style == PodcastStyle.INTERVIEW && (voices == null || voices.size < 2) -> "Interview style requires at least two voice roles in ttsVoices (interviewer and expert)"
-                style == PodcastStyle.INTERVIEW && voices != null && voices.keys != setOf("interviewer", "expert") -> "Interview style requires exactly 'interviewer' and 'expert' voice roles"
-                else -> null
-            }
-        }
-    }
 
     @Test
     fun `create podcast with relevanceThreshold and requireReview`() {

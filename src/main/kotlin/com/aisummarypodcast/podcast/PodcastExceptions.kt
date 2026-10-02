@@ -49,3 +49,15 @@ class ExperimentTooLargeException(message: String) : IllegalArgumentException(me
  * experiment episode (maps to 409).
  */
 class EpisodeNotExperimentableException(message: String) : IllegalStateException(message)
+
+/**
+ * The episode's status does not allow the requested action, such as approving an episode that is
+ * not awaiting review (maps to 409). The handler returns the bare message, with no `code` field.
+ */
+class EpisodeStatusNotAllowedException(message: String) : IllegalStateException(message)
+
+/** A podcast request with an unsupported or malformed value (maps to 400). */
+class InvalidPodcastException(message: String) : IllegalArgumentException(message)
+
+/** A podcast request whose `composeSettings` hold an unacceptable value (maps to 422). */
+class InvalidComposeSettingsException(message: String) : IllegalArgumentException(message)

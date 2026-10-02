@@ -20,6 +20,12 @@ class EpisodeDiscardService(
 ) {
 
     fun discard(episode: Episode, podcastId: String) {
+        if (episode.status !in DISCARDABLE_STATUSES) {
+            throw EpisodeStatusNotAllowedException(
+                if (episode.status == EpisodeStatus.GENERATING_AUDIO) "Audio generation is in progress"
+                else "Episode is not in a discardable status"
+            )
+        }
         val liveTargets = publishingService.liveTargets(episode.id!!)
         if (liveTargets.isNotEmpty()) {
             throw EpisodePublishedException(
@@ -32,5 +38,9 @@ class EpisodeDiscardService(
         } else {
             episodeService.discardAndResetArticles(episode, podcastId)
         }
+    }
+
+    private companion object {
+        val DISCARDABLE_STATUSES = setOf(EpisodeStatus.PENDING_REVIEW, EpisodeStatus.GENERATED, EpisodeStatus.FAILED)
     }
 }
