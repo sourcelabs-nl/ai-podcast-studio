@@ -6,14 +6,12 @@ import org.springframework.data.repository.CrudRepository
 
 interface ArticleRepository : CrudRepository<Article, Long>, ArticleRepositoryCustom {
 
-    @Query("SELECT * FROM articles WHERE relevance_score IS NULL AND source_id IN (:sourceIds)")
-    fun findUnscoredBySourceIds(sourceIds: List<String>): List<Article>
+    fun findByRelevanceScoreIsNullAndSourceIdIn(sourceIds: Collection<String>): List<Article>
 
     @Query("SELECT * FROM articles WHERE relevance_score >= :threshold AND is_processed = 0 AND source_id IN (:sourceIds)")
     fun findRelevantUnprocessedBySourceIds(sourceIds: List<String>, threshold: Int): List<Article>
 
-    @Query("SELECT * FROM articles WHERE source_id IN (:sourceIds) AND published_at >= :since")
-    fun findAllSince(sourceIds: List<String>, since: String): List<Article>
+    fun findBySourceIdInAndPublishedAtGreaterThanEqual(sourceIds: Collection<String>, since: String): List<Article>
 
     @Query("SELECT * FROM articles WHERE source_id IN (:sourceIds) AND is_processed = 0 AND published_at >= :since ORDER BY relevance_score DESC NULLS LAST")
     fun findUnprocessedSince(sourceIds: List<String>, since: String): List<Article>

@@ -51,6 +51,23 @@ class PublishingServiceTest {
     private val enabledTarget = PodcastPublicationTarget(id = 1, podcastId = "pod1", target = "soundcloud", config = "{}", enabled = true)
 
     @Test
+    fun `listByPodcast pages in the database and carries the episode reference and the total`() {
+        val pub = EpisodePublication(id = 7L, episodeId = 1L, target = "rss", status = PublicationStatus.PUBLISHED, createdAt = "now")
+        every { publicationRepository.findPageByPodcastId("pod1", 20, 40) } returns listOf(pub)
+        every { publicationRepository.countByPodcastId("pod1") } returns 41L
+        every { episodeRepository.findAllById(listOf(1L)) } returns listOf(episode)
+
+        val page = service.listByPodcast("pod1", org.springframework.data.domain.PageRequest.of(2, 20))
+
+        assertEquals(41L, page.totalElements)
+        val row = page.content.single()
+        assertEquals(7L, row.publication.id)
+        assertEquals(1L, row.episode.id)
+        assertEquals("2026-02-13T10:00:00Z", row.episode.generatedAt)
+        assertEquals("GENERATED", row.episode.status)
+    }
+
+    @Test
     fun `liveTargets returns only targets with a published publication`() {
         every { publicationRepository.findByEpisodeId(1L) } returns listOf(
             EpisodePublication(id = 1L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, createdAt = "now"),

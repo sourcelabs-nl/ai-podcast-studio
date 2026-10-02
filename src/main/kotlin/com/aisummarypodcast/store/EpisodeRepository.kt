@@ -33,6 +33,37 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
 
     fun findByPodcastId(podcastId: String): List<Episode>
 
+    fun findByPodcastIdAndGeneratedAtLessThan(podcastId: String, cutoff: String): List<Episode>
+
+    /** Whether a regular (non-focus) episode of the podcast has one of [statuses], with episodes of [purpose] left out. */
+    fun existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNull(
+        podcastId: String,
+        statuses: Collection<EpisodeStatus>,
+        purpose: EpisodePurpose
+    ): Boolean
+
+    /** Whether a focus episode of the podcast has one of [statuses], with episodes of [purpose] left out. */
+    fun existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNotNull(
+        podcastId: String,
+        statuses: Collection<EpisodeStatus>,
+        purpose: EpisodePurpose
+    ): Boolean
+
+    /** The podcast's focus episodes in [status], oldest first, with episodes of [purpose] left out. */
+    fun findByPodcastIdAndStatusAndPurposeNotAndFocusIsNotNullOrderByGeneratedAtAsc(
+        podcastId: String,
+        status: EpisodeStatus,
+        purpose: EpisodePurpose
+    ): List<Episode>
+
+    /** As above, limited to the focus episodes generated strictly after [generatedAfter]. */
+    fun findByPodcastIdAndStatusAndPurposeNotAndFocusIsNotNullAndGeneratedAtGreaterThanOrderByGeneratedAtAsc(
+        podcastId: String,
+        status: EpisodeStatus,
+        purpose: EpisodePurpose,
+        generatedAfter: String
+    ): List<Episode>
+
     /** The experiment episodes recomposing [sourceEpisodeId]'s article set, in creation order. */
     fun findByExperimentSourceEpisodeIdOrderByIdAsc(sourceEpisodeId: Long): List<Episode>
 

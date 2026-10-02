@@ -160,8 +160,8 @@ class FocusEpisodeServiceTest {
 
     @Test
     fun `a focus episode blocks another focus episode but not a regular one`() {
-        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", any<Collection<EpisodeStatus>>(), EpisodePurpose.EXPERIMENT) } returns
-            listOf(focusEpisode(EpisodeStatus.PENDING_REVIEW))
+        every { episodeRepository.existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNull("p1", any<Collection<EpisodeStatus>>(), EpisodePurpose.EXPERIMENT) } returns false
+        every { episodeRepository.existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNotNull("p1", any<Collection<EpisodeStatus>>(), EpisodePurpose.EXPERIMENT) } returns true
 
         assertFalse(service.hasActiveEpisode("p1"))
         assertTrue(service.hasActiveEpisode("p1", focusEpisodes = true))
@@ -169,9 +169,14 @@ class FocusEpisodeServiceTest {
 
     @Test
     fun `recent focus episodes are only those after the last regular episode`() {
-        every { episodeRepository.findByPodcastIdAndStatus("p1", EpisodeStatus.GENERATED) } returns listOf(
-            Episode(id = 1, podcastId = "p1", generatedAt = "2026-09-19T06:00:00Z", scriptText = "", focus = "old focus"),
-            Episode(id = 2, podcastId = "p1", generatedAt = "2026-09-20T06:00:00Z", scriptText = ""),
+        every { episodeRepository.findRecentGeneratedByPodcastId("p1", 1) } returns listOf(
+            Episode(id = 2, podcastId = "p1", generatedAt = "2026-09-20T06:00:00Z", scriptText = "")
+        )
+        every {
+            episodeRepository.findByPodcastIdAndStatusAndPurposeNotAndFocusIsNotNullAndGeneratedAtGreaterThanOrderByGeneratedAtAsc(
+                "p1", EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT, "2026-09-20T06:00:00Z"
+            )
+        } returns listOf(
             Episode(id = 3, podcastId = "p1", generatedAt = "2026-09-21T12:00:00Z", scriptText = "", focus = "Claude Opus 5.5 release")
         )
 

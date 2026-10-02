@@ -8,6 +8,8 @@ interface EpisodeArticleRepository : CrudRepository<EpisodeArticle, Long>, Episo
 
     fun findByEpisodeId(episodeId: Long): List<EpisodeArticle>
 
+    fun countByEpisodeId(episodeId: Long): Int
+
     @Modifying
     @Query("INSERT OR IGNORE INTO episode_articles (episode_id, article_id, topic, topic_order, follow_up_context) VALUES (:episodeId, :articleId, :topic, :topicOrder, :followUpContext)")
     fun insertIgnore(

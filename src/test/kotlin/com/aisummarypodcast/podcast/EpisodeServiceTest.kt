@@ -539,8 +539,7 @@ class EpisodeServiceTest {
             EpisodeArticle(id = 1L, episodeId = 5L, articleId = 10L, topic = "T", topicOrder = 0, followUpContext = "Covered before"),
             EpisodeArticle(id = 2L, episodeId = 5L, articleId = 20L, topic = "T2", topicOrder = 1)
         )
-        every { articleRepository.findById(10L) } returns Optional.of(article)
-        every { articleRepository.findById(20L) } returns Optional.empty()
+        every { articleRepository.findAllById(listOf(10L, 20L)) } returns listOf(article)
 
         val linked = episodeService.findLinkedArticlesAndTopics(5L)
 
@@ -782,25 +781,21 @@ class EpisodeServiceTest {
 
     @Test
     fun `hasActiveEpisode returns true when pending episodes exist`() {
-        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns listOf(
-            Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.PENDING_REVIEW)
-        )
+        every { episodeRepository.existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNull("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns true
 
         assertEquals(true, episodeService.hasActiveEpisode("p1"))
     }
 
     @Test
     fun `hasActiveEpisode returns false when no pending episodes`() {
-        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns emptyList()
+        every { episodeRepository.existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNull("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns false
 
         assertEquals(false, episodeService.hasActiveEpisode("p1"))
     }
 
     @Test
     fun `hasActiveEpisode returns true when GENERATING_AUDIO episode exists`() {
-        every { episodeRepository.findByPodcastIdAndStatusInAndPurposeNot("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns listOf(
-            Episode(id = 1L, podcastId = "p1", generatedAt = "now", scriptText = "Script", status = EpisodeStatus.GENERATING_AUDIO)
-        )
+        every { episodeRepository.existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNull("p1", listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO), EpisodePurpose.EXPERIMENT) } returns true
 
         assertEquals(true, episodeService.hasActiveEpisode("p1"))
     }

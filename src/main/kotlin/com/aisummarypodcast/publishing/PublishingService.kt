@@ -283,17 +283,14 @@ class PublishingService(
         }
     }
 
+    /** A page of the podcast's publications, newest first (the order is fixed by the query, not by [pageable]'s sort). */
     fun listByPodcast(
         podcastId: String,
         pageable: org.springframework.data.domain.Pageable
     ): org.springframework.data.domain.Page<PodcastPublicationRow> {
-        val episodes = episodeRepository.findByPodcastId(podcastId)
-        if (episodes.isEmpty()) {
-            return org.springframework.data.domain.PageImpl(emptyList(), pageable, 0)
-        }
-        val episodesById = episodes.associateBy { it.id!! }
-        val publications = publicationRepository.findByEpisodeIdIn(episodesById.keys, pageable)
-        return publications.map { pub ->
+        val publications = publicationRepository.findPageByPodcastId(podcastId, pageable.pageSize, pageable.offset)
+        val episodesById = episodeRepository.findAllById(publications.map { it.episodeId }.distinct()).associateBy { it.id!! }
+        val rows = publications.map { pub ->
             val ep = episodesById[pub.episodeId]
             PodcastPublicationRow(
                 publication = pub.toResponse(),
@@ -304,6 +301,7 @@ class PublishingService(
                 )
             )
         }
+        return org.springframework.data.domain.PageImpl(rows, pageable, publicationRepository.countByPodcastId(podcastId))
     }
 
     fun getPublications(episodeId: Long): List<EpisodePublication> =

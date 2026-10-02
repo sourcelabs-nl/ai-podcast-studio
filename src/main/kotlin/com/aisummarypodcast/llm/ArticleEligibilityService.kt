@@ -53,7 +53,7 @@ class ArticleEligibilityService(
      * and a focus episode has no dedup stage that would fold them into the original.
      */
     fun findEligibleArticlesForFocus(sourceIds: List<String>, podcast: Podcast, window: EpisodeWindow): List<Article> {
-        val candidates = articleRepository.findAllSince(sourceIds, window.startIso)
+        val candidates = articleRepository.findBySourceIdInAndPublishedAtGreaterThanEqual(sourceIds, window.startIso)
         val ownContent = candidates.filterNot { isPureRetweet(it) }
         if (ownContent.size < candidates.size) {
             log.info("[Eligibility] Dropped {} pure retweet(s) from focus candidates for podcast '{}'",

@@ -79,7 +79,7 @@ class SourceServiceTest {
     fun `a source polled within its own interval of the window end covers the window`() {
         // Polled at 12:50 with a 30-minute interval: the last poll it was ever going to make in
         // time, so it has nothing outstanding even though the poll predates the window end.
-        every { sourceRepository.findByPodcastId("p1") } returns
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", true) } returns
             listOf(polled("s1", lastPolled = "2026-09-08T12:50:00Z"))
 
         assertTrue(service.findSourcesBehindWindow("p1", windowEnd).isEmpty())
@@ -87,7 +87,7 @@ class SourceServiceTest {
 
     @Test
     fun `a source that has not polled for hours is behind the window`() {
-        every { sourceRepository.findByPodcastId("p1") } returns
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", true) } returns
             listOf(polled("s1", lastPolled = "2026-09-08T05:00:00Z"))
 
         assertEquals(listOf("s1"), service.findSourcesBehindWindow("p1", windowEnd).map { it.id })
@@ -96,7 +96,7 @@ class SourceServiceTest {
     @Test
     fun `a source whose last poll failed is behind the window`() {
         // lastPolled is written on a failed poll too, so freshness alone would hide the gap.
-        every { sourceRepository.findByPodcastId("p1") } returns
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", true) } returns
             listOf(polled("s1", lastPolled = "2026-09-08T12:59:00Z", failures = 3))
 
         assertEquals(listOf("s1"), service.findSourcesBehindWindow("p1", windowEnd).map { it.id })
@@ -104,17 +104,19 @@ class SourceServiceTest {
 
     @Test
     fun `a source that has never polled is behind the window`() {
-        every { sourceRepository.findByPodcastId("p1") } returns listOf(polled("s1", lastPolled = null))
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", true) } returns listOf(polled("s1", lastPolled = null))
 
         assertEquals(listOf("s1"), service.findSourcesBehindWindow("p1", windowEnd).map { it.id })
     }
 
     @Test
     fun `a disabled source is never behind the window`() {
-        every { sourceRepository.findByPodcastId("p1") } returns
-            listOf(polled("s1", lastPolled = null, enabled = false))
+        every { sourceRepository.findByPodcastIdAndEnabled("p1", true) } returns
+            listOf(polled("s1", lastPolled = null))
 
-        assertTrue(service.findSourcesBehindWindow("p1", windowEnd).isEmpty())
+        assertEquals(listOf("s1"), service.findSourcesBehindWindow("p1", windowEnd).map { it.id })
+        // Disabled sources are left out by the query, never fetched.
+        verify(exactly = 0) { sourceRepository.findByPodcastId(any()) }
     }
 
     @Test
@@ -134,7 +136,7 @@ class SourceServiceTest {
     @Test
     fun `getHostBreakerStates reports an open breaker for a structurally down host`() {
         val dead = (1..3).map { source("s$it", "https://nitter.net/$it/rss", failures = 5, failureType = "permanent") }
-        every { sourceRepository.findAll() } returns dead
+        every { sourceRepository.findByEnabledTrue() } returns dead
         circuitBreakerRegistry.openBreakerFor("nitter.net")
 
         val states = service.getHostBreakerStates(dead)
@@ -147,7 +149,7 @@ class SourceServiceTest {
     @Test
     fun `getHostBreakerStates reports a closed breaker for a healthy host`() {
         val healthy = (1..3).map { source("s$it", "https://example.com/$it/rss") }
-        every { sourceRepository.findAll() } returns healthy
+        every { sourceRepository.findByEnabledTrue() } returns healthy
 
         val states = service.getHostBreakerStates(healthy)
 

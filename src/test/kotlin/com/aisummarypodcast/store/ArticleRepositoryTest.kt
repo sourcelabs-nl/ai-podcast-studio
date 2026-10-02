@@ -83,17 +83,43 @@ class ArticleRepositoryTest {
     }
 
     @Test
-    fun `findAllSince returns articles published after cutoff`() {
+    fun `findBySourceIdInAndPublishedAtGreaterThanEqual returns articles published after cutoff`() {
         val oldDate = Instant.now().minus(10, ChronoUnit.DAYS).toString()
         val recentDate = Instant.now().minus(1, ChronoUnit.DAYS).toString()
         articleRepository.save(Article(sourceId = "s1", title = "Old", body = "body", url = "https://example.com/1", publishedAt = oldDate, contentHash = "hash1", relevanceScore = 3))
         articleRepository.save(Article(sourceId = "s1", title = "Recent", body = "body", url = "https://example.com/2", publishedAt = recentDate, contentHash = "hash2", relevanceScore = null))
 
         val since = Instant.now().minus(3, ChronoUnit.DAYS).toString()
-        val result = articleRepository.findAllSince(listOf("s1"), since)
+        val result = articleRepository.findBySourceIdInAndPublishedAtGreaterThanEqual(listOf("s1"), since)
 
         assertEquals(1, result.size)
         assertEquals("Recent", result[0].title)
+    }
+
+    @Test
+    fun `findByRelevanceScoreIsNullAndSourceIdIn returns only unscored articles of the given sources`() {
+        sourceRepository.save(Source(id = "s2", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/feed2"))
+        articleRepository.save(Article(sourceId = "s1", title = "Unscored", body = "b", url = "https://example.com/1", contentHash = "h1", relevanceScore = null))
+        articleRepository.save(Article(sourceId = "s1", title = "Scored", body = "b", url = "https://example.com/2", contentHash = "h2", relevanceScore = 0))
+        articleRepository.save(Article(sourceId = "s2", title = "Other source", body = "b", url = "https://example.com/3", contentHash = "h3", relevanceScore = null))
+
+        val result = articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1"))
+
+        assertEquals(listOf("Unscored"), result.map { it.title })
+    }
+
+    @Test
+    fun `findBySourceIdInAndPublishedAtGreaterThanEqual includes the cutoff and skips other sources and undated articles`() {
+        sourceRepository.save(Source(id = "s2", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/feed2"))
+        val since = "2026-09-20T00:00:00Z"
+        articleRepository.save(Article(sourceId = "s1", title = "At cutoff", body = "b", url = "https://example.com/1", contentHash = "h1", publishedAt = since))
+        articleRepository.save(Article(sourceId = "s1", title = "Before", body = "b", url = "https://example.com/2", contentHash = "h2", publishedAt = "2026-09-19T23:59:59Z"))
+        articleRepository.save(Article(sourceId = "s1", title = "Undated", body = "b", url = "https://example.com/3", contentHash = "h3", publishedAt = null))
+        articleRepository.save(Article(sourceId = "s2", title = "Other source", body = "b", url = "https://example.com/4", contentHash = "h4", publishedAt = "2026-09-21T00:00:00Z"))
+
+        val result = articleRepository.findBySourceIdInAndPublishedAtGreaterThanEqual(listOf("s1"), since)
+
+        assertEquals(listOf("At cutoff"), result.map { it.title })
     }
 
     @Test

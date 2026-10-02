@@ -161,7 +161,7 @@ class LlmPipeline(
         aggregateUnlinkedPosts(podcast, sources, onProgress)
 
         // Cost gate: estimate cost before any LLM calls
-        val allUnscored = articleRepository.findUnscoredBySourceIds(sourceIds)
+        val allUnscored = articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(sourceIds)
         if (allUnscored.isNotEmpty()) {
             val baseEstimate = CostEstimator.estimatePipelineCostCents(
                 allUnscored, filterModelDef, composeModelDef, runConfig.targetWords
@@ -332,7 +332,7 @@ class LlmPipeline(
         }
 
         // Step 2: find unscored articles for these sources
-        val unscored = articleRepository.findUnscoredBySourceIds(readyIds)
+        val unscored = articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(readyIds)
         if (unscored.isEmpty()) return
 
         // Step 3: cost gate (scoring-only estimate). Not a run, so the podcast's own configuration.
@@ -660,7 +660,7 @@ class LlmPipeline(
         }
 
         // Step 2: Score unscored articles (persists scores)
-        val unscored = articleRepository.findUnscoredBySourceIds(sourceIds)
+        val unscored = articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(sourceIds)
         if (unscored.isNotEmpty()) {
             onProgress("scoring", mapOf("articleCount" to unscored.size))
             log.info("[LLM Preview] Scoring {} articles for podcast '{}' ({})", unscored.size, podcast.name, podcast.id)

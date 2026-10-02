@@ -49,8 +49,7 @@ class SourceService(
      * failing host would otherwise look freshly polled.
      */
     fun findSourcesBehindWindow(podcastId: String, windowEnd: Instant): List<Source> {
-        return sourceRepository.findByPodcastId(podcastId)
-            .filter { it.enabled }
+        return findEnabledByPodcastId(podcastId)
             .filter { source ->
                 if (source.consecutiveFailures > 0) return@filter true
                 val lastPolled = source.lastPolled?.let { runCatching { Instant.parse(it) }.getOrNull() }
@@ -190,8 +189,7 @@ class SourceService(
      * which podcast points at it.
      */
     fun getHostBreakerStates(sources: List<Source>): Map<String, HostBreakerState> {
-        val enabledByHost = sourceRepository.findAll()
-            .filter { it.enabled }
+        val enabledByHost = findEnabled()
             .groupBy { extractSourceHost(it.url) }
 
         return sources.associate { source ->

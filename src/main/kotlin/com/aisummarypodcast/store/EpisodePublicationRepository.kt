@@ -1,25 +1,34 @@
 package com.aisummarypodcast.store
 
-import org.springframework.data.domain.Page
-import org.springframework.data.domain.Pageable
 import org.springframework.data.jdbc.repository.query.Query
 import org.springframework.data.repository.CrudRepository
-import org.springframework.data.repository.PagingAndSortingRepository
 
-interface EpisodePublicationRepository :
-    CrudRepository<EpisodePublication, Long>,
-    PagingAndSortingRepository<EpisodePublication, Long> {
+interface EpisodePublicationRepository : CrudRepository<EpisodePublication, Long> {
 
     fun findByEpisodeId(episodeId: Long): List<EpisodePublication>
 
     fun findByEpisodeIdAndTarget(episodeId: Long, target: String): EpisodePublication?
 
     /**
-     * Podcast-level paged listing. The service resolves the podcast's episode ids
-     * first, then this derived query handles paging + sorting on the publication
-     * row itself. No `@Query` needed because we never have to join `episodes`.
+     * A page of the podcast's publications, newest first by publication creation. Joins `episodes`
+     * to scope to the podcast; Pageable is not supported on `@Query`, so the page bounds are
+     * explicit and [countByPodcastId] supplies the total.
      */
-    fun findByEpisodeIdIn(episodeIds: Collection<Long>, pageable: Pageable): Page<EpisodePublication>
+    @Query("""
+        SELECT ep.* FROM episode_publications ep
+        JOIN episodes e ON ep.episode_id = e.id
+        WHERE e.podcast_id = :podcastId
+        ORDER BY ep.created_at DESC, ep.id DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    fun findPageByPodcastId(podcastId: String, limit: Int, offset: Long): List<EpisodePublication>
+
+    @Query("""
+        SELECT COUNT(*) FROM episode_publications ep
+        JOIN episodes e ON ep.episode_id = e.id
+        WHERE e.podcast_id = :podcastId
+    """)
+    fun countByPodcastId(podcastId: String): Long
 
     // Status values must match EpisodeStatus enum names.
     // Ordered newest-first by the episode's generatedAt so the caller (SoundCloud playlist

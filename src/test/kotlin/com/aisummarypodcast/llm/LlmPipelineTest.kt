@@ -138,7 +138,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(any(), PipelineStage.DEDUP) } returns filterModelDef
         every { modelResolver.resolve(any(), PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns emptyList()
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns articles
         every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
         coEvery { topicDedupFilter.filter(articles, EpisodeHistory.EMPTY, podcast.userId, filterModelDef) } returns
@@ -186,7 +186,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(any(), PipelineStage.DEDUP) } returns filterModelDef
         every { modelResolver.resolve(any(), PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns emptyList()
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns emptyList()
 
         runTest {
@@ -227,7 +227,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(any(), PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns listOf(unlinkedPost)
         every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns listOf(createdArticle)
         coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, ScoringContext(mapOf("s1" to "example.com/feed")), any()) } returns listOf(scored)
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns listOf(scored)
         every { articleEligibilityService.findHistory(podcast) } returns EpisodeHistory.EMPTY
@@ -482,7 +482,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(any(), PipelineStage.FILTER) } returns pricedFilterModel
         every { modelResolver.resolve(any(), PipelineStage.COMPOSE) } returns pricedComposeModel
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns articles
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns articles
 
         runTest {
             assertNull(pipelineWithLowThreshold.aggregateScoreAndFilter(podcast, runConfig, window))
@@ -512,7 +512,7 @@ class LlmPipelineTest {
         every { modelResolver.resolve(any(), PipelineStage.DEDUP) } returns filterModelDef
         every { modelResolver.resolve(any(), PipelineStage.COMPOSE) } returns composeModelDef
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns emptyList()
         every { articleEligibilityService.findEligibleArticles(listOf("s1"), podcast, any()) } returns emptyList()
 
         val eligible = pipeline.aggregateScoreAndFilter(podcast, runConfig, window)
@@ -713,7 +713,7 @@ class LlmPipelineTest {
         every { sourceAggregator.shouldAggregate(source) } returns false
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns listOf(unlinkedPost)
         every { sourceAggregator.aggregateAndPersist(listOf(unlinkedPost), source) } returns listOf(createdArticle)
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns listOf(createdArticle)
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns listOf(createdArticle)
         every { modelResolver.resolve(any(), PipelineStage.FILTER) } returns filterModelDef
         coEvery { articleScoreSummarizer.scoreSummarize(listOf(createdArticle), podcast, filterModelDef, ScoringContext(mapOf("s1" to "example.com/feed"))) } returns
             listOf(createdArticle.copy(relevanceScore = 7))
@@ -741,7 +741,7 @@ class LlmPipelineTest {
         every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
         every { sourceAggregator.shouldAggregate(source) } returns false
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns emptyList()
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns emptyList()
 
         pipeline.scoreReadySources(podcast)
 
@@ -770,7 +770,7 @@ class LlmPipelineTest {
         every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
         every { sourceAggregator.shouldAggregate(source) } returns false
         every { postRepository.findUnlinkedBySourceIds(listOf("s1"), any()) } returns emptyList()
-        every { articleRepository.findUnscoredBySourceIds(listOf("s1")) } returns articles
+        every { articleRepository.findByRelevanceScoreIsNullAndSourceIdIn(listOf("s1")) } returns articles
         every { modelResolver.resolve(any(), PipelineStage.FILTER) } returns pricedFilterModel
 
         pipelineWithLowThreshold.scoreReadySources(podcast)

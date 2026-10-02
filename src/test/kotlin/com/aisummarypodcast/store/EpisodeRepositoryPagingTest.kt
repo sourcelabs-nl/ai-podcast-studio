@@ -80,26 +80,30 @@ class EpisodeRepositoryPagingTest {
     }
 
     @Test
-    fun `publications findByEpisodeIdIn paged scopes to the podcast`() {
+    fun `publications findPageByPodcastId scopes to the podcast and orders newest first`() {
         val e1 = episodeRepository.save(episode("p1", 0))
         val e2 = episodeRepository.save(episode("p1", 1))
         val e3 = episodeRepository.save(episode("p2", 0))
 
         val now = Instant.now()
-        val p1Pub = publicationRepository.save(EpisodePublication(episodeId = e1.id!!, target = "rss", status = PublicationStatus.PUBLISHED, createdAt = now.toString()))
-        val p2Pub = publicationRepository.save(EpisodePublication(episodeId = e2.id!!, target = "soundcloud", status = PublicationStatus.PUBLISHED, createdAt = now.minusSeconds(60).toString()))
-        publicationRepository.save(EpisodePublication(episodeId = e3.id!!, target = "rss", status = PublicationStatus.PUBLISHED, createdAt = now.toString()))
+        val older = publicationRepository.save(EpisodePublication(episodeId = e2.id!!, target = "soundcloud", status = PublicationStatus.PUBLISHED, createdAt = now.minusSeconds(60).toString()))
+        val newer = publicationRepository.save(EpisodePublication(episodeId = e1.id!!, target = "rss", status = PublicationStatus.PUBLISHED, createdAt = now.toString()))
+        publicationRepository.save(EpisodePublication(episodeId = e3.id!!, target = "rss", status = PublicationStatus.PUBLISHED, createdAt = now.plusSeconds(60).toString()))
 
-        val episodeIds = setOf(e1.id!!, e2.id!!)
-        val page = publicationRepository.findByEpisodeIdIn(
-            episodeIds,
-            PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt", "id"))
-        )
-        assertEquals(2, page.content.size)
-        assertEquals(2L, page.totalElements)
-        // Sort by createdAt DESC: p1Pub (now) before p2Pub (now-60s)
-        assertEquals(p1Pub.id, page.content[0].id)
-        assertEquals(p2Pub.id, page.content[1].id)
+        val page = publicationRepository.findPageByPodcastId("p1", 10, 0)
+
+        assertEquals(listOf(newer.id, older.id), page.map { it.id })
+        assertEquals(2L, publicationRepository.countByPodcastId("p1"))
+    }
+
+    @Test
+    fun `publications findPageByPodcastId breaks a createdAt tie by id descending`() {
+        val e1 = episodeRepository.save(episode("p1", 0))
+        val createdAt = Instant.now().toString()
+        val first = publicationRepository.save(EpisodePublication(episodeId = e1.id!!, target = "rss", status = PublicationStatus.PUBLISHED, createdAt = createdAt))
+        val second = publicationRepository.save(EpisodePublication(episodeId = e1.id!!, target = "soundcloud", status = PublicationStatus.PUBLISHED, createdAt = createdAt))
+
+        assertEquals(listOf(second.id, first.id), publicationRepository.findPageByPodcastId("p1", 10, 0).map { it.id })
     }
 
     @Test
@@ -117,16 +121,14 @@ class EpisodeRepositoryPagingTest {
             )
         }
 
-        val episodeIds = episodes.map { it.id!! }
-        val sort = Sort.by(Sort.Direction.DESC, "createdAt", "id")
-        val page0 = publicationRepository.findByEpisodeIdIn(episodeIds, PageRequest.of(0, 2, sort))
-        val page1 = publicationRepository.findByEpisodeIdIn(episodeIds, PageRequest.of(1, 2, sort))
-        val page2 = publicationRepository.findByEpisodeIdIn(episodeIds, PageRequest.of(2, 2, sort))
+        val page0 = publicationRepository.findPageByPodcastId("p1", 2, 0)
+        val page1 = publicationRepository.findPageByPodcastId("p1", 2, 2)
+        val page2 = publicationRepository.findPageByPodcastId("p1", 2, 4)
 
-        assertEquals(2, page0.content.size)
-        assertEquals(2, page1.content.size)
-        assertEquals(1, page2.content.size)
-        assertEquals(5L, page0.totalElements)
-        assertEquals(3, page0.totalPages)
+        assertEquals(2, page0.size)
+        assertEquals(2, page1.size)
+        assertEquals(1, page2.size)
+        assertEquals(5L, publicationRepository.countByPodcastId("p1"))
+        assertEquals(0L, publicationRepository.countByPodcastId("unknown"))
     }
 }

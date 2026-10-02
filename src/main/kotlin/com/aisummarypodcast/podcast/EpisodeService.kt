@@ -530,13 +530,17 @@ class EpisodeService(
      * the next regular episode can pick their topics up as a follow-up.
      */
     fun findRecentFocusEpisodes(podcastId: String): List<RecentFocusEpisode> {
-        val generated = episodeRepository.findByPodcastIdAndStatus(podcastId, EpisodeStatus.GENERATED)
-            .filter { it.purpose != EpisodePurpose.EXPERIMENT }
-        val lastRegular = generated.filter { it.focus == null }.maxOfOrNull { it.generatedAt }
-        return generated
-            .filter { it.focus != null && (lastRegular == null || it.generatedAt > lastRegular) }
-            .sortedBy { it.generatedAt }
-            .map { RecentFocusEpisode(focus = it.focus!!, generatedAt = it.generatedAt) }
+        val lastRegular = episodeRepository.findRecentGeneratedByPodcastId(podcastId, 1).firstOrNull()?.generatedAt
+        val focusEpisodes = if (lastRegular == null) {
+            episodeRepository.findByPodcastIdAndStatusAndPurposeNotAndFocusIsNotNullOrderByGeneratedAtAsc(
+                podcastId, EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT
+            )
+        } else {
+            episodeRepository.findByPodcastIdAndStatusAndPurposeNotAndFocusIsNotNullAndGeneratedAtGreaterThanOrderByGeneratedAtAsc(
+                podcastId, EpisodeStatus.GENERATED, EpisodePurpose.EXPERIMENT, lastRegular
+            )
+        }
+        return focusEpisodes.map { RecentFocusEpisode(focus = it.focus!!, generatedAt = it.generatedAt) }
     }
 
     @Transactional
@@ -857,9 +861,8 @@ class EpisodeService(
 
     fun findLinkedArticlesAndTopics(episodeId: Long): LinkedArticlesResult {
         val linkedArticles = episodeArticleRepository.findByEpisodeId(episodeId)
-        val articles = linkedArticles.mapNotNull { link ->
-            articleRepository.findByIdOrNull(link.articleId)
-        }
+        val articlesById = articleRepository.findAllById(linkedArticles.map { it.articleId }).associateBy { it.id }
+        val articles = linkedArticles.mapNotNull { articlesById[it.articleId] }
         val topicLabels = linkedArticles
             .filter { it.topic != null && it.topicOrder != null }
             .sortedBy { it.topicOrder }
@@ -932,7 +935,7 @@ class EpisodeService(
 
     fun findById(episodeId: Long): Episode? = episodeRepository.findByIdOrNull(episodeId)
 
-    fun countArticles(episodeId: Long): Int = episodeArticleRepository.findByEpisodeId(episodeId).size
+    fun countArticles(episodeId: Long): Int = episodeArticleRepository.countByEpisodeId(episodeId)
 
     /**
      * Score-stage facts for the cost breakdown: every article the episode scored as a candidate,
@@ -1007,11 +1010,14 @@ class EpisodeService(
      * one of each kind runs at a time. An experiment episode is neither kind and never blocks a run.
      */
     fun hasActiveEpisode(podcastId: String, focusEpisodes: Boolean = false): Boolean {
-        return episodeRepository.findByPodcastIdAndStatusInAndPurposeNot(
-            podcastId,
-            listOf(EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO),
-            EpisodePurpose.EXPERIMENT
-        ).any { (it.focus != null) == focusEpisodes }
+        val inFlight = listOf(
+            EpisodeStatus.GENERATING, EpisodeStatus.PENDING_REVIEW, EpisodeStatus.APPROVED, EpisodeStatus.GENERATING_AUDIO
+        )
+        return if (focusEpisodes) {
+            episodeRepository.existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNotNull(podcastId, inFlight, EpisodePurpose.EXPERIMENT)
+        } else {
+            episodeRepository.existsByPodcastIdAndStatusInAndPurposeNotAndFocusIsNull(podcastId, inFlight, EpisodePurpose.EXPERIMENT)
+        }
     }
 
     /**
@@ -1021,8 +1027,7 @@ class EpisodeService(
      */
     @Transactional
     fun cleanupOldEpisodes(podcast: Podcast, cutoff: String): Int {
-        val oldEpisodes = episodeRepository.findByPodcastId(podcast.id)
-            .filter { it.generatedAt < cutoff }
+        val oldEpisodes = episodeRepository.findByPodcastIdAndGeneratedAtLessThan(podcast.id, cutoff)
 
         for (episode in oldEpisodes) {
             deleteAudioFile(episode)
