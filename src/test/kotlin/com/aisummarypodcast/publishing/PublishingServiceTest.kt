@@ -1,5 +1,7 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.InvalidRequestException
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodePublication
@@ -518,5 +520,60 @@ class PublishingServiceTest {
         service.rebuildSoundCloudPlaylist(podcast, "user1")
 
         verify(exactly = 0) { publicationRepository.save(any()) }
+    }
+
+    @Test
+    fun `rebuild rejects a podcast without published SoundCloud tracks`() {
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns emptyList()
+
+        val ex = assertThrows<InvalidRequestException> { service.rebuildSoundCloudPlaylist(podcast, "user1") }
+
+        assertEquals("No published SoundCloud tracks found for this podcast", ex.message)
+    }
+
+    @Test
+    fun `rebuild rejects publications without a valid track id`() {
+        val noId = EpisodePublication(id = 1L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, externalId = "abc", createdAt = "now")
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(noId)
+
+        val ex = assertThrows<InvalidRequestException> { service.rebuildSoundCloudPlaylist(podcast, "user1") }
+
+        assertEquals("No valid SoundCloud track IDs found", ex.message)
+    }
+
+    @Test
+    fun `rebuild rejects a podcast whose tracks are all stale`() {
+        val pub = EpisodePublication(id = 1L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, externalId = "11", createdAt = "now")
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(pub)
+        every { episodeRepository.findById(1L) } returns java.util.Optional.of(episode)
+        every { soundCloudPublisher.updateTrackPermalinks(podcast, "user1", listOf(episode), listOf(pub)) } returns setOf(11L)
+
+        val ex = assertThrows<InvalidRequestException> { service.rebuildSoundCloudPlaylist(podcast, "user1") }
+
+        assertEquals("No active SoundCloud tracks found after filtering stale tracks", ex.message)
+    }
+
+    @Test
+    fun `rebuild wraps a SoundCloud failure in an operation failure`() {
+        val pub = EpisodePublication(id = 1L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, externalId = "11", createdAt = "now")
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(pub)
+        every { episodeRepository.findById(1L) } returns java.util.Optional.of(episode)
+        every { soundCloudPublisher.updateTrackPermalinks(any(), any(), any(), any()) } returns emptySet()
+        every { soundCloudPublisher.rebuildPlaylist(podcast, "user1", listOf(11L)) } throws RuntimeException("SoundCloud down")
+
+        val ex = assertThrows<OperationFailedException> { service.rebuildSoundCloudPlaylist(podcast, "user1") }
+
+        assertEquals("Failed to rebuild playlist: SoundCloud down", ex.message)
+    }
+
+    @Test
+    fun `rebuild returns the track ids on success`() {
+        val pub = EpisodePublication(id = 1L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, externalId = "11", createdAt = "now")
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(pub)
+        every { episodeRepository.findById(1L) } returns java.util.Optional.of(episode)
+        every { soundCloudPublisher.updateTrackPermalinks(any(), any(), any(), any()) } returns emptySet()
+        every { soundCloudPublisher.rebuildPlaylist(podcast, "user1", listOf(11L)) } returns Unit
+
+        assertEquals(listOf(11L), service.rebuildSoundCloudPlaylist(podcast, "user1"))
     }
 }

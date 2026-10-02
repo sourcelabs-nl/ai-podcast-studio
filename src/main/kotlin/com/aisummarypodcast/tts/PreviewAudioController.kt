@@ -68,18 +68,11 @@ class PreviewAudioController(
             return ResponseEntity.badRequest().body(mapOf("error" to "scriptText must not be blank"))
         }
 
-        return try {
-            val audio = previewAudioService.synthesizeSample(podcast, request.scriptText)
-            ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("audio/mpeg"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"preview-sample.mp3\"")
-                .body(audio)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.error("Preview sample synthesis failed for podcast {}: {}", podcastId, e.message, e)
-            ResponseEntity.internalServerError().body(mapOf("error" to (e.message ?: "Sample synthesis failed")))
-        }
+        val audio = previewAudioService.synthesizeSample(podcast, request.scriptText)
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("audio/mpeg"))
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"preview-sample.mp3\"")
+            .body(audio)
     }
 
     @PostMapping("/estimate")

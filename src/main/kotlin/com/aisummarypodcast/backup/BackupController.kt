@@ -34,13 +34,10 @@ class BackupController(
     }
 
     @PostMapping
-    fun runNow(): ResponseEntity<Any> =
-        try {
-            val path = databaseBackupService.backup()
-            ResponseEntity.ok(mapOf("path" to path.toString(), "backups" to databaseBackupService.list()))
-        } catch (e: Exception) {
-            ResponseEntity.internalServerError().body(mapOf("error" to "Backup failed: ${e.message}"))
-        }
+    fun runNow(): ResponseEntity<Any> {
+        val path = databaseBackupService.backup()
+        return ResponseEntity.ok(mapOf("path" to path.toString(), "backups" to databaseBackupService.list()))
+    }
 
     @GetMapping
     fun list(): List<BackupInfo> = databaseBackupService.list()

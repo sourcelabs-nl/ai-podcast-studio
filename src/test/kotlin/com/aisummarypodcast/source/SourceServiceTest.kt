@@ -1,5 +1,6 @@
 package com.aisummarypodcast.source
 
+import com.aisummarypodcast.api.UnprocessableRequestException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.openBreakerFor
 import com.aisummarypodcast.testCircuitBreakerRegistry
@@ -253,30 +254,30 @@ class SourceServiceTest {
     fun `validateUrl throws for RSS source with no items`() {
         every { rssFeedFetcher.fetch("https://example.com/feed", "validation", null, null, deepFetch = false) } returns emptyList()
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<UnprocessableRequestException> {
             service.validateUrl(SourceType.RSS, "https://example.com/feed")
         }
-        assertTrue(ex.message!!.contains("returned no items"))
+        assertEquals("RSS feed at https://example.com/feed returned no items", ex.message)
     }
 
     @Test
     fun `validateUrl throws for RSS source with fetch error`() {
         every { rssFeedFetcher.fetch("https://bad.com/feed", "validation", null, null, deepFetch = false) } throws RuntimeException("Connection refused")
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<UnprocessableRequestException> {
             service.validateUrl(SourceType.RSS, "https://bad.com/feed")
         }
-        assertTrue(ex.message!!.contains("Could not reach URL"))
+        assertEquals("Could not reach URL: Connection refused", ex.message)
     }
 
     @Test
     fun `validateUrl throws for RSS source with invalid XML`() {
         every { rssFeedFetcher.fetch("https://bad.com/html", "validation", null, null, deepFetch = false) } throws RuntimeException("Content is not allowed in prolog")
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<UnprocessableRequestException> {
             service.validateUrl(SourceType.RSS, "https://bad.com/html")
         }
-        assertTrue(ex.message!!.contains("not appear to be a valid RSS"))
+        assertEquals("URL does not appear to be a valid RSS/Atom feed", ex.message)
     }
 
     @Test
@@ -290,10 +291,30 @@ class SourceServiceTest {
     fun `validateUrl throws for website source with empty content`() {
         every { websiteFetcher.fetch("https://empty.com", "validation") } returns null
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<UnprocessableRequestException> {
             service.validateUrl(SourceType.WEBSITE, "https://empty.com")
         }
-        assertTrue(ex.message!!.contains("no extractable content"))
+        assertEquals("Website at https://empty.com returned no extractable content", ex.message)
+    }
+
+    @Test
+    fun `validateUrl reports a fetcher failure on a website as unprocessable`() {
+        every { websiteFetcher.fetch("https://bad.com", "validation") } throws RuntimeException("timeout")
+
+        val ex = assertThrows<UnprocessableRequestException> {
+            service.validateUrl(SourceType.WEBSITE, "https://bad.com")
+        }
+        assertEquals("Could not fetch website at https://bad.com: timeout", ex.message)
+    }
+
+    @Test
+    fun `validateUrl keeps the message of an argument error raised by the fetcher`() {
+        every { rssFeedFetcher.fetch("not a url", "validation", null, null, deepFetch = false) } throws IllegalArgumentException("Illegal character in URL")
+
+        val ex = assertThrows<UnprocessableRequestException> {
+            service.validateUrl(SourceType.RSS, "not a url")
+        }
+        assertEquals("Illegal character in URL", ex.message)
     }
 
     @Test

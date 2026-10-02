@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.EvalProperties
 import com.aisummarypodcast.config.JudgeMode
@@ -147,5 +148,26 @@ class EpisodeEpilogueTest {
 
         assertEquals(EpisodeStatus.PENDING_REVIEW, finalized.status)
         coVerify(timeout = 2000) { scoringService.scoreEpisode(any()) }
+    }
+
+    @Test
+    fun `regenerating a recap wraps a failure with the client message and the cause`() = runTest {
+        every { episodeArticleRepository.findByEpisodeId(any()) } throws RuntimeException("LLM error")
+
+        val ex = org.junit.jupiter.api.assertThrows<OperationFailedException> {
+            serviceWith(JudgeMode.OFF).regenerateRecap(episode(recap = "Old recap."), podcast)
+        }
+
+        assertEquals("Failed to regenerate recap: LLM error", ex.message)
+        assertEquals("LLM error", ex.cause?.message)
+    }
+
+    @Test
+    fun `regenerating a recap lets cancellation through`() = runTest {
+        every { episodeArticleRepository.findByEpisodeId(any()) } throws kotlinx.coroutines.CancellationException("cancelled")
+
+        org.junit.jupiter.api.assertThrows<kotlinx.coroutines.CancellationException> {
+            serviceWith(JudgeMode.OFF).regenerateRecap(episode(recap = "Old recap."), podcast)
+        }
     }
 }

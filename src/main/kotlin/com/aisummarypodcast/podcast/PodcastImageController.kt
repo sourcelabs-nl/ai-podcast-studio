@@ -26,12 +26,8 @@ class PodcastImageController(
         val podcast = podcastService.findById(podcastId) ?: return ResponseEntity.notFound().build()
         if (podcast.userId != userId) return ResponseEntity.notFound().build()
 
-        return try {
-            val path = podcastImageService.upload(podcastId, file)
-            ResponseEntity.ok(mapOf("path" to path))
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.badRequest().body(mapOf("error" to e.message))
-        }
+        val path = podcastImageService.upload(podcastId, file)
+        return ResponseEntity.ok(mapOf("path" to path))
     }
 
     @GetMapping

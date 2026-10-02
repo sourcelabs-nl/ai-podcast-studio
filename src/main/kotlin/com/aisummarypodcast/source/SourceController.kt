@@ -27,13 +27,9 @@ class SourceController(
 
         val sourceType = SourceType.fromValue(request.type)
             ?: return ResponseEntity.badRequest().build()
-        return try {
-            val source = sourceService.create(podcastId, sourceType, request.url, request.toConfig())
-            ResponseEntity.created(URI.create("/users/$userId/podcasts/$podcastId/sources/${source.id}"))
-                .body(source.toResponse())
-        } catch (e: IllegalArgumentException) {
-            ResponseEntity.unprocessableEntity().body(mapOf("error" to e.message))
-        }
+        val source = sourceService.create(podcastId, sourceType, request.url, request.toConfig())
+        return ResponseEntity.created(URI.create("/users/$userId/podcasts/$podcastId/sources/${source.id}"))
+            .body(source.toResponse())
     }
 
     @GetMapping

@@ -1,9 +1,11 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.llm.CostEstimator
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.PodcastStyle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -39,7 +41,17 @@ class PreviewAudioService(
      * the same provider path a real episode uses, so delivery mode, steering, synthesis context,
      * pronunciations, and post-processing all apply and the sample sounds like the episode will.
      */
-    suspend fun synthesizeSample(podcast: Podcast, script: String): ByteArray {
+    suspend fun synthesizeSample(podcast: Podcast, script: String): ByteArray =
+        try {
+            generateSample(podcast, script)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("Preview sample synthesis failed for podcast {}: {}", podcast.id, e.message, e)
+            throw OperationFailedException(e.message ?: "Sample synthesis failed", e)
+        }
+
+    private suspend fun generateSample(podcast: Podcast, script: String): ByteArray {
         val provider = ttsProviderFactory.resolve(podcast)
         val sample = PreviewSampleSelector.select(script, podcast.style, provider.maxChunkSize)
         require(sample.text.isNotBlank()) { "Script contains no speakable text" }

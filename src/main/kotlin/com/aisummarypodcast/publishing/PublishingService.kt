@@ -1,5 +1,7 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.InvalidRequestException
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.podcast.StaticFeedExporter
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodePublication
@@ -313,21 +315,45 @@ class PublishingService(
             .filter { it.status == PublicationStatus.PUBLISHED }
             .map { it.target }
 
+    /**
+     * Updates the permalinks of the podcast's published SoundCloud tracks and rebuilds the playlist.
+     *
+     * @throws InvalidRequestException when the podcast has no usable published track
+     * @throws OperationFailedException when SoundCloud or the bookkeeping fails
+     */
     fun rebuildSoundCloudPlaylist(podcast: Podcast, userId: String): List<Long> {
         val publications = publicationRepository.findPublishedByPodcastIdAndTarget(podcast.id, SoundCloudPublisher.TARGET_NAME)
-        require(publications.isNotEmpty()) { "No published SoundCloud tracks found for this podcast" }
-
-        val episodeIds = publications.map { it.episodeId }.distinct()
-        val episodes = episodeIds.mapNotNull { episodeRepository.findByIdOrNull(it) }
+        if (publications.isEmpty()) throw InvalidRequestException("No published SoundCloud tracks found for this podcast")
 
         // publications already arrive newest-first (ordered by episode generatedAt in the query),
         // which is the standard podcast playlist order
         val trackIds = publications.mapNotNull { it.externalId?.toLongOrNull() }
-        require(trackIds.isNotEmpty()) { "No valid SoundCloud track IDs found" }
+        if (trackIds.isEmpty()) throw InvalidRequestException("No valid SoundCloud track IDs found")
+
+        try {
+            return updatePermalinksAndRebuild(podcast, userId, publications, trackIds)
+        } catch (e: InvalidRequestException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("Failed to rebuild playlist for podcast {}: {}", podcast.id, e.message, e)
+            throw OperationFailedException("Failed to rebuild playlist: ${e.message}", e)
+        }
+    }
+
+    private fun updatePermalinksAndRebuild(
+        podcast: Podcast,
+        userId: String,
+        publications: List<EpisodePublication>,
+        trackIds: List<Long>
+    ): List<Long> {
+        val episodeIds = publications.map { it.episodeId }.distinct()
+        val episodes = episodeIds.mapNotNull { episodeRepository.findByIdOrNull(it) }
 
         val staleTrackIds = soundCloudPublisher.updateTrackPermalinks(podcast, userId, episodes, publications)
         val activeTrackIds = trackIds.filter { it !in staleTrackIds }
-        require(activeTrackIds.isNotEmpty()) { "No active SoundCloud tracks found after filtering stale tracks" }
+        if (activeTrackIds.isEmpty()) {
+            throw InvalidRequestException("No active SoundCloud tracks found after filtering stale tracks")
+        }
         soundCloudPublisher.rebuildPlaylist(podcast, userId, activeTrackIds)
         markStaleTracksUnpublished(publications, staleTrackIds)
         log.info("Updated permalinks and rebuilt SoundCloud playlist for podcast {} with {} tracks ({} stale skipped)", podcast.id, activeTrackIds.size, staleTrackIds.size)

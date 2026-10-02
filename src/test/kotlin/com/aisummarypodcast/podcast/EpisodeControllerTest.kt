@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeMatchDetails
@@ -452,13 +453,13 @@ class EpisodeControllerTest {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
         every { episodeService.findById(2L) } returns generatedEpisode
-        coEvery { episodeService.regenerateRecap(generatedEpisode, podcast) } throws RuntimeException("LLM error")
+        coEvery { episodeService.regenerateRecap(generatedEpisode, podcast) } throws OperationFailedException("Failed to regenerate recap: LLM error", RuntimeException("LLM error"))
 
         val mvcResult = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/episodes/2/regenerate-recap"))
             .andReturn()
         mockMvc.perform(asyncDispatch(mvcResult))
             .andExpect(status().isInternalServerError)
-            .andExpect(jsonPath("$.error").exists())
+            .andExpect(jsonPath("$.error").value("Failed to regenerate recap: LLM error"))
     }
 
     @Test

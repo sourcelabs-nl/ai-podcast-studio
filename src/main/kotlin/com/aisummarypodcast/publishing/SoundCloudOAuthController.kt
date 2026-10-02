@@ -46,15 +46,10 @@ class SoundCloudOAuthController(
         userService.findById(userId) ?: return ResponseEntity.notFound().build()
         if (!oauthService.isConfigured(userId)) return integrationNotConfigured("SoundCloud")
 
-        return try {
-            if (!oauthService.deleteTrack(userId, trackId)) {
-                return ResponseEntity.badRequest().body(mapOf("error" to "No SoundCloud connection"))
-            }
-            ResponseEntity.ok(mapOf("deleted" to true, "trackId" to trackId))
-        } catch (e: Exception) {
-            log.error("Failed to delete SoundCloud track {} for user {}: {}", trackId, userId, e.message, e)
-            ResponseEntity.internalServerError().body(mapOf("error" to "Failed to delete track: ${e.message}"))
+        if (!oauthService.deleteTrack(userId, trackId)) {
+            return ResponseEntity.badRequest().body(mapOf("error" to "No SoundCloud connection"))
         }
+        return ResponseEntity.ok(mapOf("deleted" to true, "trackId" to trackId))
     }
 
     @DeleteMapping("/users/{userId}/oauth/soundcloud")

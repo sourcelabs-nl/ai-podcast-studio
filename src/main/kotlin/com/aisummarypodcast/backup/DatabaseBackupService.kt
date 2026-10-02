@@ -1,5 +1,6 @@
 package com.aisummarypodcast.backup
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -34,8 +35,19 @@ class DatabaseBackupService(
         private val FILE_PATTERN = Regex("^${Regex.escape(PREFIX)}\\d{8}-\\d{6}${Regex.escape(SUFFIX)}$")
     }
 
-    /** Creates a new compressed backup and prunes old ones. Returns the created `.db.gz` path. */
-    fun backup(): Path {
+    /**
+     * Creates a new compressed backup and prunes old ones. Returns the created `.db.gz` path.
+     *
+     * @throws OperationFailedException when the backup cannot be written
+     */
+    fun backup(): Path =
+        try {
+            writeBackup()
+        } catch (e: Exception) {
+            throw OperationFailedException("Backup failed: ${e.message}", e)
+        }
+
+    private fun writeBackup(): Path {
         val dir = Path.of(appProperties.backup.directory)
         Files.createDirectories(dir)
 

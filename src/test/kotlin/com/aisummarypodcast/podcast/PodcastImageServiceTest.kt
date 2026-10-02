@@ -1,5 +1,7 @@
 package com.aisummarypodcast.podcast
 
+import org.junit.jupiter.api.Assertions.assertEquals
+import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.config.AppProperties
 import io.mockk.every
 import io.mockk.mockk
@@ -64,10 +66,10 @@ class PodcastImageServiceTest {
     fun `upload rejects unsupported content type`() {
         val file = mockMultipartFile("image/gif", ByteArray(100))
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<InvalidRequestException> {
             service.upload("pod-1", file)
         }
-        assertTrue(ex.message!!.contains("Only JPEG, PNG, and WebP"))
+        assertEquals("Only JPEG, PNG, and WebP images are accepted", ex.message)
     }
 
     @Test
@@ -76,9 +78,10 @@ class PodcastImageServiceTest {
             every { contentType } returns null
         }
 
-        assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<InvalidRequestException> {
             service.upload("pod-1", file)
         }
+        assertEquals("Content type is required", ex.message)
     }
 
     @Test
@@ -86,10 +89,10 @@ class PodcastImageServiceTest {
         val largeBytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()) + ByteArray(1_048_577)
         val file = mockMultipartFile("image/jpeg", largeBytes)
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<InvalidRequestException> {
             service.upload("pod-1", file)
         }
-        assertTrue(ex.message!!.contains("1MB"))
+        assertEquals("Maximum file size is 1MB", ex.message)
     }
 
     @Test
@@ -97,10 +100,10 @@ class PodcastImageServiceTest {
         val fakeJpeg = byteArrayOf(0x00, 0x00, 0x00, 0x00) + ByteArray(100)
         val file = mockMultipartFile("image/jpeg", fakeJpeg)
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<InvalidRequestException> {
             service.upload("pod-1", file)
         }
-        assertTrue(ex.message!!.contains("does not match"))
+        assertEquals("File content does not match declared content type", ex.message)
     }
 
     @Test
@@ -108,10 +111,10 @@ class PodcastImageServiceTest {
         val fakeWebp = "NOT_".toByteArray() + ByteArray(8) + ByteArray(100)
         val file = mockMultipartFile("image/webp", fakeWebp)
 
-        val ex = assertThrows<IllegalArgumentException> {
+        val ex = assertThrows<InvalidRequestException> {
             service.upload("pod-1", file)
         }
-        assertTrue(ex.message!!.contains("valid WebP"))
+        assertEquals("File does not appear to be a valid WebP image", ex.message)
     }
 
     @Test

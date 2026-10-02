@@ -1,5 +1,6 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.ModelCost
 import com.aisummarypodcast.config.ModelType
@@ -116,11 +117,44 @@ class PreviewAudioServiceTest {
     }
 
     @Test
-    fun `sample rejects a script with no speakable text`() = runTest {
+    fun `sample reports a script with no speakable text as a failed operation`() = runTest {
         stubProvider()
 
-        assertThrows(IllegalArgumentException::class.java) {
+        val ex = assertThrows(OperationFailedException::class.java) {
             kotlinx.coroutines.runBlocking { service.synthesizeSample(podcast(), "   ") }
+        }
+        assertEquals("Script contains no speakable text", ex.message)
+    }
+
+    @Test
+    fun `sample wraps a provider failure with its message`() = runTest {
+        stubProvider()
+        coEvery { provider.generate(any()) } throws RuntimeException("quota exceeded")
+
+        val ex = assertThrows(OperationFailedException::class.java) {
+            kotlinx.coroutines.runBlocking { service.synthesizeSample(podcast(), "Hello there.") }
+        }
+        assertEquals("quota exceeded", ex.message)
+    }
+
+    @Test
+    fun `sample falls back to a fixed message when the failure has none`() = runTest {
+        stubProvider()
+        coEvery { provider.generate(any()) } throws RuntimeException()
+
+        val ex = assertThrows(OperationFailedException::class.java) {
+            kotlinx.coroutines.runBlocking { service.synthesizeSample(podcast(), "Hello there.") }
+        }
+        assertEquals("Sample synthesis failed", ex.message)
+    }
+
+    @Test
+    fun `sample lets cancellation through untouched`() = runTest {
+        stubProvider()
+        coEvery { provider.generate(any()) } throws kotlinx.coroutines.CancellationException("cancelled")
+
+        assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            kotlinx.coroutines.runBlocking { service.synthesizeSample(podcast(), "Hello there.") }
         }
     }
 

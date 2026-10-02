@@ -1,5 +1,6 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.OAuthPkceHelper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -78,7 +79,12 @@ class SoundCloudOAuthService(
      */
     fun deleteTrack(userId: String, trackId: Long): Boolean {
         val connection = oauthConnectionService.getConnection(userId, PROVIDER) ?: return false
-        soundCloudClient.deleteTrack(connection.accessToken, trackId)
+        try {
+            soundCloudClient.deleteTrack(connection.accessToken, trackId)
+        } catch (e: Exception) {
+            log.error("Failed to delete SoundCloud track {} for user {}: {}", trackId, userId, e.message, e)
+            throw OperationFailedException("Failed to delete track: ${e.message}", e)
+        }
         log.info("Deleted SoundCloud track {} for user {}", trackId, userId)
         return true
     }

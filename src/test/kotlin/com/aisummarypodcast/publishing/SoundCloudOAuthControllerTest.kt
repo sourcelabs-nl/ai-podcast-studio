@@ -1,5 +1,6 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.User
 import com.aisummarypodcast.user.UserService
@@ -157,7 +158,7 @@ class SoundCloudOAuthControllerTest {
     fun `deleteTrack returns 500 when the client fails`() {
         configureSoundCloud()
         every { userService.findById(userId) } returns user
-        every { oauthService.deleteTrack(userId, 7L) } throws RuntimeException("boom")
+        every { oauthService.deleteTrack(userId, 7L) } throws OperationFailedException("Failed to delete track: boom", RuntimeException("boom"))
 
         mockMvc.perform(delete("/users/$userId/oauth/soundcloud/tracks/7"))
             .andExpect(status().isInternalServerError)

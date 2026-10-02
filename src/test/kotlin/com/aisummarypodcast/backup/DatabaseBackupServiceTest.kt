@@ -1,5 +1,6 @@
 package com.aisummarypodcast.backup
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.BackupProperties
 import io.mockk.every
@@ -41,6 +42,16 @@ class DatabaseBackupServiceTest {
         every { appProperties.backup } returns BackupProperties(directory = backupDir.toString())
         every { backupSettingsService.get() } returns BackupSettings(retentionCount = 7)
         service = DatabaseBackupService(dataSource, appProperties, backupSettingsService)
+    }
+
+    @Test
+    fun `backup wraps a failure in an operation failure with the cause`() {
+        every { appProperties.backup } throws IllegalStateException("no directory")
+
+        val ex = org.junit.jupiter.api.assertThrows<OperationFailedException> { service.backup() }
+
+        assertEquals("Backup failed: no directory", ex.message)
+        assertEquals("no directory", ex.cause?.message)
     }
 
     @Test

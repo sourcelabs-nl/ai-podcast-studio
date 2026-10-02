@@ -1,5 +1,6 @@
 package com.aisummarypodcast.publishing
 
+import com.aisummarypodcast.api.OperationFailedException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -142,6 +143,16 @@ class SoundCloudOAuthServiceTest {
         every { oauthConnectionService.getConnection(userId, "soundcloud") } returns null
 
         assertFalse(service.deleteTrack(userId, 7L))
+    }
+
+    @Test
+    fun `deleteTrack wraps a client failure in an operation failure`() {
+        every { oauthConnectionService.getConnection(userId, "soundcloud") } returns decryptedConnection()
+        every { soundCloudClient.deleteTrack("access", 7L) } throws RuntimeException("boom")
+
+        val ex = org.junit.jupiter.api.assertThrows<OperationFailedException> { service.deleteTrack(userId, 7L) }
+
+        assertEquals("Failed to delete track: boom", ex.message)
     }
 
     @Test

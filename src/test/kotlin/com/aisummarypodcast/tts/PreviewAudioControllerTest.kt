@@ -1,5 +1,6 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.Podcast
@@ -74,6 +75,17 @@ class PreviewAudioControllerTest {
         mockMvc.perform(asyncDispatch(result))
             .andExpect(status().isOk)
             .andExpect(header().string("Content-Type", "audio/mpeg"))
+    }
+
+    @Test
+    fun `sample answers 500 with the failure message when synthesis fails`() {
+        coEvery { previewAudioService.synthesizeSample(podcast, "Hello there.") } throws
+            OperationFailedException("quota exceeded", RuntimeException("quota exceeded"))
+
+        val result = mockMvc.perform(post("/users/$userId/podcasts/$podcastId/preview/audio/sample").contentType(MediaType.APPLICATION_JSON).content(body)).andReturn()
+        mockMvc.perform(asyncDispatch(result))
+            .andExpect(status().isInternalServerError)
+            .andExpect(jsonPath("$.error").value("quota exceeded"))
     }
 
     @Test

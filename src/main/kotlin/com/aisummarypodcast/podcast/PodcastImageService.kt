@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.config.AppProperties
 import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
@@ -25,13 +26,13 @@ class PodcastImageService(private val appProperties: AppProperties) {
 
     fun upload(podcastId: String, file: MultipartFile): String {
         val contentType = file.contentType
-            ?: throw IllegalArgumentException("Content type is required")
+            ?: throw InvalidRequestException("Content type is required")
 
         val ext = ALLOWED_TYPES[contentType]
-            ?: throw IllegalArgumentException("Only JPEG, PNG, and WebP images are accepted")
+            ?: throw InvalidRequestException("Only JPEG, PNG, and WebP images are accepted")
 
         if (file.size > MAX_SIZE) {
-            throw IllegalArgumentException("Maximum file size is 1MB")
+            throw InvalidRequestException("Maximum file size is 1MB")
         }
 
         val bytes = file.bytes
@@ -74,7 +75,7 @@ class PodcastImageService(private val appProperties: AppProperties) {
     private fun validateMagicBytes(contentType: String, bytes: ByteArray) {
         val expected = MAGIC_BYTES[contentType] ?: return
         if (bytes.size < expected.size) {
-            throw IllegalArgumentException("File is too small to be a valid image")
+            throw InvalidRequestException("File is too small to be a valid image")
         }
         // For WebP, check RIFF header and WEBP at offset 8
         if (contentType == "image/webp") {
@@ -82,12 +83,12 @@ class PodcastImageService(private val appProperties: AppProperties) {
                 bytes.size < 12 ||
                 !bytes.slice(8..11).toByteArray().contentEquals("WEBP".toByteArray())
             ) {
-                throw IllegalArgumentException("File does not appear to be a valid WebP image")
+                throw InvalidRequestException("File does not appear to be a valid WebP image")
             }
             return
         }
         if (!bytes.slice(0 until expected.size).toByteArray().contentEquals(expected)) {
-            throw IllegalArgumentException("File content does not match declared content type")
+            throw InvalidRequestException("File content does not match declared content type")
         }
     }
 }

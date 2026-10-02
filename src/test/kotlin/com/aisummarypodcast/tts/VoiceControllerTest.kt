@@ -1,5 +1,7 @@
 package com.aisummarypodcast.tts
 
+import com.aisummarypodcast.api.InvalidRequestException
+import com.aisummarypodcast.api.UpstreamServiceException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.User
 import com.aisummarypodcast.user.UserService
@@ -22,10 +24,7 @@ class VoiceControllerTest {
     private lateinit var userService: UserService
 
     @MockkBean
-    private lateinit var elevenLabsApiClient: ElevenLabsApiClient
-
-    @MockkBean
-    private lateinit var inworldApiClient: InworldApiClient
+    private lateinit var voiceDiscoveryService: VoiceDiscoveryService
 
     @MockkBean(relaxed = true)
     private lateinit var appProperties: AppProperties
@@ -36,7 +35,7 @@ class VoiceControllerTest {
     @Test
     fun `returns voices from ElevenLabs`() {
         every { userService.findById(userId) } returns user
-        every { elevenLabsApiClient.listVoices(userId) } returns listOf(
+        every { voiceDiscoveryService.listVoices(userId, "elevenlabs") } returns listOf(
             VoiceInfo("v1", "Rachel", "premade", "https://preview.com/rachel.mp3"),
             VoiceInfo("v2", "Adam", "cloned", null)
         )
@@ -62,6 +61,8 @@ class VoiceControllerTest {
     @Test
     fun `returns 400 for unsupported provider`() {
         every { userService.findById(userId) } returns user
+        every { voiceDiscoveryService.listVoices(userId, "openai") } throws
+            InvalidRequestException("Voice discovery is not supported for the 'openai' provider")
 
         mockMvc.perform(get("/users/$userId/voices?provider=openai"))
             .andExpect(status().isBadRequest)
@@ -71,7 +72,7 @@ class VoiceControllerTest {
     @Test
     fun `returns 400 when no ElevenLabs config`() {
         every { userService.findById(userId) } returns user
-        every { elevenLabsApiClient.listVoices(userId) } throws IllegalStateException("No ElevenLabs provider config found. Configure an ElevenLabs API key for TTS.")
+        every { voiceDiscoveryService.listVoices(userId, "elevenlabs") } throws InvalidRequestException("No ElevenLabs provider config found. Configure an ElevenLabs API key for TTS.")
 
         mockMvc.perform(get("/users/$userId/voices?provider=elevenlabs"))
             .andExpect(status().isBadRequest)
@@ -81,17 +82,17 @@ class VoiceControllerTest {
     @Test
     fun `returns 502 when ElevenLabs API fails`() {
         every { userService.findById(userId) } returns user
-        every { elevenLabsApiClient.listVoices(userId) } throws RuntimeException("Connection refused")
+        every { voiceDiscoveryService.listVoices(userId, "elevenlabs") } throws UpstreamServiceException("Failed to fetch voices from ElevenLabs: Connection refused")
 
         mockMvc.perform(get("/users/$userId/voices?provider=elevenlabs"))
-            .andExpect(status().is5xxServerError)
+            .andExpect(status().isBadGateway)
             .andExpect(jsonPath("$.error").value("Failed to fetch voices from ElevenLabs: Connection refused"))
     }
 
     @Test
     fun `returns voices from Inworld`() {
         every { userService.findById(userId) } returns user
-        every { inworldApiClient.listVoices(userId) } returns listOf(
+        every { voiceDiscoveryService.listVoices(userId, "inworld") } returns listOf(
             VoiceInfo("iw1", "Luna", "premade", "https://preview.com/luna.mp3")
         )
 
@@ -104,7 +105,7 @@ class VoiceControllerTest {
     @Test
     fun `returns 400 when no Inworld config`() {
         every { userService.findById(userId) } returns user
-        every { inworldApiClient.listVoices(userId) } throws IllegalStateException("No Inworld provider config found. Configure Inworld API credentials (INWORLD_AI_JWT_KEY and INWORLD_AI_JWT_SECRET).")
+        every { voiceDiscoveryService.listVoices(userId, "inworld") } throws InvalidRequestException("No Inworld provider config found. Configure Inworld API credentials (INWORLD_AI_JWT_KEY and INWORLD_AI_JWT_SECRET).")
 
         mockMvc.perform(get("/users/$userId/voices?provider=inworld"))
             .andExpect(status().isBadRequest)
@@ -113,10 +114,10 @@ class VoiceControllerTest {
     @Test
     fun `returns 502 when Inworld API fails`() {
         every { userService.findById(userId) } returns user
-        every { inworldApiClient.listVoices(userId) } throws RuntimeException("Connection refused")
+        every { voiceDiscoveryService.listVoices(userId, "inworld") } throws UpstreamServiceException("Failed to fetch voices from Inworld: Connection refused")
 
         mockMvc.perform(get("/users/$userId/voices?provider=inworld"))
-            .andExpect(status().is5xxServerError)
+            .andExpect(status().isBadGateway)
             .andExpect(jsonPath("$.error").value("Failed to fetch voices from Inworld: Connection refused"))
     }
 }

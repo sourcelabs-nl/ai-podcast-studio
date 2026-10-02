@@ -4,7 +4,6 @@ import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Episode
 import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.user.UserService
-import kotlinx.coroutines.CancellationException
 import org.springframework.core.io.FileSystemResource
 import org.springframework.core.io.Resource
 import org.springframework.data.domain.PageRequest
@@ -219,14 +218,8 @@ class EpisodeController(
             ?: return ResponseEntity.notFound().build()
         if (episode.podcastId != podcastId) return ResponseEntity.notFound().build()
 
-        return try {
-            val updated = episodeService.regenerateRecap(episode, podcast)
-            ResponseEntity.ok(updated.toResponse())
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            ResponseEntity.internalServerError().body(mapOf("error" to "Failed to regenerate recap: ${e.message}"))
-        }
+        val updated = episodeService.regenerateRecap(episode, podcast)
+        return ResponseEntity.ok(updated.toResponse())
     }
 
     @PostMapping("/{episodeId}/retry")

@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.api.OperationFailedException
 import com.aisummarypodcast.config.JudgeMode
 import com.aisummarypodcast.eval.EpisodeScoringService
 import com.aisummarypodcast.eval.EvaluationRunRecorder
@@ -791,7 +792,14 @@ class EpisodeService(
      * show-notes → sources steps are independent idempotent updates that are safe to apply separately.
      */
     suspend fun regenerateRecap(episode: Episode, podcast: Podcast): Episode =
-        generateRecapShowNotesAndSources(episode, podcast, linkedTopicLabels(episode))
+        try {
+            generateRecapShowNotesAndSources(episode, podcast, linkedTopicLabels(episode))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("Failed to regenerate recap for episode {}: {}", episode.id, e.message, e)
+            throw OperationFailedException("Failed to regenerate recap: ${e.message}", e)
+        }
 
     /**
      * Runs the epilogue for an episode whose script was rewritten in place (a feedback recompose),

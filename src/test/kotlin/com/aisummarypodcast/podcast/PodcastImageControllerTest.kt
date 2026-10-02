@@ -1,5 +1,6 @@
 package com.aisummarypodcast.podcast
 
+import com.aisummarypodcast.api.InvalidRequestException
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.store.User
@@ -56,7 +57,7 @@ class PodcastImageControllerTest {
     fun `POST returns 400 for invalid image`() {
         every { userService.findById(userId) } returns user
         every { podcastService.findById(podcastId) } returns podcast
-        every { podcastImageService.upload(podcastId, any()) } throws IllegalArgumentException("Only JPEG, PNG, and WebP images are accepted")
+        every { podcastImageService.upload(podcastId, any()) } throws InvalidRequestException("Only JPEG, PNG, and WebP images are accepted")
 
         val file = MockMultipartFile("file", "image.gif", "image/gif", ByteArray(100))
 

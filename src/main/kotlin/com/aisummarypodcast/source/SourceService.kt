@@ -1,5 +1,6 @@
 package com.aisummarypodcast.source
 
+import com.aisummarypodcast.api.UnprocessableRequestException
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.PostRepository
 import com.aisummarypodcast.store.Source
@@ -111,10 +112,12 @@ class SourceService(
             // large archive (openai.com/news/rss.xml carries 1153 entries) never returns.
             val posts = rssFeedFetcher.fetch(url, "validation", null, categoryFilter, deepFetch = false)
             if (posts.isEmpty()) {
-                throw IllegalArgumentException("RSS feed at $url returned no items")
+                throw UnprocessableRequestException("RSS feed at $url returned no items")
             }
-        } catch (e: IllegalArgumentException) {
+        } catch (e: UnprocessableRequestException) {
             throw e
+        } catch (e: IllegalArgumentException) {
+            throw UnprocessableRequestException(e.message.orEmpty())
         } catch (e: Exception) {
             val message = when {
                 e.message?.contains("Invalid XML", ignoreCase = true) == true ||
@@ -126,7 +129,7 @@ class SourceService(
                     "Could not reach URL: ${e.message}"
                 else -> "RSS feed at $url returned no content: ${e.message}"
             }
-            throw IllegalArgumentException(message)
+            throw UnprocessableRequestException(message)
         }
     }
 
@@ -134,12 +137,14 @@ class SourceService(
         try {
             val post = websiteFetcher.fetch(url, "validation")
             if (post == null || post.body.isBlank()) {
-                throw IllegalArgumentException("Website at $url returned no extractable content")
+                throw UnprocessableRequestException("Website at $url returned no extractable content")
             }
-        } catch (e: IllegalArgumentException) {
+        } catch (e: UnprocessableRequestException) {
             throw e
+        } catch (e: IllegalArgumentException) {
+            throw UnprocessableRequestException(e.message.orEmpty())
         } catch (e: Exception) {
-            throw IllegalArgumentException("Could not fetch website at $url: ${e.message}")
+            throw UnprocessableRequestException("Could not fetch website at $url: ${e.message}")
         }
     }
 
