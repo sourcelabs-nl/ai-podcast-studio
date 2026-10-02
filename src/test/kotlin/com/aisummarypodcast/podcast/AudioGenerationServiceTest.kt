@@ -11,9 +11,11 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.springframework.context.ApplicationEventPublisher
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.util.*
 
 class AudioGenerationServiceTest {
@@ -70,5 +72,17 @@ class AudioGenerationServiceTest {
         service.doGenerateAudio(1L, "p1")
 
         verify { episodeRepository.save(match { it.status == EpisodeStatus.FAILED }) }
+    }
+
+    @Test
+    fun `cancelled TTS generation is rethrown and not saved as FAILED`() = runTest {
+        every { episodeRepository.findById(1L) } returns Optional.of(approvedEpisode)
+        every { podcastRepository.findById("p1") } returns Optional.of(podcast)
+        coEvery { ttsPipeline.generateForExistingEpisode(any(), podcast) } throws CancellationException("cancelled")
+        every { episodeRepository.save(any()) } answers { firstArg() }
+
+        assertThrows<CancellationException> { service.doGenerateAudio(1L, "p1") }
+
+        verify(exactly = 0) { episodeRepository.save(match { it.status == EpisodeStatus.FAILED }) }
     }
 }

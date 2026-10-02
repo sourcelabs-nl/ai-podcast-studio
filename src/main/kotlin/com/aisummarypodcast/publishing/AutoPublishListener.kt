@@ -6,6 +6,7 @@ import com.aisummarypodcast.podcast.EpisodeService
 import com.aisummarypodcast.podcast.PodcastEvent
 import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.EpisodePurpose
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -90,6 +91,8 @@ class AutoPublishListener(
                 try {
                     log.info("Auto-publishing episode {} to {} for podcast {}", episodeId, target.target, podcastId)
                     publishingService.publish(episode, podcast, podcast.userId, target.target)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     log.warn("Auto-publish of episode {} to {} failed: {}", episodeId, target.target, e.message)
                 }

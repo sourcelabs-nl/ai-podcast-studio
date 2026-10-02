@@ -5,6 +5,7 @@ import com.aisummarypodcast.store.LlmCacheRepository
 import com.aisummarypodcast.util.isConstraintViolation
 import org.slf4j.LoggerFactory
 import org.springframework.ai.chat.messages.AssistantMessage
+import org.springframework.ai.chat.messages.Message
 import org.springframework.ai.chat.messages.MessageType
 import org.springframework.ai.chat.metadata.ChatResponseMetadata
 import org.springframework.ai.chat.metadata.DefaultUsage
@@ -54,7 +55,7 @@ class CachingChatModel(
 
     override fun call(prompt: Prompt): ChatResponse {
         val model = prompt.options?.model ?: "default"
-        val promptHash = sha256("$model:${userPromptText(prompt)}")
+        val promptHash = sha256("$model:${userPromptText(prompt.instructions)}")
         val initialCall = isInitialCall(prompt) && cacheEnabled
 
         if (initialCall) {
@@ -85,9 +86,14 @@ class CachingChatModel(
             // failure, turning a transient model hiccup into a permanently stuck episode.
             if (!responseText.isNullOrBlank()) {
                 val usage = response.metadata?.usage
+                // A correction retry answers the prompt that was rejected, so its response replaces the
+                // rejected one under the original key, and the next regenerate replays the corrected script.
+                val correction = isCorrectionPrompt(prompt)
+                val storeHash = if (correction) originalPromptHash(prompt, model) else promptHash
                 store(
                     LlmCache(
-                        promptHash = promptHash,
+                        id = if (correction) llmCacheRepository.findByPromptHashAndModel(storeHash, model)?.id else null,
+                        promptHash = storeHash,
                         model = model,
                         response = responseText,
                         createdAt = Instant.now().toString(),
@@ -187,8 +193,8 @@ class CachingChatModel(
         )
     }
 
-    private fun userPromptText(prompt: Prompt): String =
-        prompt.instructions
+    private fun userPromptText(messages: List<Message>): String =
+        messages
             .filter { it.messageType == MessageType.USER || it.messageType == MessageType.SYSTEM }
             .joinToString("\n") { "${it.messageType}:${it.text ?: ""}" }
 
@@ -196,6 +202,21 @@ class CachingChatModel(
         prompt.instructions.none {
             it.messageType == MessageType.ASSISTANT || it.messageType == MessageType.TOOL
         }
+
+    /**
+     * A prompt that ends in a user turn after the model's own turn is a correction retry (see
+     * [RoleTagValidationAdvisor]). Its key includes the correction text, so no later call can look
+     * it up. A tool loop's final turn ends in a tool message and is not affected.
+     */
+    private fun isCorrectionPrompt(prompt: Prompt): Boolean =
+        prompt.instructions.lastOrNull()?.messageType == MessageType.USER &&
+            prompt.instructions.any { it.messageType == MessageType.ASSISTANT }
+
+    /** The key of the prompt a correction retry answers: the messages before the rejected response. */
+    private fun originalPromptHash(prompt: Prompt, model: String): String {
+        val original = prompt.instructions.takeWhile { it.messageType != MessageType.ASSISTANT }
+        return sha256("$model:${userPromptText(original)}")
+    }
 
     private fun hasPendingToolCalls(response: ChatResponse): Boolean {
         val output = response.result?.output ?: return false

@@ -150,4 +150,15 @@ class SoundCloudOAuthControllerTest {
             .param("state", "invalid-state"))
             .andExpect(status().isBadRequest)
     }
+
+    @Test
+    fun `callback with an error parameter renders it HTML-escaped`() {
+        mockMvc.perform(get("/oauth/soundcloud/callback")
+            .param("code", "test-code")
+            .param("state", "any-state")
+            .param("error", "<script>alert(1)</script>"))
+            .andExpect(status().isOk)
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("&lt;script&gt;alert(1)&lt;/script&gt;")))
+            .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<script>"))))
+    }
 }

@@ -74,15 +74,24 @@ class PublishingService(
             val prevDate = prevEpisode.generatedAt.substring(0, 10)
             if (prevDate != episodeDate) continue
             if ((prevEpisode.focus != null) != (episode.focus != null)) continue
-            try {
+            // The record is the only thing that names the remote asset, so it is deleted only once the
+            // asset is gone. A failed removal keeps it (with the reason) and the new publication goes ahead.
+            val removed = try {
                 if (prev.externalId != null) {
                     withContext(Dispatchers.IO) { publisher.unpublish(userId, prev.externalId) }
                 }
-                log.info("Replaced same-day publication (episode {}, externalId={}) on {}", prev.episodeId, prev.externalId, target)
+                true
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                log.warn("Failed to unpublish previous episode {} from {}: {}", prev.episodeId, target, e.message)
+                log.warn("Failed to unpublish previous episode {} from {}: {}; keeping its publication record", prev.episodeId, target, e.message)
+                publicationRepository.save(prev.copy(errorMessage = e.message))
+                false
             }
-            publicationRepository.delete(prev)
+            if (removed) {
+                publicationRepository.delete(prev)
+                log.info("Replaced same-day publication (episode {}, externalId={}) on {}", prev.episodeId, prev.externalId, target)
+            }
         }
 
         val now = Instant.now().toString()
@@ -238,26 +247,25 @@ class PublishingService(
         } catch (e: UnsupportedOperationException) {
             throw e
         } catch (e: Exception) {
-            log.warn("Failed to remove episode {} from {}: {} — marking as unpublished anyway", episode.id, target, e.message)
+            log.warn("Failed to remove episode {} from {}: {}; keeping its publication record", episode.id, target, e.message)
+            publicationRepository.save(publication.copy(errorMessage = e.message))
+            throw e
         }
 
         val updated = publicationRepository.save(
             publication.copy(
                 status = PublicationStatus.UNPUBLISHED,
-                externalId = null
+                externalId = null,
+                errorMessage = null
             )
         )
 
+        // The asset is gone, so a failure in the follow-up work cannot change the outcome.
         if (target == SoundCloudPublisher.TARGET_NAME) {
-            try {
-                rebuildSoundCloudPlaylist(podcast, userId)
-            } catch (e: Exception) {
-                log.warn("Failed to rebuild SoundCloud playlist after unpublish: {}", e.message)
-            }
+            logUnpublishSideEffectFailure("SoundCloud playlist rebuild") { rebuildSoundCloudPlaylist(podcast, userId) }
         }
-
-        publisher.postPublish(podcast, userId)
-        staticFeedExporter.export(podcast)
+        logUnpublishSideEffectFailure("Post-publish hook") { publisher.postPublish(podcast, userId) }
+        logUnpublishSideEffectFailure("Static feed export") { staticFeedExporter.export(podcast) }
 
         eventPublisher.publishEvent(
             PodcastEvent(this, podcast.id, "publication", episode.id, "episode.unpublished",
@@ -265,6 +273,14 @@ class PublishingService(
         )
 
         return updated
+    }
+
+    private fun logUnpublishSideEffectFailure(description: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            log.warn("{} failed after unpublishing: {}", description, e.message)
+        }
     }
 
     fun listByPodcast(

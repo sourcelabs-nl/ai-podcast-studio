@@ -108,6 +108,30 @@ class PublishingServiceTest {
     }
 
     @Test
+    fun `a failed same-day unpublish keeps the previous record and still publishes the new episode`() {
+        val regenerated = episode.copy(id = 2L)
+        val previous = EpisodePublication(id = 5L, episodeId = 1L, target = "soundcloud", status = PublicationStatus.PUBLISHED, externalId = "sc-1", createdAt = "now")
+        every { targetService.get("pod1", "soundcloud") } returns enabledTarget
+        every { publicationRepository.findByEpisodeIdAndTarget(2L, "soundcloud") } returns null
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns listOf(previous)
+        every { episodeRepository.findById(1L) } returns java.util.Optional.of(episode)
+        every { publisher.unpublish("user1", "sc-1") } throws RuntimeException("503 from SoundCloud")
+        every { publicationRepository.save(any()) } answers { firstArg<EpisodePublication>().copy(id = firstArg<EpisodePublication>().id ?: 10L) }
+        coEvery { publisher.publish(regenerated, podcast, "user1") } returns PublishResult("sc-2", "https://soundcloud.com/track/2")
+
+        val result = runBlocking { service.publish(regenerated, podcast, "user1", "soundcloud") }
+
+        assertEquals("sc-2", result.externalId)
+        verify(exactly = 0) { publicationRepository.delete(any()) }
+        verify {
+            publicationRepository.save(match {
+                it.id == 5L && it.externalId == "sc-1" && it.status == PublicationStatus.PUBLISHED &&
+                    it.errorMessage == "503 from SoundCloud"
+            })
+        }
+    }
+
+    @Test
     fun `publish throws for unknown target`() {
         assertThrows<IllegalArgumentException> {
             runBlocking { service.publish(episode, podcast, "user1", "youtube") }
@@ -367,6 +391,50 @@ class PublishingServiceTest {
         assertEquals(PublicationStatus.UNPUBLISHED, result.status)
         assertNull(result.externalId)
         verify { publisher.unpublish("user1", "sc-123") }
+    }
+
+    @Test
+    fun `unpublish keeps the publication PUBLISHED with its external id when the removal fails`() {
+        val publication = EpisodePublication(
+            id = 5L, episodeId = 1L, target = "soundcloud",
+            status = PublicationStatus.PUBLISHED, externalId = "sc-123",
+            createdAt = "2026-02-13T10:00:00Z"
+        )
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns publication
+        every { publisher.unpublish("user1", "sc-123") } throws RuntimeException("503 from SoundCloud")
+        every { publicationRepository.save(any()) } answers { firstArg() }
+
+        assertThrows<RuntimeException> { service.unpublish(episode, podcast, "user1", "soundcloud") }
+
+        verify(exactly = 1) { publicationRepository.save(any()) }
+        verify {
+            publicationRepository.save(match {
+                it.status == PublicationStatus.PUBLISHED && it.externalId == "sc-123" &&
+                    it.errorMessage == "503 from SoundCloud"
+            })
+        }
+        verify(exactly = 0) { eventPublisher.publishEvent(any<PodcastEvent>()) }
+    }
+
+    @Test
+    fun `unpublish still succeeds when a step after the removal fails`() {
+        val publication = EpisodePublication(
+            id = 5L, episodeId = 1L, target = "soundcloud",
+            status = PublicationStatus.PUBLISHED, externalId = "sc-123",
+            createdAt = "2026-02-13T10:00:00Z"
+        )
+        every { publicationRepository.findByEpisodeIdAndTarget(1L, "soundcloud") } returns publication
+        every { publisher.unpublish("user1", "sc-123") } returns Unit
+        every { publicationRepository.save(any()) } answers { firstArg() }
+        every { publicationRepository.findPublishedByPodcastIdAndTarget("pod1", "soundcloud") } returns emptyList()
+        every { publisher.postPublish(podcast, "user1") } throws RuntimeException("hook down")
+        every { staticFeedExporter.export(podcast) } throws RuntimeException("disk full")
+
+        val result = service.unpublish(episode, podcast, "user1", "soundcloud")
+
+        assertEquals(PublicationStatus.UNPUBLISHED, result.status)
+        assertNull(result.externalId)
+        verify { eventPublisher.publishEvent(match<PodcastEvent> { it.event == "episode.unpublished" }) }
     }
 
     @Test

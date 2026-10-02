@@ -6,6 +6,7 @@ import com.aisummarypodcast.store.PodcastStyle
 import com.aisummarypodcast.store.Subtopics
 import com.aisummarypodcast.store.TtsProviderType
 import com.aisummarypodcast.user.UserService
+import kotlinx.coroutines.CancellationException
 import tools.jackson.databind.ObjectMapper
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -349,6 +350,8 @@ class PodcastController(
 
                 emitter.send(SseEmitter.event().name("complete").data(""))
                 emitter.complete()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 log.error("Preview pipeline failed for podcast {}: {}", podcastId, e.message, e)
                 try {

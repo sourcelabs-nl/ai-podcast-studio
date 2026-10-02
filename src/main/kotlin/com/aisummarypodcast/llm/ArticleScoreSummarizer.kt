@@ -5,6 +5,7 @@ import com.aisummarypodcast.config.ScoringProperties
 import com.aisummarypodcast.store.Article
 import com.aisummarypodcast.store.ArticleRepository
 import com.aisummarypodcast.store.Podcast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -119,6 +120,8 @@ class ArticleScoreSummarizer(
                                 val result = scored.copy(article = onScored(article, scored))
                                 log.info("[LLM] Article '{}' scored {} as {} — summary: {} chars (source: {})", article.title, result.article.relevanceScore, result.article.newsType ?: "UNCLASSIFIED", result.article.summary?.length ?: 0, sourceLabel ?: article.sourceId)
                                 result
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 log.error("[LLM] Error scoring/summarizing article '{}' (source: {}): {}", article.title, sourceLabel ?: article.sourceId, e.message, e)
                                 null

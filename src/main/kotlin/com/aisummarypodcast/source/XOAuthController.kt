@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
+import org.springframework.web.util.HtmlUtils
 import java.net.URLEncoder
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -152,9 +153,9 @@ class XOAuthController(
 
     private fun htmlPage(title: String, message: String): String = """
         <!DOCTYPE html>
-        <html><head><title>$title</title></head>
+        <html><head><title>${HtmlUtils.htmlEscape(title)}</title></head>
         <body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0">
-        <p style="font-size:1.2em">$message</p>
+        <p style="font-size:1.2em">${HtmlUtils.htmlEscape(message)}</p>
         </body></html>
     """.trimIndent()
 }

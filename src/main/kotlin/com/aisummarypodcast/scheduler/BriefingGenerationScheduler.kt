@@ -7,6 +7,7 @@ import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.Podcast
 import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +47,8 @@ class BriefingGenerationScheduler(
             while (isActive) {
                 try {
                     checkAndGenerate()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     log.error("[Pipeline] Unexpected error in briefing generation loop", e)
                 }
@@ -98,6 +101,8 @@ class BriefingGenerationScheduler(
                         generateBriefing(podcast, window)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 log.error("[Pipeline] Error checking/generating briefing for podcast '{}' ({}): {}", podcast.name, podcast.id, e.message, e)
             }
@@ -121,6 +126,8 @@ class BriefingGenerationScheduler(
             reason, podcast.name, podcast.id)
         try {
             sourcePollingScheduler.pollPodcastSourcesNow(podcast.id)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log.error("[Pipeline] Catch-up poll failed for podcast '{}' ({}); generating with existing data: {}",
                 podcast.name, podcast.id, e.message, e)

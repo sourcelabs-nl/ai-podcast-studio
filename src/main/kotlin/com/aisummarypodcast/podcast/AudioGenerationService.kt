@@ -5,6 +5,7 @@ import com.aisummarypodcast.store.EpisodeStatus
 import com.aisummarypodcast.store.PodcastRepository
 import com.aisummarypodcast.tts.TtsPipeline
 import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
 import org.springframework.data.repository.findByIdOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +72,8 @@ class AudioGenerationService(
                 PodcastEvent(this, podcastId, "episode", episodeId, "episode.generated",
                     mapOf("episodeNumber" to episodeId))
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log.error("Async TTS generation failed for episode {} (podcast '{}' ({})): {}", episodeId, podcast.name, podcastId, e.message, e)
             val freshEpisode = episodeRepository.findByIdOrNull(episodeId) ?: episode

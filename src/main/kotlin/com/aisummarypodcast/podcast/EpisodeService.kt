@@ -376,6 +376,8 @@ class EpisodeService(
                 log.info("[Pipeline] Episode {} covers {} of its candidate topics; others demoted to background", episode.id, recapResult.coveredTopics.size)
             }
             updated
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log.warn("[Pipeline] Failed to generate recap for episode {} (podcast '{}' ({})) — continuing without recap: {} {}", episode.id, podcast.name, podcast.id, e.javaClass.simpleName, e.message)
             episode

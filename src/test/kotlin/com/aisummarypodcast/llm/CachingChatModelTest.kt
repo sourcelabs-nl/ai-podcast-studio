@@ -278,6 +278,39 @@ class CachingChatModelTest {
     }
 
     @Test
+    fun `the response to a correction retry replaces the rejected response under the original key`() {
+        // RoleTagValidationAdvisor re-issues a rejected compose as: original messages, the rejected
+        // answer as the model's turn, then the correction as a user turn. The rejected answer is
+        // already cached under the original key; the corrected one must take its place or the next
+        // regenerate replays the rejected script.
+        val options = OpenAiChatOptions.builder().model("test-model").build()
+        val original = Prompt(listOf(org.springframework.ai.chat.messages.UserMessage("user prompt")), options)
+        val retry = Prompt(
+            listOf(
+                org.springframework.ai.chat.messages.UserMessage("user prompt"),
+                AssistantMessage("rejected script"),
+                org.springframework.ai.chat.messages.UserMessage("Your response used the invalid speaker tag(s)")
+            ),
+            options
+        )
+        val rejectedRow = LlmCache(id = 7L, promptHash = "unused", model = "test-model", response = "rejected script", createdAt = "then")
+        val stored = slot<LlmCache>()
+        every { llmCacheRepository.findByPromptHashAndModel(any(), "test-model") } returns rejectedRow
+        every { llmCacheRepository.save(capture(stored)) } answers { firstArg() }
+        every { delegate.call(retry) } returns ChatResponse(listOf(Generation(AssistantMessage("fixed script"))))
+        every { delegate.call(original) } returns ChatResponse(listOf(Generation(AssistantMessage("rejected script"))))
+
+        cachingChatModel.call(retry)
+
+        val originalHash = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("test-model:USER:user prompt".toByteArray()).joinToString("") { "%02x".format(it) }
+        assertEquals(7L, stored.captured.id)
+        assertEquals(originalHash, stored.captured.promptHash)
+        assertEquals("fixed script", stored.captured.response)
+        verify(exactly = 1) { llmCacheRepository.save(any<LlmCache>()) }
+    }
+
+    @Test
     fun `cache key derives from user message only, ignoring tool-loop messages`() {
         val userMessage = org.springframework.ai.chat.messages.UserMessage("identical user prompt")
         val initialPrompt = Prompt(listOf(userMessage), OpenAiChatOptions.builder().model("test-model").build())

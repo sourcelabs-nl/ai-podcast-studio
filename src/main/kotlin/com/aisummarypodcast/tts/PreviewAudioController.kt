@@ -4,6 +4,7 @@ import com.aisummarypodcast.podcast.PodcastService
 import com.aisummarypodcast.store.Podcast
 import com.aisummarypodcast.user.UserService
 import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -73,6 +74,8 @@ class PreviewAudioController(
                 .contentType(MediaType.parseMediaType("audio/mpeg"))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"preview-sample.mp3\"")
                 .body(audio)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log.error("Preview sample synthesis failed for podcast {}: {}", podcastId, e.message, e)
             ResponseEntity.internalServerError().body(mapOf("error" to (e.message ?: "Sample synthesis failed")))
@@ -160,6 +163,8 @@ class PreviewAudioController(
                 emitter.send(SseEmitter.event().name("complete").data(""))
             }
             emitter.complete()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log.error("Preview audio generation failed for podcast {}: {}", podcast.id, e.message, e)
             try {

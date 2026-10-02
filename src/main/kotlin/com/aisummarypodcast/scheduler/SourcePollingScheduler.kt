@@ -10,6 +10,7 @@ import com.aisummarypodcast.source.SourceService
 import com.aisummarypodcast.store.SourceRepository
 import com.aisummarypodcast.store.SourceType
 import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
@@ -60,6 +61,8 @@ class SourcePollingScheduler(
             while (isActive) {
                 try {
                     pollSources()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     log.error("[Polling] Unexpected error in polling loop", e)
                 }
@@ -104,6 +107,8 @@ class SourcePollingScheduler(
             }.forEach { deferred ->
                 try {
                     deferred.await()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     log.error("[Polling] Host group failed with unexpected error", e)
                 }
@@ -117,6 +122,8 @@ class SourcePollingScheduler(
         for (podcastId in polledPodcastIds) {
             try {
                 podcastService.findById(podcastId)?.let { podcastService.scoreReadySources(it) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 log.error("[Eager] Eager ranking failed for podcast {}", podcastId, e)
             }
@@ -145,6 +152,8 @@ class SourcePollingScheduler(
             }.forEach { deferred ->
                 try {
                     deferred.await()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     log.error("[Polling] Catch-up host group failed for podcast {}", podcastId, e)
                 }
@@ -195,6 +204,8 @@ class SourcePollingScheduler(
                             sourceService.resetFailureState(allHostSources.filter { it.id != source.id })
                         }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 log.error("[Polling] Unexpected error polling source {} in host group {}", source.id, host, e)
             }

@@ -18,6 +18,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CancellationException
 import org.junit.jupiter.api.Test
 
 class AutoPublishListenerTest {
@@ -166,5 +167,23 @@ class AutoPublishListenerTest {
         listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
 
         coVerify(timeout = 2000) { publishingService.publish(episode, podcast, "user1", "ftp") }
+    }
+
+    @Test
+    fun `cancellation while publishing stops the loop before the next target`() {
+        every { targetService.list("pod1") } returns listOf(
+            PodcastPublicationTarget(podcastId = "pod1", target = "ftp", enabled = true, autoPublish = true),
+            PodcastPublicationTarget(podcastId = "pod1", target = "soundcloud", enabled = true, autoPublish = true)
+        )
+        every { podcastService.findById("pod1") } returns podcast
+        every { episodeService.findById(1L) } returns episode
+        every { episodeService.countArticles(1L) } returns 12
+        coEvery { publishingService.publish(episode, podcast, "user1", "ftp") } throws CancellationException("cancelled")
+
+        listener.onEpisodeGenerated(PodcastEvent(this, "pod1", "episode", 1L, "episode.generated"))
+
+        coVerify(timeout = 2000) { publishingService.publish(episode, podcast, "user1", "ftp") }
+        Thread.sleep(200)
+        coVerify(exactly = 0) { publishingService.publish(any(), any(), any(), "soundcloud") }
     }
 }
