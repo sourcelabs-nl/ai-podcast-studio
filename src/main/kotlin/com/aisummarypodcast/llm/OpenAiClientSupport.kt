@@ -2,7 +2,9 @@ package com.aisummarypodcast.llm
 
 import com.aisummarypodcast.user.ProviderConfig
 import com.openai.client.OpenAIClient
+import com.openai.client.OpenAIClientAsync
 import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.client.okhttp.OpenAIOkHttpClientAsync
 import java.time.Duration
 
 /**
@@ -22,6 +24,17 @@ internal fun openAiApiBaseUrl(baseUrl: String): String {
 /** Builds an OpenAI SDK client from a stored [ProviderConfig], normalizing the base URL. */
 internal fun buildOpenAiClient(config: ProviderConfig, timeout: Duration): OpenAIClient =
     OpenAIOkHttpClient.builder()
+        .apiKey(config.apiKey ?: "")
+        .baseUrl(openAiApiBaseUrl(config.baseUrl))
+        .timeout(timeout)
+        .build()
+
+/**
+ * The async counterpart of [buildOpenAiClient]. A chat model that is not handed one has Spring AI
+ * build it from the OPENAI_API_KEY environment variable, and fail when that is unset.
+ */
+internal fun buildOpenAiClientAsync(config: ProviderConfig, timeout: Duration): OpenAIClientAsync =
+    OpenAIOkHttpClientAsync.builder()
         .apiKey(config.apiKey ?: "")
         .baseUrl(openAiApiBaseUrl(config.baseUrl))
         .timeout(timeout)

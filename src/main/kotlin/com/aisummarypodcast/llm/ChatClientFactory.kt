@@ -59,9 +59,10 @@ class ChatClientFactory(
                     "Configure a user provider for '${resolvedModel.provider}' or set the appropriate environment variable."
             )
 
-        val openAiClient = buildOpenAiClient(config, timeoutFor(resolvedModel.stage))
+        val timeout = timeoutFor(resolvedModel.stage)
         val chatModel = OpenAiChatModel.builder()
-            .openAiClient(openAiClient)
+            .openAiClient(buildOpenAiClient(config, timeout))
+            .openAiClientAsync(buildOpenAiClientAsync(config, timeout))
             .build()
         return CachingChatModel(
             chatModel, llmCacheRepository, resolvedModel, llmCallLogService, useCache, attribution,
