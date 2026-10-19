@@ -257,6 +257,18 @@ class PodcastService(
      *
      * `updateLastGenerated = false`: a re-run of a past window must not satisfy today's cron slot.
      */
+    /**
+     * The end of the latest slot the podcast has served at or before [before]: the `window_end` of
+     * its latest episode that is neither failed nor discarded. The episodes are the only record of
+     * which slots were served; lastGeneratedAt drifted from them (episode 298 duplicated 297).
+     */
+    fun findLatestServedWindowEnd(podcast: Podcast, before: Instant): Instant? =
+        episodeRepository.findLatestCoveredWindowEnd(podcast.id, before.toString())?.let { Instant.parse(it) }
+
+    /** The regular episodes for the slot ending at [slot] that failed. */
+    fun findFailedForSlot(podcast: Podcast, slot: Instant): List<Episode> =
+        episodeRepository.findFailedByPodcastIdAndWindowEnd(podcast.id, slot.toString())
+
     fun rerunEpisodeAsync(sourceEpisode: Episode, podcast: Podcast): Episode {
         if (sourceEpisode.status != EpisodeStatus.FAILED && sourceEpisode.status != EpisodeStatus.DISCARDED) {
             throw EpisodeNotRerunnableException(
@@ -350,7 +362,8 @@ class PodcastService(
         val sourceIds = sources.map { it.id }
         if (sourceIds.isEmpty()) return UpcomingContent(emptyList(), emptyList(), sources, 0, 0)
 
-        val since = podcast.lastGeneratedAt ?: Instant.now().minus(
+        // The next window starts where the last served one ended.
+        val since = findLatestServedWindowEnd(podcast, Instant.now())?.toString() ?: podcast.lastGeneratedAt ?: Instant.now().minus(
             (podcast.maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays).toLong(), ChronoUnit.DAYS
         ).toString()
 

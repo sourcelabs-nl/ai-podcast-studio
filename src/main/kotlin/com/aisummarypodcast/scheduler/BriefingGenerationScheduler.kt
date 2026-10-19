@@ -71,14 +71,13 @@ class BriefingGenerationScheduler(
                 val zone = episodeWindowResolver.zoneOf(podcast)
                 val now = LocalDateTime.now(clock.withZone(zone))
                 val cronExpression = CronExpression.parse(podcast.cron)
-                val lastGenerated = podcast.lastGeneratedAt?.let {
-                    LocalDateTime.ofInstant(Instant.parse(it), zone)
-                }
-
                 val today: LocalDate = now.toLocalDate()
 
-                // Start from lastGeneratedAt or start-of-day for new podcasts
-                val startFrom = lastGenerated ?: today.atStartOfDay()
+                // The next slot follows the last one an episode served. lastGeneratedAt only stands in
+                // for a podcast whose episodes predate the window columns, and start of day for a new one.
+                val lastServed = podcastService.findLatestServedWindowEnd(podcast, clock.instant())
+                    ?: podcast.lastGeneratedAt?.let { Instant.parse(it) }
+                val startFrom = lastServed?.let { LocalDateTime.ofInstant(it, zone) } ?: today.atStartOfDay()
 
                 var nextExecution = cronExpression.next(startFrom)
 
@@ -91,13 +90,15 @@ class BriefingGenerationScheduler(
                 }
 
                 if (nextExecution != null && !nextExecution.isAfter(now)) {
-                    log.info("[Pipeline] Podcast '{}' ({}) is due for briefing generation", podcast.name, podcast.id)
-                    ensureFreshPolling(podcast)
-
                     // The window ends at the slot being served, not at "now": a run that starts late
                     // still covers the period the slot stands for.
                     val slot = nextExecution.atZone(zone).toInstant()
+                    if (!isRetryAllowed(podcast, slot)) continue
+
+                    log.info("[Pipeline] Podcast '{}' ({}) is due for briefing generation", podcast.name, podcast.id)
                     val window = episodeWindowResolver.resolve(podcast, slot)
+
+                    ensureFreshPolling(podcast)
                     if (isWindowCovered(podcast, window, slot)) {
                         generateBriefing(podcast, window)
                     }
@@ -108,6 +109,31 @@ class BriefingGenerationScheduler(
                 log.error("[Pipeline] Error checking/generating briefing for podcast '{}' ({}): {}", podcast.name, podcast.id, e.message, e)
             }
         }
+    }
+
+    /**
+     * Whether [slot] may be generated given its earlier failures: a slot is retried once, as a new
+     * episode, no sooner than [RETRY_DELAY] after the failure, and never after a second failure, so
+     * a structural error costs two runs instead of one per minute. A manual retry or re-run is not
+     * limited by this. A failure recorded before `failed_at` existed counts as long enough ago.
+     */
+    private fun isRetryAllowed(podcast: Podcast, slot: Instant): Boolean {
+        val failed = podcastService.findFailedForSlot(podcast, slot)
+        if (failed.isEmpty()) return true
+        if (failed.size >= MAX_FAILURES_PER_SLOT) {
+            log.debug("[Pipeline] Slot {} of podcast '{}' ({}) failed {} times; not retrying it automatically",
+                slot, podcast.name, podcast.id, failed.size)
+            return false
+        }
+        val failedAt = failed.mapNotNull { it.failedAt?.let { at -> Instant.parse(at) } }.maxOrNull() ?: return true
+        val retryAt = failedAt.plus(RETRY_DELAY)
+        if (clock.instant().isBefore(retryAt)) {
+            log.debug("[Pipeline] Slot {} of podcast '{}' ({}) failed at {}; retrying from {}",
+                slot, podcast.name, podcast.id, failedAt, retryAt)
+            return false
+        }
+        log.info("[Pipeline] Retrying failed slot {} of podcast '{}' ({}) once", slot, podcast.name, podcast.id)
+        return true
     }
 
     /**
@@ -203,3 +229,6 @@ class BriefingGenerationScheduler(
         log.info("[Pipeline] Briefing generation complete for podcast '{}' ({}): episode {} — total {}", podcast.name, podcast.id, result.episode.id, mark.elapsedNow())
     }
 }
+
+private const val MAX_FAILURES_PER_SLOT = 2
+private val RETRY_DELAY: Duration = Duration.ofMinutes(5)

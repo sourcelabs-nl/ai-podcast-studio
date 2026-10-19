@@ -43,6 +43,8 @@ data class Episode(
     val recap: String? = null,
     val showNotes: String? = null,
     val errorMessage: String? = null,
+    /** When the episode was marked FAILED; null for any other status and for failures before V87. */
+    val failedAt: String? = null,
     val pipelineStage: String? = null,
     val researchCalls: Int = 0,
     val researchCostCents: Int? = null,

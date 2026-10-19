@@ -82,22 +82,19 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
     ): List<Episode>
 
     /**
-     * The podcast's most recent regular episode that still covers its window: neither failed nor
-     * discarded, published or not. Discard rolls the schedule back to it, so a slot an unpublished
-     * episode already covered is not treated as due again. An experiment episode covers nothing.
+     * The regular episodes for the slot ending at [windowEnd] that failed. The scheduler retries a
+     * failed slot once, so it needs how many there are and when the latest one failed.
      */
     // Status and purpose values must match EpisodeStatus and EpisodePurpose enum names
     @Query("""
         SELECT * FROM episodes
         WHERE podcast_id = :podcastId
-          AND window_end IS NOT NULL
-          AND status NOT IN ('FAILED', 'DISCARDED')
+          AND window_end = :windowEnd
+          AND status = 'FAILED'
           AND focus IS NULL
           AND purpose != 'EXPERIMENT'
-        ORDER BY generated_at DESC
-        LIMIT 1
     """)
-    fun findLatestCoveringByPodcastId(podcastId: String): Episode?
+    fun findFailedByPodcastIdAndWindowEnd(podcastId: String, windowEnd: String): List<Episode>
 
     /**
      * The podcast's most recent regular episodes. A focus episode is left out: it never consumed its
@@ -112,7 +109,8 @@ interface EpisodeRepository : CrudRepository<Episode, Long>, PagingAndSortingRep
 
     /**
      * Where the podcast's article coverage ends at or before [windowEnd]: the latest `window_end` of
-     * an episode that carries a window and was neither failed nor discarded. A failed or discarded
+     * an episode that carries a window and was neither failed nor discarded. This is also the last
+     * slot the podcast has served, which the scheduler counts its next slot from. A failed or discarded
      * episode covered nothing, so its window must stay claimable by a later run. A focus episode is
      * left out for the same reason: it does not advance the regular schedule. Neither does an
      * experiment episode.

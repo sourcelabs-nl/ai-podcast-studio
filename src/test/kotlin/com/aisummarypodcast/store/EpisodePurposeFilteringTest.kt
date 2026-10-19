@@ -1,6 +1,7 @@
 package com.aisummarypodcast.store
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -55,8 +56,29 @@ class EpisodePurposeFilteringTest {
 
     @Test
     fun `schedule resolution ignores an experiment episode`() {
-        assertEquals(regular.id, episodeRepository.findLatestCoveringByPodcastId("p1")?.id)
         assertEquals("2026-09-01T00:00:00Z", episodeRepository.findLatestCoveredWindowEnd("p1", "2026-09-10T00:00:00Z"))
+    }
+
+    @Test
+    fun `an episode still generating serves its slot, a failed or discarded one does not`() {
+        episodeRepository.save(regular.copy(status = EpisodeStatus.DISCARDED))
+        assertNull(episodeRepository.findLatestCoveredWindowEnd("p1", "2026-09-10T00:00:00Z"))
+
+        episodeRepository.save(episode("2026-09-01T11:00:00Z", "2026-09-01T00:00:00Z", EpisodePurpose.SCHEDULED).copy(status = EpisodeStatus.FAILED))
+        assertNull(episodeRepository.findLatestCoveredWindowEnd("p1", "2026-09-10T00:00:00Z"))
+
+        episodeRepository.save(episode("2026-09-01T12:00:00Z", "2026-09-01T00:00:00Z", EpisodePurpose.SCHEDULED).copy(status = EpisodeStatus.GENERATING))
+        assertEquals("2026-09-01T00:00:00Z", episodeRepository.findLatestCoveredWindowEnd("p1", "2026-09-10T00:00:00Z"))
+    }
+
+    @Test
+    fun `the failed lookup counts only failed regular episodes of the slot`() {
+        val failed = episodeRepository.save(episode("2026-09-01T11:00:00Z", "2026-09-01T00:00:00Z", EpisodePurpose.SCHEDULED).copy(status = EpisodeStatus.FAILED))
+        episodeRepository.save(experiment.copy(status = EpisodeStatus.FAILED, windowEnd = "2026-09-01T00:00:00Z"))
+        episodeRepository.save(episode("2026-09-01T12:00:00Z", "2026-09-01T00:00:00Z", EpisodePurpose.SCHEDULED).copy(status = EpisodeStatus.FAILED, focus = "Opus"))
+        episodeRepository.save(episode("2026-09-02T11:00:00Z", "2026-09-02T00:00:00Z", EpisodePurpose.SCHEDULED).copy(status = EpisodeStatus.FAILED))
+
+        assertEquals(listOf(failed.id), episodeRepository.findFailedByPodcastIdAndWindowEnd("p1", "2026-09-01T00:00:00Z").map { it.id })
     }
 
     @Test

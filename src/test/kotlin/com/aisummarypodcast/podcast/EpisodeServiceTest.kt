@@ -328,7 +328,6 @@ class EpisodeServiceTest {
         every { postArticleRepository.countByArticleId(10L) } returns 1L
         every { postArticleRepository.countByArticleId(20L) } returns 0L
         every { podcastRepository.findById("p1") } returns Optional.of(podcast)
-        every { episodeRepository.findLatestCoveringByPodcastId("p1") } returns null
         every { podcastRepository.save(any()) } answers { firstArg() }
 
         episodeService.discardAndResetArticles(episode, "p1")
@@ -383,7 +382,6 @@ class EpisodeServiceTest {
         justRun { postArticleRepository.deleteByArticleId(30L) }
         justRun { articleRepository.deleteById(30L) }
         every { podcastRepository.findById("p1") } returns Optional.of(podcast)
-        every { episodeRepository.findLatestCoveringByPodcastId("p1") } returns null
         every { podcastRepository.save(any()) } answers { firstArg() }
 
         episodeService.discardAndResetArticles(episode, "p1")
@@ -428,7 +426,6 @@ class EpisodeServiceTest {
         every { articleEligibilityService.canResetArticle(20L) } returns true
         every { postArticleRepository.countByArticleId(20L) } returns 0L
         every { podcastRepository.findById("p1") } returns Optional.of(podcast)
-        every { episodeRepository.findLatestCoveringByPodcastId("p1") } returns null
         every { podcastRepository.save(any()) } answers { firstArg() }
 
         episodeService.discardAndResetArticles(episode, "p1")
@@ -460,46 +457,21 @@ class EpisodeServiceTest {
     }
 
     @Test
-    fun `discardAndResetArticles rolls back lastGeneratedAt to latest episode still covering its window`() {
+    fun `discardAndResetArticles leaves lastGeneratedAt alone`() {
+        // Whether a slot is served now follows from the episodes, so a discard has nothing to roll back.
         val episode = Episode(id = 3L, podcastId = "p1", generatedAt = "2026-03-18T15:00:00Z", scriptText = "Script", status = EpisodeStatus.PENDING_REVIEW)
         val article = Article(id = 10L, sourceId = "src-1", title = "A1", body = "body", url = "https://example.com/1", contentHash = "h1", isProcessed = true, publishedAt = "2026-03-18T12:00:00Z")
-        val links = listOf(EpisodeArticle(id = 1L, episodeId = 3L, articleId = 10L))
-        val coveringEpisode = Episode(id = 2L, podcastId = "p1", generatedAt = "2026-03-17T15:00:00Z", scriptText = "Old", status = EpisodeStatus.GENERATED)
 
         every { episodeRepository.findById(3L) } returns Optional.of(episode)
         every { episodeRepository.save(any()) } answers { firstArg() }
-        every { episodeArticleRepository.findByEpisodeId(3L) } returns links
+        every { episodeArticleRepository.findByEpisodeId(3L) } returns listOf(EpisodeArticle(id = 1L, episodeId = 3L, articleId = 10L))
         every { articleRepository.findById(10L) } returns Optional.of(article)
         every { articleRepository.save(any()) } answers { firstArg() }
         every { postArticleRepository.countByArticleId(10L) } returns 0L
-        every { podcastRepository.findById("p1") } returns Optional.of(podcast)
-        every { episodeRepository.findLatestCoveringByPodcastId("p1") } returns coveringEpisode
-        every { podcastRepository.save(any()) } answers { firstArg() }
 
         episodeService.discardAndResetArticles(episode, "p1")
 
-        verify { podcastRepository.save(match { it.lastGeneratedAt == "2026-03-17T15:00:00Z" }) }
-    }
-
-    @Test
-    fun `discardAndResetArticles clears lastGeneratedAt when no episode still covers a window`() {
-        val episode = Episode(id = 1L, podcastId = "p1", generatedAt = "2026-03-18T15:00:00Z", scriptText = "Script", status = EpisodeStatus.PENDING_REVIEW)
-        val article = Article(id = 10L, sourceId = "src-1", title = "A1", body = "body", url = "https://example.com/1", contentHash = "h1", isProcessed = true)
-        val links = listOf(EpisodeArticle(id = 1L, episodeId = 1L, articleId = 10L))
-
-        every { episodeRepository.findById(1L) } returns Optional.of(episode)
-        every { episodeRepository.save(any()) } answers { firstArg() }
-        every { episodeArticleRepository.findByEpisodeId(1L) } returns links
-        every { articleRepository.findById(10L) } returns Optional.of(article)
-        every { articleRepository.save(any()) } answers { firstArg() }
-        every { postArticleRepository.countByArticleId(10L) } returns 0L
-        every { podcastRepository.findById("p1") } returns Optional.of(podcast)
-        every { episodeRepository.findLatestCoveringByPodcastId("p1") } returns null
-        every { podcastRepository.save(any()) } answers { firstArg() }
-
-        episodeService.discardAndResetArticles(episode, "p1")
-
-        verify { podcastRepository.save(match { it.lastGeneratedAt == null }) }
+        verify(exactly = 0) { podcastRepository.save(any()) }
     }
 
     // --- saveDedupResults tests ---
@@ -742,6 +714,18 @@ class EpisodeServiceTest {
     }
 
     // --- failEpisode tests ---
+
+    @Test
+    fun `failEpisode records when the episode failed`() {
+        val generatingEpisode = Episode(id = 6L, podcastId = "p1", generatedAt = "now", scriptText = "", status = EpisodeStatus.GENERATING)
+        every { episodeRepository.findById(6L) } returns Optional.of(generatingEpisode)
+        every { episodeRepository.save(any()) } answers { firstArg() }
+        every { podcastRepository.save(any()) } answers { firstArg() }
+
+        episodeService.failEpisode(podcast, "LLM error", generatingEpisode)
+
+        verify { episodeRepository.save(match { it.status == EpisodeStatus.FAILED && it.failedAt != null }) }
+    }
 
     @Test
     fun `failEpisode preserves pipelineStage`() {

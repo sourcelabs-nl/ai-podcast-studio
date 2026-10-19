@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
+import java.time.Instant
 
 @Service
 class AudioGenerationService(
@@ -54,7 +55,7 @@ class AudioGenerationService(
         val podcast = podcastRepository.findByIdOrNull(podcastId)
         if (podcast == null) {
             log.error("Podcast {} not found for async TTS generation", podcastId)
-            episodeRepository.save(episode.copy(status = EpisodeStatus.FAILED, errorMessage = "Podcast not found"))
+            episodeRepository.save(episode.copy(status = EpisodeStatus.FAILED, failedAt = Instant.now().toString(), errorMessage = "Podcast not found"))
             return
         }
 
@@ -73,7 +74,7 @@ class AudioGenerationService(
         } catch (e: Exception) {
             log.error("Async TTS generation failed for episode {} (podcast '{}' ({})): {}", episodeId, podcast.name, podcastId, e.message, e)
             val freshEpisode = episodeRepository.findByIdOrNull(episodeId) ?: episode
-            episodeRepository.save(freshEpisode.copy(status = EpisodeStatus.FAILED, errorMessage = e.message, pipelineStage = "tts"))
+            episodeRepository.save(freshEpisode.copy(status = EpisodeStatus.FAILED, failedAt = Instant.now().toString(), errorMessage = e.message, pipelineStage = "tts"))
             eventPublisher.publishEvent(
                 PodcastEvent(this, podcastId, "episode", episodeId, "episode.failed",
                     mapOf("episodeNumber" to episodeId, "error" to (e.message ?: "Unknown error")))

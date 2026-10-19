@@ -52,6 +52,12 @@ class BriefingGenerationSchedulerTest {
         podcastService, sourcePollingScheduler, sourceService, episodeWindowResolver, appProperties, defaultClock
     )
 
+    init {
+        // No served episode and no failures unless a test says so, so lastGeneratedAt is the fallback.
+        every { podcastService.findLatestServedWindowEnd(any(), any()) } returns null
+        every { podcastService.findFailedForSlot(any(), any()) } returns emptyList()
+    }
+
     private fun duePodcast(requireReview: Boolean = false) = Podcast(
         id = "p1", userId = "u1", name = "Test", topic = "tech",
         cron = "0 0 0 * * *",
@@ -64,6 +70,94 @@ class BriefingGenerationSchedulerTest {
         return BriefingGenerationScheduler(
             podcastService, sourcePollingScheduler, sourceService, episodeWindowResolver, appProperties, clock
         )
+    }
+
+    // --- A slot is served by an episode whose window ends at it ----------------------------------
+
+    private val slot = Instant.parse("2026-02-23T00:00:00Z")
+
+    private fun generates(podcast: Podcast) {
+        val episode = Episode(id = 10, podcastId = "p1", generatedAt = defaultNow.toString(), scriptText = "Script")
+        coEvery { podcastService.generateBriefing(podcast, any()) } returns GenerateBriefingResult(episode = episode)
+    }
+
+    @Test
+    fun `a slot that a re-run serves is not generated again, whatever lastGeneratedAt says`() {
+        // Episode 296 was discarded and its window re-run as 297; lastGeneratedAt still pointed at
+        // the day before, and the scheduler generated the slot a second time as 298.
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.findLatestServedWindowEnd(podcast, defaultNow) } returns slot
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 0) { podcastService.generateBriefing(any(), any()) }
+    }
+
+    @Test
+    fun `a discarded slot is due again, even when lastGeneratedAt says it was served`() {
+        val podcast = duePodcast().copy(lastGeneratedAt = "2026-02-23T00:01:00Z")
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.findLatestServedWindowEnd(podcast, defaultNow) } returns Instant.parse("2026-02-22T00:00:00Z")
+        generates(podcast)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        verify { episodeWindowResolver.resolve(podcast, slot) }
+        coVerify { podcastService.generateBriefing(podcast, any()) }
+    }
+
+    @Test
+    fun `missed days generate only today's slot`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.findLatestServedWindowEnd(podcast, defaultNow) } returns Instant.parse("2026-02-19T00:00:00Z")
+        generates(podcast)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        verify(exactly = 1) { episodeWindowResolver.resolve(podcast, any()) }
+        verify { episodeWindowResolver.resolve(podcast, slot) }
+    }
+
+    // --- A failed slot is retried once -------------------------------------------------------------
+
+    private fun failed(id: Long, failedAt: String?) =
+        Episode(id = id, podcastId = "p1", generatedAt = "2026-02-23T00:00:30Z", scriptText = "", status = EpisodeStatus.FAILED, failedAt = failedAt)
+
+    @Test
+    fun `a slot that failed 3 minutes ago is not retried yet`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.findFailedForSlot(podcast, slot) } returns listOf(failed(1, "2026-02-23T00:02:00Z"))
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 0) { podcastService.generateBriefing(any(), any()) }
+    }
+
+    @Test
+    fun `a slot that failed more than 5 minutes ago is retried`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.findFailedForSlot(podcast, slot) } returns listOf(failed(1, "2026-02-23T00:00:00Z"))
+        generates(podcast)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify { podcastService.generateBriefing(podcast, any()) }
+    }
+
+    @Test
+    fun `a slot that failed twice is not retried`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { podcastService.findFailedForSlot(podcast, slot) } returns
+            listOf(failed(1, "2026-02-22T23:00:00Z"), failed(2, "2026-02-22T23:30:00Z"))
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 0) { podcastService.generateBriefing(any(), any()) }
     }
 
     // --- Poll coverage gate ---------------------------------------------------------------------

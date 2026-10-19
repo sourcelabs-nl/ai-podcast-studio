@@ -89,12 +89,27 @@ class PodcastServiceTest {
 
     init {
         every { episodeService.recordRun(any(), any(), any()) } returns Unit
+        // No served episode with a window unless a test says so, so upcoming falls back to lastGeneratedAt.
+        every { episodeRepository.findLatestCoveredWindowEnd("p1", any()) } returns null
     }
 
     private val source = Source(
         id = "s1", podcastId = "p1", type = SourceType.RSS,
         url = "https://example.com/feed", pollIntervalMinutes = 60
     )
+
+    @Test
+    fun `getUpcomingContent starts where the last served window ended`() {
+        every { episodeRepository.findLatestCoveredWindowEnd("p1", any()) } returns "2026-10-19T14:00:00Z"
+        every { sourceRepository.findByPodcastId("p1") } returns listOf(source)
+        every { articleRepository.findUnprocessedSince(listOf("s1"), "2026-10-19T14:00:00Z") } returns emptyList()
+        every { postRepository.findUnlinkedSince(listOf("s1"), "2026-10-19T14:00:00Z") } returns emptyList()
+        every { postRepository.getPostCountsByArticleIds(any()) } returns emptyMap()
+
+        podcastService.getUpcomingContent(podcast)
+
+        verify { articleRepository.findUnprocessedSince(listOf("s1"), "2026-10-19T14:00:00Z") }
+    }
 
     @Test
     fun `getUpcomingContent returns articles and unlinked posts since lastGeneratedAt`() {

@@ -98,7 +98,8 @@ class EpisodeService(
                 episodeRepository.save(
                     episode.copy(
                         status = EpisodeStatus.FAILED,
-                        errorMessage = "Generation interrupted by application restart"
+                        errorMessage = "Generation interrupted by application restart",
+                        failedAt = Instant.now().toString()
                     )
                 )
             }
@@ -649,7 +650,8 @@ class EpisodeService(
         val reset = episodeRepository.save(
             fresh.copy(
                 status = EpisodeStatus.GENERATING,
-                errorMessage = null
+                errorMessage = null,
+                failedAt = null
             )
         )
         log.info("[Pipeline] Reset episode {} for retry", episode.id)
@@ -703,16 +705,6 @@ class EpisodeService(
             }
         }
 
-        // Roll back lastGeneratedAt so reset articles appear in upcoming again
-        if (resetCount > 0) {
-            val podcast = podcastRepository.findByIdOrNull(podcastId)
-            if (podcast != null) {
-                val rollbackTo = episodeRepository.findLatestCoveringByPodcastId(podcastId)?.generatedAt
-                podcastRepository.save(podcast.copy(lastGeneratedAt = rollbackTo))
-                log.info("Episode {} discard: rolled back lastGeneratedAt to {} for podcast '{}'", episode.id, rollbackTo ?: "null", podcast.name)
-            }
-        }
-
         log.info("Episode {} discarded, reset {} articles, deleted {} aggregated articles, skipped {} (linked to published episodes)", episode.id, resetCount, deletedCount, skippedCount)
     }
 
@@ -763,7 +755,8 @@ class EpisodeService(
             episodeRepository.save(
                 fresh.copy(
                     status = EpisodeStatus.FAILED,
-                    errorMessage = errorMessage
+                    errorMessage = errorMessage,
+                    failedAt = Instant.now().toString()
                 )
             )
         } else {
@@ -773,7 +766,8 @@ class EpisodeService(
                     generatedAt = Instant.now().toString(),
                     scriptText = "",
                     status = EpisodeStatus.FAILED,
-                    errorMessage = errorMessage
+                    errorMessage = errorMessage,
+                    failedAt = Instant.now().toString()
                 )
             )
         }
