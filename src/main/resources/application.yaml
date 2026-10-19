@@ -140,6 +140,14 @@ app:
         type: llm
         input-cost-per-mtok: 0.30
         output-cost-per-mtok: 1.20
+      # The October release (canonical slug deepseek-v4.1-flash-20261017). 8 of 17 endpoints clear the
+      # floor (Relace, Cloudflare, DeepSeek and five others report "unknown", Wafer is mxfp4); the
+      # cheapest eligible is DeepInfra fp8, whose price this is. Verified against OpenRouter's
+      # /api/v1/models/{id}/endpoints on 2026-10-19. Only a fallback, like the entries above.
+      "[deepseek/deepseek-v4.1-flash-1017]":
+        type: llm
+        input-cost-per-mtok: 0.0784
+        output-cost-per-mtok: 0.2352
     openai:
       "[tts-1-hd]":
         type: tts

@@ -40,3 +40,5 @@ Negative results are recorded on the same terms as positive ones.
   Read when considering a richer episode-history store to improve scripts, or asking why a continuation story aired as fresh news.
 - [Scoring a source costs cents a month, so pruning sources is about noise and not about money](source-yield-2026-09.md)  
   Read when deciding whether to disable or narrow a source, or whether a source's LLM cost justifies removing it.
+- [A focus episode steered by an external briefing, episode 285](focus-episode-from-external-briefing.md)  
+  Read when producing a focus episode from a written briefing or an outside script, or finding unrelated window articles in a focus episode's script.
