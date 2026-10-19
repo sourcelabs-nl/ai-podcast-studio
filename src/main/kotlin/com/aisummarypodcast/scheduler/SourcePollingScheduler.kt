@@ -24,8 +24,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 
 @Component
@@ -41,6 +44,9 @@ class SourcePollingScheduler(
     private val log = LoggerFactory.getLogger(javaClass)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var firstCycle = true
+
+    /** One lock per source, so the polling loop and the catch-up polls never poll a source at the same time. */
+    private val sourceLocks = ConcurrentHashMap<String, Mutex>()
 
     /**
      * Wall-clock time the most recent poll round finished, or null before any round has completed in
@@ -99,7 +105,7 @@ class SourcePollingScheduler(
         supervisorScope {
             hostGroups.map { (host, sources) ->
                 async {
-                    pollHostGroup(host, sources, enabledByHost[host] ?: sources, sourcesByPodcast)
+                    pollHostGroup(host, sources, enabledByHost[host] ?: sources, sourcesByPodcast, catchUpRequestedAt = null)
                 }
             }.forEach { deferred ->
                 try {
@@ -140,12 +146,23 @@ class SourcePollingScheduler(
             log.info("[Polling] Catch-up poll requested for podcast {} but it has no enabled sources", podcastId)
             return
         }
+        pollSourcesNow(podcastId, sources)
+    }
+
+    /**
+     * Polls the given [sources] of one podcast right away, through the same host-grouped path as the
+     * scheduled loop. A source that was polled at or after the moment of this request (for example by
+     * the loop while this call waited for its lock) is not polled again.
+     */
+    suspend fun pollSourcesNow(podcastId: String, sources: List<Source>) {
+        if (sources.isEmpty()) return
+        val requestedAt = Instant.now()
         log.info("[Polling] Catch-up poll of {} sources for podcast {}", sources.size, podcastId)
-        val sourcesByPodcast = mapOf(podcastId to sources)
+        val sourcesByPodcast = mapOf(podcastId to sourceService.findEnabledByPodcastId(podcastId).ifEmpty { sources })
         val hostGroups = sources.groupBy { extractSourceHost(it.url) }
         supervisorScope {
             hostGroups.map { (host, grouped) ->
-                async { pollHostGroup(host, grouped, grouped, sourcesByPodcast) }
+                async { pollHostGroup(host, grouped, grouped, sourcesByPodcast, catchUpRequestedAt = requestedAt) }
             }.forEach { deferred ->
                 try {
                     deferred.await()
@@ -171,42 +188,35 @@ class SourcePollingScheduler(
      *
      * [allHostSources] is every enabled source of this host, which may be wider than [sources],
      * since recovery has to restore siblings that were not themselves due this round.
+     *
+     * Each source is polled under its own lock and re-read once the lock is held: [catchUpRequestedAt]
+     * is set for a catch-up poll, which skips a source polled at or after that moment, and null for
+     * the loop, which skips a source that is no longer due.
      */
     private suspend fun pollHostGroup(
         host: String?,
         sources: List<Source>,
         allHostSources: List<Source>,
-        sourcesByPodcast: Map<String, List<Source>>
+        sourcesByPodcast: Map<String, List<Source>>,
+        catchUpRequestedAt: Instant?
     ) {
         var skipped = 0
 
         for ((index, source) in sources.withIndex()) {
             try {
-                val podcast = podcastService.findById(source.podcastId)
-                val userId = if (source.type == SourceType.TWITTER) podcast?.userId else null
-                val maxArticleAgeDays = podcast?.maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
-                val siblingSourceIds = sourcesByPodcast[source.podcastId]?.map { it.id } ?: listOf(source.id)
-
-                val wasTripped = host != null && sourceHostBreaker.isTripped(host)
-                val outcome = sourceHostBreaker.pollThroughBreaker(source) {
-                    sourcePoller.poll(source, userId, maxArticleAgeDays, siblingSourceIds)
-                }
-
-                when (outcome) {
-                    is HostPollOutcome.Skipped -> skipped++
-                    is HostPollOutcome.Polled ->
-                        if (wasTripped && outcome.failure == null) {
-                            log.info("[Polling] Host {} recovered — restoring {} sources to their normal interval",
-                                host, allHostSources.size)
-                            sourceService.resetFailureState(allHostSources.filter { it.id != source.id })
-                        }
+                sourceLocks.computeIfAbsent(source.id) { Mutex() }.withLock {
+                    val current = sourceService.findById(source.id)
+                    if (current == null || !needsPoll(current, catchUpRequestedAt)) {
+                        log.debug("[Polling] Source {} was already polled; skipping", source.id)
+                    } else {
+                        if (pollSource(host, current, allHostSources, sourcesByPodcast)) skipped++
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 log.error("[Polling] Unexpected error polling source {} in host group {}", source.id, host, e)
             }
-
             if (index < sources.size - 1) {
                 val delaySeconds = pollDelayResolver.resolveDelaySeconds(source)
                 if (delaySeconds > 0) {
@@ -219,6 +229,42 @@ class SourcePollingScheduler(
         if (skipped > 0) {
             log.warn("[Polling] Host {} looks structurally down — skipped {} of {} due sources",
                 host, skipped, sources.size)
+        }
+    }
+
+    private fun needsPoll(source: Source, catchUpRequestedAt: Instant?): Boolean {
+        if (catchUpRequestedAt == null) return source.isDue(appProperties.source.maxBackoffHours)
+        val lastPolled = source.lastPolled?.let { Instant.parse(it) } ?: return true
+        return lastPolled.isBefore(catchUpRequestedAt)
+    }
+
+    /** Polls one source through the host breaker; returns true when the open breaker skipped it. */
+    private fun pollSource(
+        host: String?,
+        source: Source,
+        allHostSources: List<Source>,
+        sourcesByPodcast: Map<String, List<Source>>
+    ): Boolean {
+        val podcast = podcastService.findById(source.podcastId)
+        val userId = if (source.type == SourceType.TWITTER) podcast?.userId else null
+        val maxArticleAgeDays = podcast?.maxArticleAgeDays ?: appProperties.source.maxArticleAgeDays
+        val siblingSourceIds = sourcesByPodcast[source.podcastId]?.map { it.id } ?: listOf(source.id)
+
+        val wasTripped = host != null && sourceHostBreaker.isTripped(host)
+        val outcome = sourceHostBreaker.pollThroughBreaker(source) {
+            sourcePoller.poll(source, userId, maxArticleAgeDays, siblingSourceIds)
+        }
+
+        return when (outcome) {
+            is HostPollOutcome.Skipped -> true
+            is HostPollOutcome.Polled -> {
+                if (wasTripped && outcome.failure == null) {
+                    log.info("[Polling] Host {} recovered — restoring {} sources to their normal interval",
+                        host, allHostSources.size)
+                    sourceService.resetFailureState(allHostSources.filter { it.id != source.id })
+                }
+                false
+            }
         }
     }
 

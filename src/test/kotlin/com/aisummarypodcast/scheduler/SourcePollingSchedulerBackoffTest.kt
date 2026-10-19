@@ -27,7 +27,10 @@ import java.time.temporal.ChronoUnit
 class SourcePollingSchedulerBackoffTest {
 
     private val sourcePoller = mockk<SourcePoller>(relaxed = true)
-    private val sourceService = mockk<SourceService>(relaxed = true)
+    private val sourceService = mockk<SourceService>(relaxed = true) {
+        // The poll guard re-reads each source; it is what the test listed.
+        every { findById(any()) } answers { findEnabled().find { it.id == firstArg<String>() } }
+    }
     private val podcastService = mockk<PodcastService>()
 
     private fun appProperties(maxBackoffHours: Int = 24) = AppProperties(

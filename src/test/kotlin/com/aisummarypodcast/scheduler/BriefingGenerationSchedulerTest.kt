@@ -500,4 +500,69 @@ class BriefingGenerationSchedulerTest {
 
         coVerify { podcastService.generateBriefing(podcast, any()) }
     }
+
+    // --- Catch-up poll at the slot --------------------------------------------------------------
+
+    @Test
+    fun `behind healthy sources are polled at the slot and generation proceeds in the same tick`() {
+        val podcast = duePodcast()
+        val behind = listOf(behindSource("s1"), behindSource("s2"))
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returnsMany listOf(behind, emptyList())
+        generates(podcast)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 1) { sourcePollingScheduler.pollSourcesNow("p1", behind) }
+        coVerify { podcastService.generateBriefing(podcast, any()) }
+    }
+
+    @Test
+    fun `a behind source whose last poll failed is not polled early`() {
+        val podcast = duePodcast()
+        val failing = behindSource("s1").copy(consecutiveFailures = 1, lastPolled = "2026-02-23T00:00:00Z")
+        val healthy = behindSource("s2")
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returns listOf(failing, healthy)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 1) { sourcePollingScheduler.pollSourcesNow("p1", listOf(healthy)) }
+    }
+
+    @Test
+    fun `a source still behind after a failed catch-up defers generation`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returns listOf(behindSource())
+        coEvery { sourcePollingScheduler.pollSourcesNow(any(), any()) } throws RuntimeException("boom")
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 0) { podcastService.generateBriefing(any(), any()) }
+    }
+
+    @Test
+    fun `no catch-up runs after the coverage deadline`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returns listOf(behindSource())
+        generates(podcast)
+
+        runBlocking { schedulerWithClock(Instant.parse("2026-02-23T00:45:00Z")).checkAndGenerate() }
+
+        coVerify(exactly = 0) { sourcePollingScheduler.pollSourcesNow(any(), any()) }
+        coVerify { podcastService.generateBriefing(podcast, any()) }
+    }
+
+    @Test
+    fun `nothing behind means no catch-up call`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        generates(podcast)
+
+        runBlocking { scheduler.checkAndGenerate() }
+
+        coVerify(exactly = 0) { sourcePollingScheduler.pollSourcesNow(any(), any()) }
+    }
 }

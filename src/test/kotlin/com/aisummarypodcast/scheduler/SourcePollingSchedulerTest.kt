@@ -24,6 +24,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -41,6 +44,10 @@ class SourcePollingSchedulerTest {
     }
     private val sourceService = mockk<SourceService>(relaxed = true) {
         every { findEnabled() } returns emptyList()
+        // The poll guard re-reads each source; by default it is what the test listed.
+        every { findById(any()) } answers {
+            (findEnabled() + findEnabledByPodcastId("p1")).find { it.id == firstArg<String>() }
+        }
         every { applyStartupJitter(any(), any()) } answers { firstArg<Source>().copy(lastPolled = secondArg<Instant>().toString()) }
     }
     private val podcastService = mockk<PodcastService> {
@@ -438,5 +445,59 @@ class SourcePollingSchedulerTest {
 
         verify { sourcePoller.poll(rss, null, 7, listOf("s2")) }
         verify(exactly = 0) { sourcePoller.poll(disabled, any(), any(), any()) }
+    }
+
+    @Test
+    fun `pollSourcesNow polls only the given sources`() = runTest {
+        val behind = Source(id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://a.com/feed", enabled = true)
+        val other = Source(id = "s2", podcastId = "p1", type = SourceType.RSS, url = "https://b.com/feed", enabled = true)
+        every { sourceService.findEnabledByPodcastId("p1") } returns listOf(behind, other)
+        every { podcastService.findById("p1") } returns podcast
+
+        scheduler().pollSourcesNow("p1", listOf(behind))
+
+        verify(exactly = 1) { sourcePoller.poll(behind, null, 7, listOf("s1", "s2")) }
+        verify(exactly = 0) { sourcePoller.poll(other, any(), any(), any()) }
+    }
+
+    @Test
+    fun `a catch-up skips a source that was polled after it was requested`() = runTest {
+        val polledJustNow = Source(
+            id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://a.com/feed", enabled = true,
+            lastPolled = Instant.now().plusSeconds(1).toString()
+        )
+        every { sourceService.findById("s1") } returns polledJustNow
+        every { podcastService.findById("p1") } returns podcast
+
+        scheduler().pollSourcesNow("p1", listOf(polledJustNow))
+
+        verify(exactly = 0) { sourcePoller.poll(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `the polling loop and a catch-up never poll the same source twice`() {
+        // The stored row the guard re-reads; a poll moves its lastPolled to the moment it finished.
+        var stored = Source(
+            id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://a.com/feed", enabled = true,
+            pollIntervalMinutes = 30, lastPolled = Instant.now().minus(1, ChronoUnit.HOURS).toString()
+        )
+        every { sourceService.findEnabled() } answers { listOf(stored) }
+        every { sourceService.findEnabledByPodcastId("p1") } answers { listOf(stored) }
+        every { sourceService.findById("s1") } answers { stored }
+        every { podcastService.findById("p1") } returns podcast
+        every { sourcePoller.poll(any(), any(), any(), any()) } answers {
+            Thread.sleep(200)
+            stored = stored.copy(lastPolled = Instant.now().toString())
+            null
+        }
+        val scheduler = scheduler()
+        val due = stored
+
+        runBlocking(Dispatchers.IO) {
+            launch { scheduler.pollSources() }
+            launch { scheduler.pollSourcesNow("p1", listOf(due)) }
+        }
+
+        verify(exactly = 1) { sourcePoller.poll(any(), any(), any(), any()) }
     }
 }

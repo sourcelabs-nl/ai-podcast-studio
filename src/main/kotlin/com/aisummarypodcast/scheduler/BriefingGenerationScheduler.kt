@@ -99,6 +99,7 @@ class BriefingGenerationScheduler(
                     val window = episodeWindowResolver.resolve(podcast, slot)
 
                     ensureFreshPolling(podcast)
+                    catchUpBehindSources(podcast, window, slot)
                     if (isWindowCovered(podcast, window, slot)) {
                         generateBriefing(podcast, window)
                     }
@@ -162,6 +163,33 @@ class BriefingGenerationScheduler(
     }
 
     /**
+     * Polls the podcast's sources that are behind [window] right away, instead of letting generation
+     * wait for their regular poll interval, so a slot can be generated in the same tick. Only healthy
+     * sources are polled: one whose last poll failed keeps its backoff. Runs only before the coverage
+     * deadline; a failure here is logged and the coverage check decides as before.
+     */
+    private suspend fun catchUpBehindSources(podcast: Podcast, window: EpisodeWindow, slot: Instant) {
+        if (!clock.instant().isBefore(coverageDeadline(slot))) return
+        val healthyBehind = sourceService.findSourcesBehindWindow(podcast.id, window.end)
+            .filter { it.consecutiveFailures == 0 }
+        if (healthyBehind.isEmpty()) return
+
+        log.info("[Pipeline] Catching up {} source(s) behind window {} for podcast '{}' ({}): {}",
+            healthyBehind.size, window, podcast.name, podcast.id, labelsOf(healthyBehind))
+        try {
+            sourcePollingScheduler.pollSourcesNow(podcast.id, healthyBehind)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.error("[Pipeline] Slot catch-up poll failed for podcast '{}' ({}): {}",
+                podcast.name, podcast.id, e.message, e)
+        }
+    }
+
+    private fun coverageDeadline(slot: Instant): Instant =
+        slot.plus(appProperties.episode.pollCoverageDeadlineMinutes.toLong(), ChronoUnit.MINUTES)
+
+    /**
      * Whether the pollers have caught up enough with [window] to compose against it.
      *
      * A window that just closed is only worth composing once every source has fetched what it
@@ -176,7 +204,7 @@ class BriefingGenerationScheduler(
         val behind = sourceService.findSourcesBehindWindow(podcast.id, window.end)
         if (behind.isEmpty()) return true
 
-        val deadline = slot.plus(appProperties.episode.pollCoverageDeadlineMinutes.toLong(), ChronoUnit.MINUTES)
+        val deadline = coverageDeadline(slot)
         if (clock.instant().isBefore(deadline)) {
             // Only a source that will be polled again before the deadline is worth waiting for. One in
             // backoff after repeated failures will not, so waiting for it only delays the episode.
