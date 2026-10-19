@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Archive, Database, Lock, Pencil, Plus, Save, TestTube, Trash2 } from "lucide-react";
+import { Archive, CircleCheck, CircleX, Database, LoaderCircle, Lock, Pencil, PlugZap, Plus, Save, TestTube, Trash2 } from "lucide-react";
 import cronstrue from "cronstrue";
 import { CronExpressionParser } from "cron-parser";
 import { toast } from "sonner";
@@ -103,6 +103,8 @@ function SettingsContent() {
   const [loadingConfigs, setLoadingConfigs] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editConfig, setEditConfig] = useState<ProviderConfig | null>(null);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
 
   // Publishing state
   const [ftp, setFtp] = useState<FtpForm>(defaultFtp);
@@ -313,6 +315,32 @@ function SettingsContent() {
     }
   }
 
+  async function handleTestLlmProvider(provider: string) {
+    if (!selectedUser) return;
+    setTestingProvider(provider);
+    try {
+      const res = await fetch(`/api/users/${selectedUser.id}/api-keys/LLM/${provider}/test`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || "Connection test failed");
+      }
+      // A failed connection comes back as HTTP 200 with success: false, so the body decides.
+      const result: { success: boolean; message?: string } = await res.json();
+      if (!result.success) {
+        throw new Error(result.message || "Connection test failed");
+      }
+      const message = result.message || `Connected to ${provider}.`;
+      setTestResults((prev) => ({ ...prev, [provider]: { success: true, message } }));
+      toast.success(message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Connection test failed.";
+      setTestResults((prev) => ({ ...prev, [provider]: { success: false, message } }));
+      toast.error(message);
+    } finally {
+      setTestingProvider(null);
+    }
+  }
+
   async function handleTestFtp() {
     if (!selectedUser) return;
     setTestingFtp(true);
@@ -455,6 +483,32 @@ function SettingsContent() {
                         <TableCell className="text-sm text-muted-foreground">{config.baseUrl}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
+                            {config.category === "LLM" && testResults[config.provider] && (
+                              testResults[config.provider].success ? (
+                                <span className="flex items-center gap-1 text-xs font-normal text-green-600 dark:text-green-500" title={testResults[config.provider].message}>
+                                  <CircleCheck className="size-4" />
+                                  Connected
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-xs font-normal text-destructive" title={testResults[config.provider].message}>
+                                  <CircleX className="size-4" />
+                                  Failed
+                                </span>
+                              )
+                            )}
+                            {config.category === "LLM" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Test connection"
+                                disabled={testingProvider === config.provider}
+                                onClick={() => handleTestLlmProvider(config.provider)}
+                              >
+                                {testingProvider === config.provider
+                                  ? <LoaderCircle className="size-4 animate-spin" />
+                                  : <PlugZap className="size-4" />}
+                              </Button>
+                            )}
                             <Button variant="ghost" size="sm" title="Edit provider" onClick={() => handleEdit(config)}>
                               <Pencil className="size-4" />
                             </Button>
