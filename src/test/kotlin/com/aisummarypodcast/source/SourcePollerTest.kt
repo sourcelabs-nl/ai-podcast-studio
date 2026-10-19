@@ -35,6 +35,7 @@ class SourcePollerTest {
     private val postRepository = mockk<PostRepository> {
         every { findBySourceIdAndContentHash(any(), any()) } returns null
         every { findByContentHashAndSourceIdIn(any(), any()) } returns null
+        every { existsBySourceIdAndUrl(any(), any()) } returns false
         every { save(any()) } answers { firstArg() }
     }
     private val sourceRepository = mockk<SourceRepository> {
@@ -93,6 +94,50 @@ class SourcePollerTest {
         poller.poll(source)
 
         verify { postRepository.save(any()) }
+    }
+
+    @Test
+    fun `an undated post takes the moment it was first seen as its publication date`() {
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } returns listOf(post(publishedAt = null))
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(source)
+
+        verify { postRepository.save(match { it.publishedAt != null && it.publishedAt == it.createdAt }) }
+    }
+
+    @Test
+    fun `a dated post keeps its own publication date`() {
+        val publishedAt = Instant.now().minus(1, ChronoUnit.DAYS).toString()
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } returns listOf(post(publishedAt = publishedAt))
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(source)
+
+        verify { postRepository.save(match { it.publishedAt == publishedAt }) }
+    }
+
+    @Test
+    fun `a post re-served under a known URL with edited content is skipped`() {
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } returns listOf(post(publishedAt = null).copy(body = "Edited body"))
+        every { postRepository.existsBySourceIdAndUrl("s1", "https://example.com/post") } returns true
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(source)
+
+        verify(exactly = 0) { postRepository.save(match { it.title == "Test Post" }) }
+    }
+
+    @Test
+    fun `a website source with changed content under its one URL is still saved`() {
+        val website = source.copy(type = SourceType.WEBSITE, url = "https://example.com/post")
+        every { websiteFetcher.fetch(any(), any()) } returns post(publishedAt = null).copy(body = "Changed page")
+        every { postRepository.existsBySourceIdAndUrl("s1", "https://example.com/post") } returns true
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(website)
+
+        verify { postRepository.save(match { it.title == "Test Post" }) }
     }
 
     @Test

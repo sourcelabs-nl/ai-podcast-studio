@@ -32,6 +32,7 @@ class SourcePollerFailureTrackingTest {
     private val twitterFetcher = mockk<TwitterFetcher>()
     private val postRepository = mockk<PostRepository> {
         every { findBySourceIdAndContentHash(any(), any()) } returns null
+        every { existsBySourceIdAndUrl(any(), any()) } returns false
         every { save(any()) } answers { firstArg() }
     }
     private val sourceSlot = slot<Source>()

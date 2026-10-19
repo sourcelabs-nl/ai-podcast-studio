@@ -8,6 +8,8 @@ interface PostRepository : CrudRepository<Post, Long>, PostRepositoryCustom {
 
     fun findBySourceIdAndContentHash(sourceId: String, contentHash: String): Post?
 
+    fun existsBySourceIdAndUrl(sourceId: String, url: String): Boolean
+
     @Query("SELECT * FROM posts WHERE content_hash = :contentHash AND source_id IN (:sourceIds) LIMIT 1")
     fun findByContentHashAndSourceIdIn(contentHash: String, sourceIds: List<String>): Post?
 

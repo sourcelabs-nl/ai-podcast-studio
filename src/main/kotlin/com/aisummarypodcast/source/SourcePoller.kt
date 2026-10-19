@@ -90,7 +90,18 @@ class SourcePoller(
                     continue
                 }
 
-                postRepository.save(post.copy(contentHash = hash, createdAt = now))
+                // An item we already have under the same URL is the same item, even when its text
+                // changed: the Google Developers Blog feed re-served three posts with edited bodies,
+                // and each became a new article. A website source is the exception, since its one URL
+                // is watched precisely for its content changing.
+                if (source.type != SourceType.WEBSITE && postRepository.existsBySourceIdAndUrl(source.id, post.url)) {
+                    log.debug("[Polling] Skipping already-seen URL '{}' with changed content", post.url)
+                    continue
+                }
+
+                // An undated item gets the moment we first saw it, the latest it can have been
+                // published, so the episode windows place it instead of admitting it to every window.
+                postRepository.save(post.copy(contentHash = hash, createdAt = now, publishedAt = post.publishedAt ?: now))
                 savedCount++
 
                 post.publishedAt?.let { publishedAt ->
