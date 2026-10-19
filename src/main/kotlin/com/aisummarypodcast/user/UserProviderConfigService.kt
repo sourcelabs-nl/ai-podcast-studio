@@ -24,7 +24,9 @@ class UserProviderConfigService(
     }
 
     fun setConfig(userId: String, category: ApiKeyCategory, provider: String, apiKey: String?, baseUrl: String?) {
-        val encrypted = apiKey?.let { apiKeyEncryptor.encrypt(it) }
+        // A blank key field means "leave the key as it is", not "store an empty key": an empty key
+        // fails every LLM stage at runtime while the config still looks present.
+        val encrypted = apiKey?.takeIf { it.isNotBlank() }?.let { apiKeyEncryptor.encrypt(it) }
         val existingEncryptedKey = if (encrypted == null) {
             repository.findByUserIdAndCategoryAndProvider(userId, category, provider)?.encryptedApiKey
         } else null

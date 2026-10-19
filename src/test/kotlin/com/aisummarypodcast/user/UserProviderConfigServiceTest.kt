@@ -97,6 +97,20 @@ class UserProviderConfigServiceTest {
     }
 
     @Test
+    fun `setConfig keeps the stored key when the key field is left blank`() {
+        // Saving the form with an empty key field encrypted "" over the real key, and every LLM
+        // stage then failed with "At least one credential source must be specified".
+        every { repository.save(any()) } returns Unit
+        every { repository.findByUserIdAndCategoryAndProvider(userId, ApiKeyCategory.LLM, "openrouter") } returns
+            UserProviderConfig(userId = userId, provider = "openrouter", category = ApiKeyCategory.LLM, baseUrl = null, encryptedApiKey = "enc-existing")
+
+        service.setConfig(userId, ApiKeyCategory.LLM, "openrouter", "  ", "https://openrouter.ai/api")
+
+        verify(exactly = 0) { encryptor.encrypt(any()) }
+        verify { repository.save(match { it.encryptedApiKey == "enc-existing" && it.baseUrl == "https://openrouter.ai/api" }) }
+    }
+
+    @Test
     fun `setConfig saves null encrypted key when apiKey is null and no existing config`() {
         every { repository.save(any()) } returns Unit
         every { repository.findByUserIdAndCategoryAndProvider(userId, ApiKeyCategory.LLM, "ollama") } returns null
