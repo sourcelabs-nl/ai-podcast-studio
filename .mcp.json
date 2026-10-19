@@ -5,6 +5,10 @@
       "args": [
         "@playwright/mcp@latest"
       ]
+    },
+    "narro": {
+      "type": "http",
+      "url": "https://mcp.narro.info/mcp"
     }
   }
 }

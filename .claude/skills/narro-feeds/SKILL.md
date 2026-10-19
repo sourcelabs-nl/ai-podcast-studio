@@ -1,6 +1,6 @@
 ---
 name: narro-feeds
-description: Use when working with the Narro X/social feeds that supply this podcast's X content — inspecting or restructuring feeds and profiles, adding or removing accounts, diagnosing why the Narro source stopped delivering, or wiring a Narro feed into the app as a source. Covers the plan limits, the working API calls, and the UI-automation dead ends.
+description: Use when working with the Narro X/social feeds that supply this podcast's X content — inspecting or restructuring feeds and profiles, adding or removing accounts, diagnosing why the Narro source stopped delivering, or wiring a Narro feed into the app as a source. Covers the plan limits, the Narro MCP server (first choice), the fallback API calls, and the UI-automation dead ends.
 user-invocable: false
 ---
 
@@ -38,7 +38,24 @@ key at all**, so `profiles.length` is *not* the seat count and will look like th
 Count only the records that carry a `feed_id`, and re-assign later with a plain `POST /api/profiles`
 without having to re-add the account.
 
-## API (what actually works)
+## MCP server (first choice)
+
+Narro runs a remote MCP server at `https://mcp.narro.info/mcp`, registered in this repo's
+`.mcp.json` as `narro` (`mcp__narro__*` tools). Authentication is OAuth: the first use goes
+through `/mcp` in Claude Code, which opens narro.info in the user's own browser to approve it.
+Reading is always granted; adding and removing profiles needs the "Change your feeds" permission
+ticked at approval. Revoke under Settings, Connected apps.
+
+What it covers: list feeds and the profiles in each, find profiles by name, read posts (reading
+with filters never marks them read), get a feed's RSS address, create and rename feeds, add and
+remove profiles, star profiles, follow Gallery feeds. It cannot delete feeds or touch billing.
+
+Use it for every inspection and add/remove/move. The seat rules above still apply (the server
+enforces the same cap), so a move is still remove first, then add, and verify by listing the feed
+afterwards. Fall back to the API below only when the MCP server is unavailable or a needed
+operation is missing.
+
+## API (fallback)
 
 Base `https://api.narro.info`. Auth is a Bearer token from `localStorage.getItem('auth_token')`
 in a logged-in narro.info tab. Run these with `browser_evaluate` from that tab.
