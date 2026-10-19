@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
 
@@ -65,7 +67,7 @@ class ArticleEligibilityService(
     private fun isPureRetweet(article: Article): Boolean = article.body.trimStart().startsWith(RETWEET_PREFIX)
 
     private fun filterToWindow(candidates: List<Article>, podcast: Podcast, window: EpisodeWindow): List<Article> {
-        val datable = dropEvergreen(candidates)
+        val datable = dropStaleDevelopments(dropEvergreen(candidates), window)
 
         val filtered = datable.filter { article ->
             val publishedAt = article.publishedAt?.let { parseInstantOrNull(it) } ?: return@filter true
@@ -105,6 +107,35 @@ class ArticleEligibilityService(
             evergreen.size, evergreen.joinToString("; ") { "'${it.title}' (${it.url})" })
         return rest
     }
+
+    /**
+     * Drops the [NewsType.DEVELOPMENT] articles whose stated development date lies more than a day
+     * before the window starts.
+     *
+     * A feed can publish a write-up of an old development with a new date. Episode 296 opened with
+     * Claude Code's auto mode becoming the default, a change from 28 September, because Developers
+     * Digest published a batch of guides dated 17 October about developments from September, and
+     * the window filter below only sees that 17 October.
+     *
+     * The day of slack covers a date without a time of day against a window that starts in the
+     * afternoon. A retrospective is new analysis of something known and is kept, as is an article
+     * without a usable date: a date we failed to obtain must not silently delete content.
+     */
+    private fun dropStaleDevelopments(candidates: List<Article>, window: EpisodeWindow): List<Article> {
+        val cutoff = window.start.atZone(ZoneOffset.UTC).toLocalDate().minusDays(STALE_DEVELOPMENT_SLACK_DAYS)
+        val (stale, rest) = candidates.partition { article ->
+            val developmentDate = article.developmentDate?.let { parseDateOrNull(it) }
+            NewsType.parse(article.newsType) == NewsType.DEVELOPMENT && developmentDate != null && developmentDate.isBefore(cutoff)
+        }
+        if (stale.isEmpty()) return rest
+
+        log.info("[Eligibility] Dropped {} development(s) that happened before {}: {}",
+            stale.size, cutoff, stale.joinToString("; ") { "'${it.title}' (${it.url}, ${it.developmentDate})" })
+        return rest
+    }
+
+    private fun parseDateOrNull(value: String): LocalDate? =
+        try { LocalDate.parse(value) } catch (_: DateTimeParseException) { null }
 
     /**
      * Instants are compared as instants, not as strings: `published_at` is written by several
@@ -161,3 +192,4 @@ class ArticleEligibilityService(
 }
 
 private const val RETWEET_PREFIX = "RT @"
+private const val STALE_DEVELOPMENT_SLACK_DAYS = 1L

@@ -269,6 +269,60 @@ class ArticleEligibilityServiceTest {
         assertTrue(result.isEmpty())
     }
 
+    // --- Stale developments (episode 296's republished September guides) ---
+    // The window starts 2026-03-17T14:00Z, so the cutoff is 2026-03-16.
+
+    private fun developed(id: Long, newsType: NewsType?, developmentDate: String?) =
+        classified(id, newsType).copy(developmentDate = developmentDate)
+
+    @Test
+    fun `findEligibleArticles drops a development that happened before the window`() {
+        every { articleRepository.findRelevantUnprocessedBySourceIds(listOf("src-1"), 5) } returns listOf(
+            developed(1, NewsType.DEVELOPMENT, "2026-02-28"),
+            developed(2, NewsType.DEVELOPMENT, "2026-03-15")
+        )
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `findEligibleArticles keeps a development from the day before the window`() {
+        every { articleRepository.findRelevantUnprocessedBySourceIds(listOf("src-1"), 5) } returns listOf(
+            developed(1, NewsType.DEVELOPMENT, "2026-03-16"),
+            developed(2, NewsType.DEVELOPMENT, "2026-03-17")
+        )
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L, 2L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticles keeps a retrospective of an old development`() {
+        every { articleRepository.findRelevantUnprocessedBySourceIds(listOf("src-1"), 5) } returns listOf(
+            developed(1, NewsType.RETROSPECTIVE, "2026-02-01"),
+            developed(2, null, "2026-02-01")
+        )
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L, 2L), result.map { it.id })
+    }
+
+    @Test
+    fun `findEligibleArticles keeps a development without a usable date`() {
+        every { articleRepository.findRelevantUnprocessedBySourceIds(listOf("src-1"), 5) } returns listOf(
+            developed(1, NewsType.DEVELOPMENT, null),
+            developed(2, NewsType.DEVELOPMENT, "not-a-date")
+        )
+
+        val result = service.findEligibleArticles(listOf("src-1"), podcast, window)
+
+        assertEquals(listOf(1L, 2L), result.map { it.id })
+    }
+
     // --- Covered topics for the dedup stage ---
 
     @Test

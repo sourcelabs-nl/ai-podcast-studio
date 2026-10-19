@@ -27,5 +27,10 @@ data class Article(
      * name; null when it was scored before the classification existed or the model did not answer
      * with a known value.
      */
-    val newsType: String? = null
+    val newsType: String? = null,
+    /**
+     * The date (`YYYY-MM-DD`) the content states its development happened; null when it states none
+     * or the article was scored before the field existed. See [com.aisummarypodcast.llm.ArticleEligibilityService].
+     */
+    val developmentDate: String? = null
 )

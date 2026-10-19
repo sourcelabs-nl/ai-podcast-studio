@@ -21,6 +21,8 @@ import org.springframework.ai.converter.BeanOutputConverter
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
+import java.time.LocalDate
+import java.time.format.DateTimeParseException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
 
@@ -29,7 +31,9 @@ data class ScoreSummarizeResult(
     val summary: String = "",
     val subtopic: String? = null,
     /** A [NewsType] name; see the enum for why the scoring stage is the only place this can be decided. */
-    val newsType: String? = null
+    val newsType: String? = null,
+    /** The date the content states its development happened; see [parseDevelopmentDate]. */
+    val developmentDate: String? = null
 )
 
 @Component
@@ -186,7 +190,8 @@ class ArticleScoreSummarizer(
                     relevanceScore = result?.relevanceScore ?: 0,
                     summary = result?.summary?.takeIf { it.isNotBlank() },
                     subtopic = normalizeSubtopic(result?.subtopic, podcast),
-                    newsType = NewsType.parse(result?.newsType)?.name
+                    newsType = NewsType.parse(result?.newsType)?.name,
+                    developmentDate = parseDevelopmentDate(result?.developmentDate)
                 ),
                 usage = usage
             )
@@ -249,6 +254,7 @@ class ArticleScoreSummarizer(
         val schemaLines = buildString {
             append("- \"relevanceScore\" (integer 0-10)\n")
             append("- \"newsType\" (exactly one of \"DEVELOPMENT\", \"RETROSPECTIVE\", \"EVERGREEN\")\n")
+            append("- \"developmentDate\" (YYYY-MM-DD, or null)\n")
             if (subtopicsConfigured) {
                 append("- \"subtopic\" (one of the subtopic names listed above, or null if none apply)\n")
             }
@@ -266,6 +272,8 @@ class ArticleScoreSummarizer(
             - "RETROSPECTIVE": it analyses, benchmarks, reviews or comments on something that was already released or already known. The analysis itself may be new; the thing it examines is not. Judge this from the content's own words: phrases like "when X was released", "after using it for a while", "revisiting", or a report about an already-shipped product are all RETROSPECTIVE.
             - "EVERGREEN": it is a landing page, README, documentation or marketing copy describing something that exists, with no datable event in it at all. Star counts, feature lists, install instructions and compatibility tables are not events.
 
+            Set "developmentDate" to the date the content states the development happened: for a DEVELOPMENT, when the launch, release or announcement took place; for a RETROSPECTIVE, when the thing it examines was released. Use only a date the content itself states, such as "released September 28, 2026" or a version's publication date. If it states none, or only relative wording like "recently" or "this week", use null. Never use the content's own publication date.
+
             Write directly about the subject — say "Anthropic launched X", not "The article discusses Anthropic launching X". But never assert an event the content does not report:
             - For a DEVELOPMENT, state what happened.
             - For a RETROSPECTIVE, lead with what is newly revealed or measured, and do NOT describe the underlying thing as newly released. Write "a technical report on X details..." or "a benchmark of X found...", never "X was released".
@@ -281,6 +289,20 @@ class ArticleScoreSummarizer(
             If the content attributes information to a specific person, organization, or study, preserve that attribution in your summary.
             If the content is completely irrelevant (score 0-2), you may leave the summary empty.
         """.trimIndent()
+    }
+
+    /**
+     * The model's `developmentDate` as an ISO date, or null when it gave none or something that is
+     * not a calendar date. A wrong date would drop an article, so anything unparseable counts as no date.
+     */
+    internal fun parseDevelopmentDate(raw: String?): String? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) } ?: return null
+        return try {
+            LocalDate.parse(value).toString()
+        } catch (_: DateTimeParseException) {
+            log.warn("[LLM] Unparseable developmentDate '{}' from the scoring model", value)
+            null
+        }
     }
 
     internal fun normalizeSubtopic(raw: String?, podcast: Podcast): String? {

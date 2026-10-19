@@ -32,3 +32,5 @@ change behaviour behind an unchanged name.
   Read when LLM requests fail at exactly 60s with "Error reading response" / InterruptedIOException timeout, or when upgrading Spring AI.
 - [OpenRouter's generation stats split a request into startup, reasoning and writing, but its "latency" is not time to first token](openrouter-generation-stats.md)  
   Read when a single LLM request was slow and you need to know whether it queued, reasoned, generated slowly or fell back between providers; or when reading OpenRouter's /api/v1/generation fields.
+- [The scoring model's stated development date catches republished news that the publication date hides](development-date-extraction-for-stale-news.md)  
+  Read when deciding whether to trust developmentDate to drop old stories, a republished or undated-feed guide opens an episode as fresh news, or tuning the stale-development cutoff.

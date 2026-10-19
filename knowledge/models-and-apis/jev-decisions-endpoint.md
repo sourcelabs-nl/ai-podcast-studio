@@ -174,6 +174,9 @@ boundary. On the openspec.dev landing page that leaked into episode 222 (see
 0.99 from the pipeline's own three descriptions pasted in as `criteria`,
 with no other prompt engineering.
 
+The eligibility stage also drops stale developments by the scoring model's stated
+development date: see [[development-date-extraction-for-stale-news]].
+
 ## Dedup: batch the questions against one state
 
 The already-covered question is a `noul`, and it is the one place measured so

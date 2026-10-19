@@ -651,6 +651,48 @@ class ArticleScoreSummarizerTest {
         assertTrue(prompt.contains("never assert an event the content does not report"))
     }
 
+    // --- Development date (episode 296's republished September guides) ---
+
+    @Test
+    fun `prompt asks for the stated development date and forbids the publication date`() {
+        val article = Article(
+            id = 22, sourceId = "s1", title = "Claude Code Auto Mode Is Now the Default", body = "Body.",
+            url = "https://example.com/22", contentHash = "hash22"
+        )
+
+        val prompt = scoreSummarizer.buildPrompt(article, podcast)
+
+        assertTrue(prompt.contains("\"developmentDate\" (YYYY-MM-DD, or null)"))
+        assertTrue(prompt.contains("Use only a date the content itself states"))
+        assertTrue(prompt.contains("Never use the content's own publication date."))
+    }
+
+    @Test
+    fun `the development date is stored on the article`() = runTest {
+        val article = Article(
+            id = 23, sourceId = "s1", title = "Claude Code Auto Mode Is Now the Default",
+            body = "Since v2.1.284, published September 28, 2026, auto mode is the default.",
+            url = "https://example.com/23", contentHash = "hash23"
+        )
+        mockLlmResponse(ScoreSummarizeResult(relevanceScore = 9, summary = "Auto mode is the default.", newsType = "DEVELOPMENT", developmentDate = "2026-09-28"))
+
+        scoreSummarizer.scoreSummarize(listOf(article), podcast, filterModelDef)
+
+        val saved = slot<Article>()
+        verify { articleRepository.save(capture(saved)) }
+        assertEquals("2026-09-28", saved.captured.developmentDate)
+    }
+
+    @Test
+    fun `parseDevelopmentDate keeps a calendar date and drops anything else`() {
+        assertEquals("2026-09-28", scoreSummarizer.parseDevelopmentDate(" 2026-09-28 "))
+        assertNull(scoreSummarizer.parseDevelopmentDate(null))
+        assertNull(scoreSummarizer.parseDevelopmentDate(""))
+        assertNull(scoreSummarizer.parseDevelopmentDate("null"))
+        assertNull(scoreSummarizer.parseDevelopmentDate("September 2026"))
+        assertNull(scoreSummarizer.parseDevelopmentDate("2026-02-30"))
+    }
+
     @Test
     fun `NewsType parses the model's answer and rejects anything else`() {
         assertEquals(NewsType.DEVELOPMENT, NewsType.parse("DEVELOPMENT"))
