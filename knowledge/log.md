@@ -5,6 +5,33 @@ so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
 months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
 screen.
 
+## [2026-10-20] Record
+
+`references/decision-model-and-eu-hosting-alternatives.md`: HostYourAI also
+runs a Jev-SDK-compatible EU decision API; only Loes Beslis (16K context,
+€0.15 per 1M) can carry the dedup gate's shared state. Repriced at HostYourAI
+rates, episode 297 would have cost about €1.42 instead of $0.55, almost all of
+it in scoring.
+
+## [2026-10-20] Lint
+
+Checked the new `references/decision-model-and-eu-hosting-alternatives.md`
+against the bundle: shape, `stale_after`, wikilinks, section index line and
+em-dashes are clean, and its figures (1,676 median input tokens, about 93
+candidates per chunk, the 2026-09-21 outage, one provider for Jev) agree with
+`jev-decisions-endpoint` and `openrouter-routing`. Both already link to it or
+are linked from it; no contradictions found. The open items from the 2026-10-19
+lint are unchanged. The OpenRouter EU 403 on this account is not in the bundle,
+so the EU-hosting section cannot reference it.
+
+## [2026-10-20] Record
+
+`references/decision-model-and-eu-hosting-alternatives.md`: Clef and Clef-flash
+are callable on OpenRouter's decisions endpoint with Jev's request shape and
+more than one provider, but cap a request at 64 questions; HostYourAI serves
+DeepSeek V4.1 Flash in the EU at several times the current scoring cost. Desk
+research only; nothing was called.
+
 ## [2026-10-19] Lint
 
 Full read of all 41 entries (the previous pass had only checked mechanics).

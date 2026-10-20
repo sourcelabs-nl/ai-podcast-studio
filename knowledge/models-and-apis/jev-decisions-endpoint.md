@@ -273,7 +273,9 @@ response types. Nothing it does passes through `ChatClientFactory`,
 explicitly from the client.
 
 Alpha endpoint, one provider, no fallback: a Jev outage has no OpenRouter
-routing behind it.
+routing behind it. A model that takes the same request on the same endpoint,
+with more than one provider, is described in
+[[decision-model-and-eu-hosting-alternatives]].
 
 ## The gate's calls are visible as ordinary LLM requests
 

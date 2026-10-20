@@ -26,3 +26,5 @@ Measured behaviour of the models, SDKs and APIs we call lives in
   Read when considering a move off Tavily to a provider's own web search.
 - [Mutation testing for AI-written tests, and what it would take on this Kotlin codebase](mutation-testing-ai-written-tests.md)  
   Read when considering whether this project's tests catch real defects, or adding mutation testing.
+- [Clef is a drop-in alternative to Jev on OpenRouter, and HostYourAI hosts both the scoring model and Jev-compatible decision models in the EU at about 2.5 times the cost per episode](decision-model-and-eu-hosting-alternatives.md)  
+  Read when considering a different decision model than Jev, a fallback for a Jev outage, or EU-hosted inference for any pipeline stage.
