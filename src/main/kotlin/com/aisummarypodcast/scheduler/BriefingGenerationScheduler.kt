@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
+import org.slf4j.event.Level
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.scheduling.support.CronExpression
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Component
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
@@ -40,6 +42,13 @@ class BriefingGenerationScheduler(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * Slots ("podcastId@slot") whose deferral has already been logged at info. A deferred slot is
+     * re-checked every minute until its sources catch up or the deadline passes; only the first
+     * check of each slot is worth an info line, the repeats go to debug.
+     */
+    private val deferredSlotsLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @EventListener(ApplicationReadyEvent::class)
@@ -95,7 +104,11 @@ class BriefingGenerationScheduler(
                     val slot = nextExecution.atZone(zone).toInstant()
                     if (!isRetryAllowed(podcast, slot)) continue
 
-                    log.info("[Pipeline] Podcast '{}' ({}) is due for briefing generation", podcast.name, podcast.id)
+                    if (isRepeatedDeferral(podcast, slot)) {
+                        log.debug("[Pipeline] Podcast '{}' ({}) is due for briefing generation", podcast.name, podcast.id)
+                    } else {
+                        log.info("[Pipeline] Podcast '{}' ({}) is due for briefing generation", podcast.name, podcast.id)
+                    }
                     val window = episodeWindowResolver.resolve(podcast, slot)
 
                     ensureFreshPolling(podcast)
@@ -200,6 +213,10 @@ class BriefingGenerationScheduler(
      * incomplete episode beats no episode at all. Only sources that will be polled again before that
      * deadline hold generation back: a source in backoff cannot catch up by being waited for.
      */
+    private fun slotKey(podcast: Podcast, slot: Instant) = "${podcast.id}@$slot"
+
+    private fun isRepeatedDeferral(podcast: Podcast, slot: Instant) = slotKey(podcast, slot) in deferredSlotsLogged
+
     private fun isWindowCovered(podcast: Podcast, window: EpisodeWindow, slot: Instant): Boolean {
         val behind = sourceService.findSourcesBehindWindow(podcast.id, window.end)
         if (behind.isEmpty()) return true
@@ -213,7 +230,9 @@ class BriefingGenerationScheduler(
                 source.nextPollAt(maxBackoffHours)?.isAfter(deadline) != true
             }
             if (worthWaitingFor.isNotEmpty()) {
-                log.info(
+                val firstDeferral = deferredSlotsLogged.add(slotKey(podcast, slot))
+                val level = if (firstDeferral) Level.INFO else Level.DEBUG
+                log.atLevel(level).log(
                     "[Pipeline] Deferring generation for podcast '{}' ({}): {} source(s) have not polled the " +
                         "window {} yet ({}). Waiting until {}.",
                     podcast.name, podcast.id, worthWaitingFor.size, window, labelsOf(worthWaitingFor), deadline

@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Component
+import java.net.SocketException
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -51,7 +52,7 @@ class SourcePoller(
             val sourceCreatedAt = parseInstant(source.createdAt)
 
             var resolvedXUserId: String? = null
-            val rawPosts = when (source.type) {
+            val rawPosts = retryingDroppedConnection(source) { when (source.type) {
                 SourceType.RSS -> rssFeedFetcher.fetch(source.url, source.id, rssFetchFloor(source, maxAgeCutoff, isFirstPoll, sourceCreatedAt), source.categoryFilter)
                 SourceType.WEBSITE -> listOfNotNull(websiteFetcher.fetch(source.url, source.id))
                 SourceType.TWITTER -> {
@@ -65,7 +66,7 @@ class SourcePoller(
                     }
                 }
                 SourceType.YOUTUBE -> rssFeedFetcher.fetch(source.url, source.id, source.lastSeenId, source.categoryFilter, deepFetch = false)
-            }
+            } }
 
             var latestTimestamp = source.lastSeenId
             var savedCount = 0
@@ -155,6 +156,26 @@ class SourcePoller(
             return failure
         }
     }
+
+    /**
+     * Runs [fetch], retrying it once after `app.source.connection-retry-delay` when it failed on a
+     * dropped connection (reset, refused, closed). Those usually clear within seconds; an HTTP status
+     * or a timeout is a real answer from the host and is not retried. Only the fetch is repeated,
+     * nothing has been stored yet at that point.
+     */
+    private fun <T> retryingDroppedConnection(source: Source, fetch: () -> T): T =
+        try {
+            fetch()
+        } catch (e: Exception) {
+            if (!isDroppedConnection(e)) throw e
+            log.warn("[Polling] Dropped connection fetching source {} ({}); retrying once", source.url, e.message)
+            Thread.sleep(appProperties.source.connectionRetryDelay.toMillis())
+            fetch()
+        }
+
+    private fun isDroppedConnection(e: Throwable): Boolean =
+        generateSequence(e) { it.cause.takeIf { cause -> cause !== it } }
+            .any { it is SocketException }
 
     /**
      * Applies [update] to [source] and persists it, re-reading the row and reapplying [update] once

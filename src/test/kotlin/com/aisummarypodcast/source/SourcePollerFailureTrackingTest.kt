@@ -15,6 +15,7 @@ import com.aisummarypodcast.store.SourceType
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -23,6 +24,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpStatus
 import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.HttpServerErrorException
+import org.springframework.web.client.ResourceAccessException
+import java.net.SocketException
+import java.time.Duration
 import java.time.Instant
 
 class SourcePollerFailureTrackingTest {
@@ -46,10 +51,47 @@ class SourcePollerFailureTrackingTest {
         episodes = EpisodesProperties(),
         feed = FeedProperties(),
         encryption = EncryptionProperties(masterKey = "test-key"),
-        source = SourceProperties(maxFailures = maxFailures)
+        source = SourceProperties(maxFailures = maxFailures, connectionRetryDelay = Duration.ofMillis(10))
     )
 
     private val source = Source(id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://example.com/feed")
+
+    @Test
+    fun `a dropped connection is retried once and a successful retry counts as success`() {
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } throws
+            ResourceAccessException("I/O error", SocketException("Connection reset")) andThen emptyList<Post>()
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        val failure = poller.poll(source)
+
+        assertNull(failure)
+        assertEquals(0, sourceSlot.captured.consecutiveFailures)
+        verify(exactly = 2) { rssFeedFetcher.fetch(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a dropped connection that persists on the retry counts as one transient failure`() {
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } throws
+            ResourceAccessException("I/O error", SocketException("Connection reset"))
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        val failure = poller.poll(source)
+
+        assertTrue(failure is PollFailure.Transient)
+        assertEquals(1, sourceSlot.captured.consecutiveFailures)
+        verify(exactly = 2) { rssFeedFetcher.fetch(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `an HTTP error status is not retried`() {
+        every { rssFeedFetcher.fetch(any(), any(), any(), any()) } throws
+            HttpServerErrorException(HttpStatus.BAD_GATEWAY)
+
+        val poller = SourcePoller(rssFeedFetcher, websiteFetcher, twitterFetcher, postRepository, sourceRepository, appProperties())
+        poller.poll(source)
+
+        verify(exactly = 1) { rssFeedFetcher.fetch(any(), any(), any(), any()) }
+    }
 
     @Test
     fun `increments consecutiveFailures on transient error`() {

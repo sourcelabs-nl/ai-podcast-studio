@@ -1,5 +1,11 @@
 package com.aisummarypodcast.scheduler
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
+import org.slf4j.LoggerFactory
+import org.junit.jupiter.api.Assertions.assertEquals
 import com.aisummarypodcast.config.AppProperties
 import com.aisummarypodcast.config.EpisodeProperties
 import com.aisummarypodcast.config.SourceProperties
@@ -176,6 +182,33 @@ class BriefingGenerationSchedulerTest {
 
         // Nothing is created, so the slot stays due and the next tick re-checks.
         coVerify(exactly = 0) { podcastService.generateBriefing(any(), any()) }
+    }
+
+    @Test
+    fun `a deferred slot is logged at info once and at debug on every re-check`() {
+        val podcast = duePodcast()
+        every { podcastService.findAll() } returns listOf(podcast)
+        every { sourceService.findSourcesBehindWindow("p1", any()) } returns listOf(behindSource())
+        val logger = LoggerFactory.getLogger(BriefingGenerationScheduler::class.java) as Logger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        val previousLevel = logger.level
+        logger.level = Level.DEBUG
+        logger.addAppender(appender)
+
+        try {
+            runBlocking {
+                scheduler.checkAndGenerate()
+                scheduler.checkAndGenerate()
+            }
+        } finally {
+            logger.detachAppender(appender)
+            logger.level = previousLevel
+        }
+
+        val deferrals = appender.list.filter { it.formattedMessage.contains("Deferring generation") }
+        assertEquals(listOf(Level.INFO, Level.DEBUG), deferrals.map { it.level })
+        val due = appender.list.filter { it.formattedMessage.contains("is due for briefing generation") }
+        assertEquals(listOf(Level.INFO, Level.DEBUG), due.map { it.level })
     }
 
     @Test

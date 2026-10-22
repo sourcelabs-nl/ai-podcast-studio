@@ -291,7 +291,11 @@ data class SourceProperties(
     val feedReadTimeout: Duration = Duration.ofSeconds(30),
     // Backstop for one source's whole poll (feed, deep-fetches, storing). A poll still running after
     // this is interrupted, so it cannot hold up the rest of its poll round.
-    val pollTimeout: Duration = Duration.ofMinutes(10)
+    val pollTimeout: Duration = Duration.ofMinutes(10),
+    // Wait before the single retry of a fetch that failed on a dropped connection (reset, refused,
+    // closed). Such failures are usually gone within seconds, and without the retry one counted
+    // toward backoff and could hold up an episode waiting for the source.
+    val connectionRetryDelay: Duration = Duration.ofSeconds(3)
 )
 
 /**

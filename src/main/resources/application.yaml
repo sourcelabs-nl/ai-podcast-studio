@@ -313,6 +313,8 @@ app:
     feed-connect-timeout: 10s
     feed-read-timeout: 30s
     poll-timeout: 10m
+    # A fetch that fails on a dropped connection (reset, refused) is retried once after this delay.
+    connection-retry-delay: 3s
     # Host-level circuit breaker settings live under resilience4j.circuitbreaker below.
   feed:
     base-url: http://localhost:8085
