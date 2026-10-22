@@ -1,6 +1,6 @@
 ---
 okf_version: "0.2"
-type: reference
+type: finding
 title: What a Narro RSS feed carries, and what it does not
 answers: changing how threads are reconstructed from Narro-sourced X content
 status: stable
@@ -8,6 +8,7 @@ method: >
   Fetched one combined feed live and read all 50 items: the element names present
   on each item, the namespaces declared, the uniqueness of every guid, the host
   and shape of every link, and the class names used inside the description HTML.
+model_version: none, this is the format of Narro's RSS feed as served on 2026-09-15
 stale_after: 2027-09-15T00:00:00Z
 generated:
   by: claude-opus-5

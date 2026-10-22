@@ -27,8 +27,10 @@ extreme: episode 197 with eleven over-cap turns and an expert median of 104 word
 against a corpus median of 60.
 
 The length spread is not driven by how much news there is. `app.compose.
-max-articles` is 40 and nearly every episode reaches it, so the 1667 to 2965 word
-range occurs at a constant article count. It is the composer varying, not the
+max-articles` is 40 and nearly every episode of that baseline reached it, so the 1667 to 2965 word
+range occurred at a constant article count. After the relevance threshold rose
+to 7 episodes use about 21 articles (see [[compose-stakes-first-episode-302]]),
+and the length still varies: 1788 words in 302, 2401 in 303. It is the composer varying, not the
 input.
 
 See [[structure-baseline-2026-09]] for the measurements.

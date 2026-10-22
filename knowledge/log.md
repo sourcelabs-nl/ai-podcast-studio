@@ -7,6 +7,14 @@ screen.
 
 ## [2026-10-22] Lint
 
+Covered every entry, read in full. Fixed: `models-and-apis/generated-keys-from-a-batch.md` and `narro-feed-format.md` were typed `reference` but hold measured behaviour, so they are now `finding` with a `model_version`; `prompt-rules/length-is-not-a-defect.md` said nearly every episode reaches the 40-article cap, which no longer holds since the threshold of 7 (episodes 302 and 303 used 21), so it now says so; the two stakes-first episode entries gained their experiment conditions in frontmatter. Shape, `stale_after` (earliest 2026-12-15), indexes, wikilinks, em-dashes and edit-history wording were otherwise clean. Open: `evals/` now holds 15 entries on three subjects (compose and episode observations, judge and scoring, pipeline experiments), so a split is worth proposing; `jev-decisions-endpoint.md` is 16 KB and covers scoring, dedup, gating and logging in one entry; `references/mutation-testing-ai-written-tests.md` quotes roughly 1,800 tests where the suite now has about 2,060; the only dangling wikilink is in the unchanged `log-archive-2026-09.md`.
+
+## [2026-10-22] Record
+
+`evals/compose-stakes-first-episode-303.md`: episode 303 (21 articles, 5 arXiv papers, 2401 words, 886 s) kept stakes-first openings, a retellable paper finding and interviewer pushback, but its rapid-fire retold 4 of 6 stories because `SubtopicPlan` bucketed per article while dedup had grouped them by topic, and it stacked numbers despite the numbers-for-the-ear rule. The fix (`subtopic-plan-by-topic`) is untested on a live episode.
+
+## [2026-10-22] Lint
+
 Covered every entry. Shape, required fields, status values, `stale_after` (earliest 2026-12-15), section indexes, wikilinks, em-dashes and edit-history wording were clean, including the new `prompt-rules/days-and-times.md`, which overlaps no existing entry. Open: the only dangling wikilink is in the unchanged `log-archive-2026-09.md`; `evals/` still nears the size at which a split is worth proposing.
 
 ## [2026-10-22] Record

@@ -46,3 +46,5 @@ Negative results are recorded on the same terms as positive ones.
   Read when deciding whether to change the relevance-scoring prompt or a podcast's relevance threshold, or asking why the scoring prompt rates listener interest and caps framework papers.
 - [Episode 302, the first script composed with the stakes-first rules, drops the arXiv papers and asks so-what questions](compose-stakes-first-episode-302.md)  
   Read when judging whether the stakes-first compose rules and the newsworthiness rubric made episodes less boring and technical, or asking why renaming subtopics sent scored articles into "Other".
+- [Episode 303 keeps the stakes-first strengths, but its rapid-fire repeated four of six stories and stacked numbers](compose-stakes-first-episode-303.md)  
+  Read when judging how the stakes-first compose rules held up on a second episode, diagnosing a rapid-fire segment that retells stories already told, or a script that stacks numbers despite the numbers-for-the-ear rule.

@@ -4,6 +4,11 @@ type: experiment
 title: Episode 302, the first script composed with the stakes-first rules, drops the arXiv papers and asks so-what questions
 answers: judging whether the stakes-first compose rules and the newsworthiness rubric made episodes less boring and technical, or asking why renaming subtopics sent scored articles into "Other"
 status: draft
+varied: the compose prompt, the scoring rubric, the threshold and the subtopic names, all at once
+held_fixed: nothing
+runs: 1
+runs_reaching_model: not recorded
+cache_bypassed: not recorded
 generated:
   by: claude-sonnet-5-5
   at: 2026-10-21T00:00:00Z
@@ -63,3 +68,5 @@ page warns instead (OpenSpec change `subtopic-rename-warning`).
 - Which of the changes (rubric, threshold, subtopic names, compose rules) produced
   each difference is not separable from one episode.
 - The reaction placed one turn before its cause is a single occurrence.
+
+The next episode under the same rules is [[compose-stakes-first-episode-303]].

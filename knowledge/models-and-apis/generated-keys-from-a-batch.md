@@ -1,6 +1,6 @@
 ---
 okf_version: "0.2"
-type: reference
+type: finding
 title: The SQLite driver returns no generated keys from a batch
 answers: a save of several new rows fails with "After saving the identifier must not be null"
 status: stable
@@ -10,6 +10,7 @@ method: >
   RETURN_GENERATED_KEYS and reads getGeneratedKeys(), then inserts three rows
   through addBatch/executeBatch and reads the same. The second inserts 200 rows
   one statement at a time and times the whole loop.
+model_version: xerial sqlite-jdbc 3.53.2.0
 stale_after: 2027-09-22T00:00:00Z
 generated:
   by: claude-opus-5
