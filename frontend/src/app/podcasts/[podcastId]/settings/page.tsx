@@ -22,6 +22,7 @@ import {
 import { KeyValueEditor } from "@/components/key-value-editor";
 import { SubtopicsEditor } from "@/components/subtopics-editor";
 import { cn } from "@/lib/utils";
+import { findLostSubtopicNames } from "@/lib/subtopic-names";
 
 const STYLES = [
   "news-briefing",
@@ -359,6 +360,8 @@ export default function PodcastSettingsPage() {
       setDeleting(false);
     }
   }
+
+  const lostSubtopicNames = findLostSubtopicNames(podcast?.subtopics, form?.subtopics);
 
   function update<K extends keyof Podcast>(key: K, value: Podcast[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -824,6 +827,15 @@ export default function PodcastSettingsPage() {
                   value={form.subtopics}
                   onChange={(v) => update("subtopics", v)}
                 />
+                {lostSubtopicNames.length > 0 && (
+                  <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                    <div>
+                      <p>Already-scored articles keep the subtopic they were classified with. Articles under a renamed or removed subtopic count as &quot;Other&quot; (weight 1), so they land in the rapid-fire segment or drop out of the episode until they are scored again.</p>
+                      <p className="mt-1">Affected: {lostSubtopicNames.join(", ")}</p>
+                    </div>
+                  </div>
+                )}
               </FieldGroup>
               <FieldGroup label="Rapid-fire Weight Threshold" description="Subtopics with weight at or below this value (plus unclassified articles in a synthetic 'Other' bucket of weight 1) are rolled into a single rapid-fire segment at the end of the script. 0 = nothing is rapid-fire; 10 = everything is rapid-fire. Default: 3.">
                 <input
