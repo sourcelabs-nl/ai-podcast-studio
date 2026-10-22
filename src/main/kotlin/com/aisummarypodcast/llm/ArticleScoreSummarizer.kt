@@ -267,6 +267,15 @@ class ArticleScoreSummarizer(
             2. Classify what the content is in time, as "newsType"
             3. Summarize the relevant information in $summaryLengthInstruction, filtering out any irrelevant parts
 
+            Score "relevanceScore" on two things together: how well the content fits the topic, and whether a listener of this podcast would want to hear about it today. Fit alone is not enough for a high score.
+            - 9-10: a development people in the field will be talking about: a notable model or product release, a major result, or a finding that changes how people work in the field.
+            - 7-8: on topic with a concrete consequence a listener could act on or retell: a useful new tool, a surprising or broadly applicable finding, a meaningful change at a company that matters to the topic.
+            - 5-6: on topic but incremental or narrow: a result of interest mainly to specialists in one sub-field, a preliminary study, a minor update.
+            - 3-4: only loosely related to the topic.
+            - 0-2: irrelevant.
+            A release of a model, agent or developer product that people can use scores at least 7.
+            Research papers are scored on the same terms. A paper reaches 7 or higher only when it reports a measured finding that is surprising or broadly applicable, one a listener could retell in a sentence (for example "coding agents fail far more often when they inherit a half-finished repository"). A paper whose main contribution is a framework, harness, method or benchmark, with improvements over earlier work, scores at most 6, however well it fits the topic.
+
             Classify "newsType" as exactly one of:
             - "DEVELOPMENT": it reports something that has just happened — a launch, release, announcement, publication, incident or result presented as new.
             - "RETROSPECTIVE": it analyses, benchmarks, reviews or comments on something that was already released or already known. The analysis itself may be new; the thing it examines is not. Judge this from the content's own words: phrases like "when X was released", "after using it for a while", "revisiting", or a report about an already-shipped product are all RETROSPECTIVE.

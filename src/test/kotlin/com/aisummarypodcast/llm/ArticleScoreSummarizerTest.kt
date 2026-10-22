@@ -651,6 +651,35 @@ class ArticleScoreSummarizerTest {
         assertTrue(prompt.contains("never assert an event the content does not report"))
     }
 
+    // --- Newsworthiness rubric (episode 299's run of incremental papers) ---
+
+    @Test
+    fun `prompt scores relevance on topic fit and listener interest together`() {
+        val article = Article(
+            id = 23, sourceId = "s1", title = "Paper", body = "Body.",
+            url = "https://example.com/23", contentHash = "hash23"
+        )
+
+        val prompt = scoreSummarizer.buildPrompt(article, podcast)
+
+        assertTrue(prompt.contains("whether a listener of this podcast would want to hear about it today"))
+        assertTrue(prompt.contains("Fit alone is not enough for a high score."))
+        assertTrue(prompt.contains("- 5-6: on topic but incremental or narrow"))
+    }
+
+    @Test
+    fun `prompt floors usable releases at 7 and caps incremental papers at 6`() {
+        val article = Article(
+            id = 24, sourceId = "s1", title = "Paper", body = "Body.",
+            url = "https://example.com/24", contentHash = "hash24"
+        )
+
+        val prompt = scoreSummarizer.buildPrompt(article, podcast)
+
+        assertTrue(prompt.contains("A release of a model, agent or developer product that people can use scores at least 7."))
+        assertTrue(prompt.contains("framework, harness, method or benchmark, with improvements over earlier work, scores at most 6"))
+    }
+
     // --- Development date (episode 296's republished September guides) ---
 
     @Test
