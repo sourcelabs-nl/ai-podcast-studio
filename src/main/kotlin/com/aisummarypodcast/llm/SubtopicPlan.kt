@@ -13,14 +13,24 @@ data class SubtopicBucket(
     val wordBudget: Int
 )
 
+/** The rapid-fire share of the word budget and the cap on rapid-fire items. */
+data class RapidFireSettings(
+    val budgetFraction: Double,
+    val maxItems: Int
+)
+
 /**
- * A kept rapid-fire item, carrying its source bucket so the prompt can display
- * both bucket and title in priority order.
+ * A kept rapid-fire item: one story, carrying its source bucket so the prompt can display
+ * both bucket and [label] in priority order. [article] is the story's highest-ranked article;
+ * [articles] are all of its articles. [label] is the story's topic label when the dedup stage
+ * assigned one, otherwise the article title.
  */
 data class RapidFireItem(
     val article: Article,
     val bucketName: String,
-    val bucketWeight: Int
+    val bucketWeight: Int,
+    val label: String = article.title,
+    val articles: List<Article> = listOf(article)
 )
 
 /**
@@ -63,9 +73,11 @@ data class SubtopicPlan(
             podcast: Podcast,
             articles: List<Article>,
             targetWords: Int,
-            rapidFireBudgetFraction: Double,
-            rapidFireMaxItems: Int
+            rapidFire: RapidFireSettings,
+            articleTopics: Map<Long, String> = emptyMap()
         ): SubtopicPlan? {
+            val rapidFireBudgetFraction = rapidFire.budgetFraction
+            val rapidFireMaxItems = rapidFire.maxItems
             val configured = podcast.subtopics?.weights ?: return null
             if (configured.isEmpty()) return null
 
@@ -75,15 +87,24 @@ data class SubtopicPlan(
             configured.keys.forEach { byBucket[it] = mutableListOf() }
             byBucket[OTHER_BUCKET] = mutableListOf()
 
-            for (article in articles) {
-                val key = article.subtopic?.let { sub -> configured.keys.firstOrNull { it.equals(sub, ignoreCase = true) } }
-                    ?: OTHER_BUCKET
-                byBucket.getValue(key).add(article)
-            }
-
             val weightOf: (String) -> Int = { name ->
                 if (name == OTHER_BUCKET) OTHER_BUCKET_WEIGHT else configured[name] ?: OTHER_BUCKET_WEIGHT
             }
+            val bucketOf: (Article) -> String = { article ->
+                article.subtopic?.let { sub -> configured.keys.firstOrNull { it.equals(sub, ignoreCase = true) } }
+                    ?: OTHER_BUCKET
+            }
+
+            // A story goes to one bucket as a whole: the highest-weight subtopic among its articles,
+            // ties broken by bucket order. An article without a topic is a story of its own.
+            val bucketOrder = byBucket.keys.toList()
+            val stories = articles.groupBy { article -> article.id?.let { articleTopics[it] } ?: "article:${article.id}" }
+            val storyBucket = stories.mapValues { (_, storyArticles) ->
+                storyArticles.map(bucketOf).distinct()
+                    .sortedWith(compareByDescending<String> { weightOf(it) }.thenBy { bucketOrder.indexOf(it) })
+                    .first()
+            }
+            for ((story, storyArticles) in stories) byBucket.getValue(storyBucket.getValue(story)).addAll(storyArticles)
 
             val (fullRaw, rapidRaw) = byBucket
                 .filterValues { it.isNotEmpty() }
@@ -96,7 +117,13 @@ data class SubtopicPlan(
             // from the script entirely (per user direction: prefer fewer items with real
             // explanation over breadth).
             val rapidOrderAll = rapidRaw
-                .flatMap { (name, arts) -> arts.map { RapidFireItem(it, name, weightOf(name)) } }
+                .flatMap { (name, arts) -> arts.groupBy { article -> article.id?.let { articleTopics[it] } }.flatMap { (topic, storyArticles) ->
+                    val ranked = storyArticles.sortedWith(
+                        compareByDescending<Article> { it.relevanceScore ?: Int.MIN_VALUE }.thenBy { it.id ?: Long.MAX_VALUE }
+                    )
+                    if (topic == null) ranked.map { RapidFireItem(it, name, weightOf(name)) }
+                    else listOf(RapidFireItem(ranked.first(), name, weightOf(name), label = topic, articles = ranked))
+                } }
                 .sortedWith(
                     compareByDescending<RapidFireItem> { it.bucketWeight }
                         .thenByDescending { it.article.relevanceScore ?: Int.MIN_VALUE }
@@ -117,7 +144,7 @@ data class SubtopicPlan(
             // Rebuild rapid-fire buckets to contain only kept articles, preserving the
             // original bucket iteration order so articleSubtopics stays consistent.
             val rapidFire = rapidRaw.mapNotNull { (name, _) ->
-                val kept = keptByBucket[name]?.map { it.article } ?: return@mapNotNull null
+                val kept = keptByBucket[name]?.flatMap { it.articles } ?: return@mapNotNull null
                 SubtopicBucket(name = name, weight = weightOf(name), articles = kept, wordBudget = 0)
             }
 
@@ -152,14 +179,14 @@ fun buildSubtopicPlanBlock(plan: SubtopicPlan, style: RapidFireStyle): String {
         val count = plan.rapidFireOrder.size
         val wordsPerItem = if (count > 0) plan.rapidFireWordBudget / count else 0
         val itemLines = plan.rapidFireOrder.withIndex().joinToString("\n") { (idx, item) ->
-            "              ${idx + 1}. [${item.bucketName}] \"${item.article.title}\""
+            "              ${idx + 1}. [${item.bucketName}] \"${item.label}\""
         }
         """
 
             Rapid-fire tier (up to $count item${if (count == 1) "" else "s"}, total approximately ${plan.rapidFireWordBudget} words, ~${wordsPerItem} words per item, cover in this order):
 $itemLines
 
-            ${style.intro} Cover the items above in roughly $wordsPerItem words each. Items on the same theme may share one point, and an item with no takeaway a listener could retell in a sentence may be left out. Do NOT skip the rapid-fire segment; it MUST appear after the full segments. Introduce the segment in plain, natural language (something like "a few quick ones to round things off") and flow from one item to the next conversationally: do NOT announce ordinal numbers or count the items aloud (no "item one, item two", no "first, second, third"). In a rapid-fire item, voice AT MOST ONE number, rounded to a clean value, and never read a benchmark name and its score together; lead with what the item means, not the metric."""
+            ${style.intro} Cover the items above in roughly $wordsPerItem words each. If a story below was already covered earlier in the episode, leave it out of this segment rather than telling it twice. Items on the same theme may share one point, and an item with no takeaway a listener could retell in a sentence may be left out. Do NOT skip the rapid-fire segment; it MUST appear after the full segments. Introduce the segment in plain, natural language (something like "a few quick ones to round things off") and flow from one item to the next conversationally: do NOT announce ordinal numbers or count the items aloud (no "item one, item two", no "first, second, third"). In a rapid-fire item, voice AT MOST ONE number, rounded to a clean value, and never read a benchmark name and its score together; lead with what the item means, not the metric."""
     } else ""
 
     return """

@@ -19,8 +19,65 @@ class SubtopicPlanTest {
             contentHash = "h$id", subtopic = subtopic, relevanceScore = relevanceScore
         )
 
-    private fun plan(podcast: Podcast, articles: List<Article>, maxItems: Int = 50) =
-        SubtopicPlan.from(podcast, articles, targetWords = 1500, rapidFireBudgetFraction = 0.15, rapidFireMaxItems = maxItems)
+    private fun plan(
+        podcast: Podcast,
+        articles: List<Article>,
+        maxItems: Int = 50,
+        articleTopics: Map<Long, String> = emptyMap()
+    ) = SubtopicPlan.from(podcast, articles, targetWords = 1500, RapidFireSettings(budgetFraction = 0.15, maxItems = maxItems), articleTopics)
+
+    // --- Stories, not articles (episode 303: the PHP lead story came back as three rapid-fire items) ---
+
+    private val episode303Podcast = basePodcast.copy(
+        subtopics = Subtopics(mapOf("Model releases" to 9, "Agentic coding" to 10, "Agent research" to 3)),
+        rapidFireWeightThreshold = 3
+    )
+    private val php = "OpenAI Patch the Planet PHP vulnerability discovery"
+    private val duet = "Claude Duet proactive agent"
+    private val episode303Articles = listOf(
+        article(1, "Agent research", 8), article(2, "Agent research", 8), article(3, "Agent research", 8),
+        article(4, "Agent research", 8), article(5, "Model releases", 8), article(6, "Model releases", 8),
+        article(7, "Agentic coding", 7), article(8, "Agent research", 7)
+    )
+    private val episode303Topics = mapOf(
+        1L to php, 2L to php, 3L to php,
+        4L to duet, 5L to duet, 6L to duet,
+        7L to "Merge-gate evidence", 8L to "Refusal transfer failure"
+    )
+
+    @Test
+    fun `a story with several articles is one rapid-fire item`() {
+        val p = plan(episode303Podcast, episode303Articles, articleTopics = episode303Topics)!!
+
+        assertEquals(listOf(php, "Refusal transfer failure"), p.rapidFireOrder.map { it.label })
+        assertEquals(listOf(1L, 2L, 3L), p.rapidFireOrder.first().articles.mapNotNull { it.id })
+    }
+
+    @Test
+    fun `a story split across subtopics goes wholly to its highest-weight subtopic`() {
+        val p = plan(episode303Podcast, episode303Articles, articleTopics = episode303Topics)!!
+
+        val modelReleases = p.fullSegments.single { it.name == "Model releases" }
+        assertEquals(listOf(4L, 5L, 6L), modelReleases.articles.mapNotNull { it.id }.sorted())
+        assertFalse(p.rapidFireOrder.any { it.label == duet })
+    }
+
+    @Test
+    fun `without topic assignments rapid-fire items stay per article`() {
+        val p = plan(episode303Podcast, episode303Articles)!!
+
+        assertEquals(5, p.rapidFireOrder.size)
+    }
+
+    @Test
+    fun `rapid-fire block names stories by label and skips one already covered`() {
+        val p = plan(episode303Podcast, episode303Articles, articleTopics = episode303Topics)!!
+
+        val block = buildSubtopicPlanBlock(p, RapidFireStyle.INTERVIEW)
+
+        assertTrue(block.contains("1. [Agent research] \"$php\""), block)
+        assertTrue(block.contains("If a story below was already covered earlier in the episode, leave it out of this segment"), block)
+    }
 
     @Test
     fun `from returns null when no subtopics configured`() {

@@ -394,6 +394,7 @@ class PipelineRunnerTest {
                 listOf(article), podcast,
                 ComposeContext(
                     followUpAnnotations = mapOf(1L to "follow"), topicLabels = listOf("Topic"),
+                    articleTopics = mapOf(1L to "Topic"),
                     episodeDate = episodeDate, episodeId = 7L, runConfig = bypassConfig
                 ),
                 any()

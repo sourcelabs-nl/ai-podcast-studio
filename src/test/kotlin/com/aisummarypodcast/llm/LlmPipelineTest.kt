@@ -658,6 +658,19 @@ class LlmPipelineTest {
     }
 
     @Test
+    fun `compose hands the composer each article's topic so the plan places stories whole`() = runTest {
+        val filteredArticle = FilteredArticle(scoredArticle, topic = "AI Safety")
+        every { modelResolver.resolve(any(), PipelineStage.COMPOSE) } returns composeModelDef
+        coEvery {
+            briefingComposer.compose(listOf(scoredArticle), podcast, composeModelDef, match { it.articleTopics == mapOf(scoredArticle.id!! to "AI Safety") })
+        } returns CompositionResult("Today in tech...", TokenUsage(500, 200), listOf("AI Safety"))
+
+        val result = pipeline.compose(listOf(filteredArticle), podcast, ComposeContext(topicLabels = listOf("AI Safety")))
+
+        assertEquals("Today in tech...", result.script)
+    }
+
+    @Test
     fun `compose researches the focus and the clusters first and hands the result to the composer`() = runTest {
         val filteredArticle = FilteredArticle(scoredArticle, topic = "AI Safety")
         val research = PreComposeResearch(

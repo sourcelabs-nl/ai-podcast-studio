@@ -49,8 +49,11 @@ class DialogueComposer(
             podcast,
             articles,
             targetWords,
-            appProperties.compose.rapidFireBudgetFraction,
-            podcast.rapidFireMaxItems ?: appProperties.compose.rapidFireMaxItems
+            RapidFireSettings(
+                budgetFraction = appProperties.compose.rapidFireBudgetFraction,
+                maxItems = podcast.rapidFireMaxItems ?: appProperties.compose.rapidFireMaxItems
+            ),
+            context.articleTopics
         )
         val articleSubtopics = plan?.articleSubtopics ?: emptyMap()
         val subtopicPlanBlock = plan?.let { buildSubtopicPlanBlock(it, RapidFireStyle.DIALOGUE) } ?: ""

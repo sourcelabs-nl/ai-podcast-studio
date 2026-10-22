@@ -226,6 +226,7 @@ class PipelineRunner(
         val context = ComposeContext(
             followUpAnnotations = followUpAnnotations,
             topicLabels = topicLabels,
+            articleTopics = articleTopics,
             episodeDate = episodeWindowResolver.episodeDateOf(podcast, input.window),
             episodeId = episode.id,
             runConfig = config

@@ -518,7 +518,11 @@ class LlmPipeline(
             ttsScriptGuidelines = ttsProvider.scriptGuidelines(podcast.style, podcast.pronunciations ?: emptyMap()),
             nextEpisodeDate = episodeWindowResolver.nextEpisodeDateAfter(podcast, context.episodeDate),
             research = research(toCompose, podcast, runConfig, context),
-            runConfig = runConfig
+            runConfig = runConfig,
+            articleTopics = composeArticles.mapNotNull { filtered ->
+                val id = filtered.article.id ?: return@mapNotNull null
+                filtered.topic?.let { id to it }
+            }.toMap()
         )
 
         // Retried only on a transient provider fault (see the `compose` instance): an invalid or

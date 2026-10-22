@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-weighted-subtopics-relevance. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Per-podcast subtopic configuration
 Each podcast SHALL support an optional list of weighted subtopics. The list SHALL be stored as a JSON map (`subtopics TEXT` column on `podcasts`) of subtopic name → integer weight. Weights SHALL be integers in the inclusive range 1-10. Subtopic names SHALL be non-empty strings, treated case-insensitively for matching but preserving the editor's casing for display. The map MAY be empty or null — in that case the feature is disabled and the pipeline behaves as if subtopics did not exist.
 
@@ -38,7 +40,7 @@ Each podcast SHALL have a `rapidFireWeightThreshold` field (INTEGER, NOT NULL, d
 - **THEN** the request SHALL be rejected with HTTP 400
 
 ### Requirement: Rapid-fire item cap and ranking per podcast
-Each podcast SHALL have an optional `rapidFireMaxItems` field (nullable INTEGER, default null). When set, it SHALL cap the number of articles emitted in the rapid-fire segment for that podcast. When null, the composer SHALL fall back to a global default configured via `app.compose.rapid-fire-max-items` (default 6). Valid range: 0-50. The composer SHALL rank rapid-fire articles globally across all rapid-fire buckets by `(bucket weight DESC, article relevance score DESC nulls last, article id ASC)` and keep only the top `effectiveMaxItems`. Articles ranked beyond the cap SHALL be excluded from the episode entirely — they SHALL NOT appear in the script, the article summary block, or the `articleSubtopics` map. A cap of 0 SHALL disable the rapid-fire tier entirely for that podcast.
+Each podcast SHALL have an optional `rapidFireMaxItems` field (nullable INTEGER, default null). When set, it SHALL cap the number of articles emitted in the rapid-fire segment for that podcast. When null, the composer SHALL fall back to a global default configured via `app.compose.rapid-fire-max-items` (default 6). Valid range: 0-50. When topic assignments are available, the unit of ranking and capping SHALL be the topic: a topic is represented by its best article (highest relevance score, then lowest id) and the cap counts topics, and articles of a kept topic all stay in the episode. Without topic assignments the unit is the article. The composer SHALL rank rapid-fire articles globally across all rapid-fire buckets by `(bucket weight DESC, article relevance score DESC nulls last, article id ASC)` and keep only the top `effectiveMaxItems`. Articles ranked beyond the cap SHALL be excluded from the episode entirely: they SHALL NOT appear in the script, the article summary block, or the `articleSubtopics` map. A cap of 0 SHALL disable the rapid-fire tier entirely for that podcast.
 
 #### Scenario: Default cap applied when podcast field is null
 - **WHEN** a podcast has `rapidFireMaxItems: null` and the rapid-fire tier would contain 15 articles
@@ -59,6 +61,10 @@ Each podcast SHALL have an optional `rapidFireMaxItems` field (nullable INTEGER,
 #### Scenario: Deterministic tie-break by article id
 - **WHEN** two rapid-fire articles share identical bucket weight and relevance score
 - **THEN** the article with the lower id is ranked first
+
+#### Scenario: Cap counts topics
+- **WHEN** a podcast has `rapidFireMaxItems: 2` and the rapid-fire tier holds three topics of three, one and one articles
+- **THEN** two topics are kept and every article of a kept topic stays in the episode
 
 #### Scenario: Out-of-range cap rejected
 - **WHEN** a podcast is saved with `rapidFireMaxItems: -1` or `rapidFireMaxItems: 51`
@@ -88,15 +94,15 @@ When a podcast has a non-empty `subtopics` map, the Stage 1 LLM call (`ArticleSc
 - **THEN** the LLM prompt does not mention subtopics, the response schema is the legacy `{relevanceScore, summary}`, and the article's `subtopic` column is left null
 
 ### Requirement: Subtopic-aware pacing in composer
-When a podcast has a non-empty `subtopics` map, the composer SHALL group the relevant articles by their persisted `subtopic` value (with `null` mapped to a synthetic "Other" bucket of effective weight 1) and SHALL allocate script time per subtopic according to weight. Subtopics with weight strictly greater than `rapidFireWeightThreshold` SHALL receive a full segment whose word budget is proportional to weight: `wordsForSubtopic = fullSegmentBudget * weight / sumOfFullWeights`, where `fullSegmentBudget = targetWords * (1 - rapidFireBudgetFraction)`. Subtopics in the rapid-fire tier SHALL share a single combined segment whose word budget is `targetWords * rapidFireBudgetFraction`. The default `rapidFireBudgetFraction` SHALL be 0.15 and SHALL be configurable via `app.compose.rapid-fire-budget-fraction`.
+When a podcast has a non-empty `subtopics` map, the composer SHALL group the relevant articles by their persisted `subtopic` value (with `null` mapped to a synthetic "Other" bucket of effective weight 1) When topic assignments are available, each topic cluster SHALL be assigned as a whole to one bucket, the highest-weight subtopic among its articles (ties resolved by the bucket name order already used). Without topic assignments (empty map) each article is bucketed by its own subtopic. The script time is allocated per subtopic according to weight. Subtopics with weight strictly greater than `rapidFireWeightThreshold` SHALL receive a full segment whose word budget is proportional to weight: `wordsForSubtopic = fullSegmentBudget * weight / sumOfFullWeights`, where `fullSegmentBudget = targetWords * (1 - rapidFireBudgetFraction)`. Subtopics in the rapid-fire tier SHALL share a single combined segment whose word budget is `targetWords * rapidFireBudgetFraction`. The default `rapidFireBudgetFraction` SHALL be 0.15 and SHALL be configurable via `app.compose.rapid-fire-budget-fraction`.
 
-Rapid-fire articles SHALL be capped at `effectiveMaxItems = podcast.rapidFireMaxItems ?? app.compose.rapid-fire-max-items` (default 6) and ranked as defined in the "Rapid-fire item cap and ranking per podcast" requirement. The composer prompt SHALL enumerate the kept rapid-fire articles as a numbered list of the form `N. [bucket] "title"` in priority order, so the LLM knows exactly which articles to cover and in what order. This numbered list is input ordering only: the LLM SHALL NOT read ordinal numbers aloud (no "item one, item two", no "first, second, third") and SHALL NOT count the items aloud, instead introducing the segment in plain, natural language and flowing from one item to the next conversationally.
+Rapid-fire articles SHALL be capped at `effectiveMaxItems = podcast.rapidFireMaxItems ?? app.compose.rapid-fire-max-items` (default 6) and ranked as defined in the "Rapid-fire item cap and ranking per podcast" requirement. The composer prompt SHALL enumerate the kept rapid-fire items as a numbered list of the form `N. [bucket] "title"`, one item per topic labelled with the topic label when topic assignments are available and one per article otherwise, in priority order, so the LLM knows exactly which articles to cover and in what order. This numbered list is input ordering only: the LLM SHALL NOT read ordinal numbers aloud (no "item one, item two", no "first, second, third") and SHALL NOT count the items aloud, instead introducing the segment in plain, natural language and flowing from one item to the next conversationally.
 
-The composer prompt SHALL instruct the LLM to produce a labeled rapid-fire segment after the full segments, with style-appropriate phrasing (e.g. "And in brief:" for briefing, "Quick hits before we wrap" for dialogue, "Lightning round to close" for interview). Inside the rapid-fire segment, each kept article SHALL receive approximately `rapidFireWordBudget / keptCount` words of coverage (rounded down), and the LLM SHALL be instructed that items on the same theme may share one point, and that an item with no takeaway a listener could retell in a sentence may be left out. The prompt SHALL state the item count as "up to N items". The rapid-fire segment itself remains mandatory after the full segments. Each rapid-fire item SHALL voice at most one number, rounded to a clean value, and SHALL NOT read a benchmark name together with its score, leading with what the item means rather than the metric.
+The composer prompt SHALL instruct the LLM to produce a labeled rapid-fire segment after the full segments, with style-appropriate phrasing (e.g. "And in brief:" for briefing, "Quick hits before we wrap" for dialogue, "Lightning round to close" for interview). Inside the rapid-fire segment, each kept article SHALL receive approximately `rapidFireWordBudget / keptCount` words of coverage (rounded down), and the LLM SHALL be instructed that items on the same theme may share one point, and that an item with no takeaway a listener could retell in a sentence may be left out. The prompt SHALL state the item count as "up to N items" and SHALL tell the LLM to skip a rapid-fire item already covered earlier in the episode. The rapid-fire segment itself remains mandatory after the full segments. Each rapid-fire item SHALL voice at most one number, rounded to a clean value, and SHALL NOT read a benchmark name together with its score, leading with what the item means rather than the metric.
 
 When a podcast has no subtopics configured, the composer SHALL use the existing flat layout with no rapid-fire segment.
 
-If after grouping articles by subtopic the full-segment tier contains zero articles (because every classified subtopic — including the synthetic "Other" bucket — has weight at or below `rapidFireWeightThreshold`, or because every article fell into the catch-all bucket and "Other" is rapid-fire by default), the composer SHALL fall back to the existing flat layout with no rapid-fire segment. This rule applies uniformly: the rapid-fire segment SHALL only be emitted when there is at least one full segment for it to contrast against.
+If after grouping articles by subtopic the full-segment tier contains zero articles (because every classified subtopic (including the synthetic "Other" bucket) has weight at or below `rapidFireWeightThreshold`, or because every article fell into the catch-all bucket and "Other" is rapid-fire by default), the composer SHALL fall back to the existing flat layout with no rapid-fire segment. This rule applies uniformly: the rapid-fire segment SHALL only be emitted when there is at least one full segment for it to contrast against.
 
 #### Scenario: Subtopic with weight above threshold gets a full segment
 - **WHEN** a podcast has `subtopics: {"LLMs": 10, "Other AI": 1}` and `rapidFireWeightThreshold: 3`, and three articles classified as `"LLMs"` plus one as `"Other AI"`
@@ -112,7 +118,7 @@ If after grouping articles by subtopic the full-segment tier contains zero artic
 
 #### Scenario: All articles in catch-all bucket falls back to flat layout
 - **WHEN** every article was classified as `subtopic = null` so only the synthetic "Other" bucket (weight 1) has content and no other subtopic bucket holds any article
-- **THEN** the composer falls back to the flat layout — no rapid-fire segment is emitted, the script is a single normal flow over all articles
+- **THEN** the composer falls back to the flat layout: no rapid-fire segment is emitted and the script is a single normal flow over all articles
 
 #### Scenario: Uncategorized articles fall into rapid-fire by default
 - **WHEN** the rapid-fire threshold is the default 3 and some articles have `subtopic = null`
@@ -133,6 +139,22 @@ If after grouping articles by subtopic the full-segment tier contains zero artic
 #### Scenario: Rapid-fire prompt forbids counting items aloud
 - **WHEN** the rapid-fire segment prompt is built for any style
 - **THEN** the prompt instructs the LLM not to announce ordinal numbers or count the items aloud, and to voice at most one rounded number per item
+
+#### Scenario: Topic cluster lands wholly in the highest-weight bucket
+- **WHEN** a topic cluster holds articles classified "Agent research" (weight 3, rapid-fire) and "Model releases" (weight 8, full segment)
+- **THEN** all articles of the cluster are placed in the "Model releases" full segment and none appears in the rapid-fire tier
+
+#### Scenario: Rapid-fire lists one item per topic
+- **WHEN** three articles of one topic are all classified into a rapid-fire subtopic (episode 303: the PHP vulnerability discovery cluster)
+- **THEN** the rapid-fire list contains one item labelled with the topic label instead of three
+
+#### Scenario: Rapid-fire prompt skips items already covered
+- **WHEN** the rapid-fire segment prompt is built
+- **THEN** it instructs the LLM to skip a rapid-fire item already covered earlier in the episode
+
+#### Scenario: No topic assignments keeps per-article behaviour
+- **WHEN** the article-id to topic map is empty
+- **THEN** articles are bucketed by their own subtopic and the rapid-fire list has one item per article
 
 #### Scenario: Backwards compatibility
 - **WHEN** a podcast has no subtopics configured

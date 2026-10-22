@@ -438,7 +438,7 @@ class PodcastServiceTest {
             llmPipeline.recompose(
                 listOf(article), podcast,
                 ComposeContext(
-                    topicLabels = listOf("Topic"), episodeDate = episodeDate,
+                    topicLabels = listOf("Topic"), articleTopics = mapOf(1L to "Topic"), episodeDate = episodeDate,
                     episodeId = 192L, runConfig = bypassConfig
                 ),
                 any()
@@ -472,7 +472,7 @@ class PodcastServiceTest {
         coVerify(timeout = 5000) {
             llmPipeline.recompose(
                 listOf(article), podcast,
-                ComposeContext(followUpAnnotations = annotations, topicLabels = listOf("Topic"), episodeDate = episodeDate, episodeId = 192L, runConfig = config),
+                ComposeContext(followUpAnnotations = annotations, topicLabels = listOf("Topic"), articleTopics = mapOf(1L to "Topic"), episodeDate = episodeDate, episodeId = 192L, runConfig = config),
                 any()
             )
         }

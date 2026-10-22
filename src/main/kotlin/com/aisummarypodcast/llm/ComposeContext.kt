@@ -45,6 +45,9 @@ import java.time.LocalDate
  * [recentFocusEpisodes] are the focus episodes aired since the previous regular episode, so a regular
  * episode picks their topics up as a follow-up rather than repeating or ignoring them.
  *
+ * [articleTopics] maps an article id to the topic cluster the dedup stage put it in, so the
+ * subtopic plan places a story as a whole rather than article by article.
+ *
  * [research] is what the pre-compose research stage found: web search results and past-episode
  * matches. Like [ttsScriptGuidelines] it is filled in by the pipeline, so callers leave it empty.
  */
@@ -52,6 +55,7 @@ data class ComposeContext(
     val ttsScriptGuidelines: String = "",
     val followUpAnnotations: Map<Long, String> = emptyMap(),
     val topicLabels: List<String> = emptyList(),
+    val articleTopics: Map<Long, String> = emptyMap(),
     val episodeDate: LocalDate = LocalDate.now(),
     val nextEpisodeDate: LocalDate? = null,
     val episodeId: Long? = null,
