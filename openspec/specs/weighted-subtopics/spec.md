@@ -92,7 +92,7 @@ When a podcast has a non-empty `subtopics` map, the composer SHALL group the rel
 
 Rapid-fire articles SHALL be capped at `effectiveMaxItems = podcast.rapidFireMaxItems ?? app.compose.rapid-fire-max-items` (default 6) and ranked as defined in the "Rapid-fire item cap and ranking per podcast" requirement. The composer prompt SHALL enumerate the kept rapid-fire articles as a numbered list of the form `N. [bucket] "title"` in priority order, so the LLM knows exactly which articles to cover and in what order. This numbered list is input ordering only: the LLM SHALL NOT read ordinal numbers aloud (no "item one, item two", no "first, second, third") and SHALL NOT count the items aloud, instead introducing the segment in plain, natural language and flowing from one item to the next conversationally.
 
-The composer prompt SHALL instruct the LLM to produce a labeled rapid-fire segment after the full segments, with style-appropriate phrasing (e.g. "And in brief:" for briefing, "Quick hits before we wrap" for dialogue, "Lightning round to close" for interview). Inside the rapid-fire segment, each kept article SHALL receive approximately `rapidFireWordBudget / keptCount` words of coverage (rounded down), and the LLM SHALL be instructed not to merge multiple items into one sentence and not to skip any item from the list. Each rapid-fire item SHALL voice at most one number, rounded to a clean value, and SHALL NOT read a benchmark name together with its score, leading with what the item means rather than the metric.
+The composer prompt SHALL instruct the LLM to produce a labeled rapid-fire segment after the full segments, with style-appropriate phrasing (e.g. "And in brief:" for briefing, "Quick hits before we wrap" for dialogue, "Lightning round to close" for interview). Inside the rapid-fire segment, each kept article SHALL receive approximately `rapidFireWordBudget / keptCount` words of coverage (rounded down), and the LLM SHALL be instructed that items on the same theme may share one point, and that an item with no takeaway a listener could retell in a sentence may be left out. The prompt SHALL state the item count as "up to N items". The rapid-fire segment itself remains mandatory after the full segments. Each rapid-fire item SHALL voice at most one number, rounded to a clean value, and SHALL NOT read a benchmark name together with its score, leading with what the item means rather than the metric.
 
 When a podcast has no subtopics configured, the composer SHALL use the existing flat layout with no rapid-fire segment.
 
@@ -124,7 +124,11 @@ If after grouping articles by subtopic the full-segment tier contains zero artic
 
 #### Scenario: Rapid-fire prompt lists kept articles in priority order with per-item budget
 - **WHEN** the rapid-fire tier has 2 kept articles and `rapidFireWordBudget = 225`
-- **THEN** the composer prompt contains "exactly 2 items", "~112 words per item", and a numbered list `1. [bucket] "title"`, `2. [bucket] "title"` in ranking order
+- **THEN** the composer prompt contains "up to 2 items", "~112 words per item", and a numbered list `1. [bucket] "title"`, `2. [bucket] "title"` in ranking order
+
+#### Scenario: Rapid-fire items may be grouped or dropped
+- **WHEN** the rapid-fire segment prompt is built
+- **THEN** it allows items on the same theme to share one point, allows an item without a takeaway to be left out, and still states that the rapid-fire segment MUST appear after the full segments
 
 #### Scenario: Rapid-fire prompt forbids counting items aloud
 - **WHEN** the rapid-fire segment prompt is built for any style
@@ -140,4 +144,3 @@ The episode-articles API response SHALL include the `subtopic` field per article
 #### Scenario: Article subtopic returned in API
 - **WHEN** a GET request retrieves the articles for an episode whose podcast has subtopics configured
 - **THEN** each article entry includes a `subtopic` field with either the chosen subtopic name or null
-

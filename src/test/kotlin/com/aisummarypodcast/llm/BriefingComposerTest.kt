@@ -459,6 +459,14 @@ class BriefingComposerTest {
     }
 
     @Test
+    fun `buildPrompt puts a topic's stakes before its mechanism`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+        val prompt = composer.buildPrompt(sampleArticles, podcast)
+        assertTrue(prompt.contains("STAKES BEFORE MECHANISM: Every topic opens with what changes for the listener"))
+        assertFalse(prompt.contains("ASK SO WHAT"))
+    }
+
+    @Test
     fun `buildPrompt allows TTS cues inside content`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
         val prompt = composer.buildPrompt(sampleArticles, podcast)

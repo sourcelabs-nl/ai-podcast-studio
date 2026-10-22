@@ -156,10 +156,10 @@ fun buildSubtopicPlanBlock(plan: SubtopicPlan, style: RapidFireStyle): String {
         }
         """
 
-            Rapid-fire tier (exactly $count item${if (count == 1) "" else "s"}, total approximately ${plan.rapidFireWordBudget} words, ~${wordsPerItem} words per item, cover in this order):
+            Rapid-fire tier (up to $count item${if (count == 1) "" else "s"}, total approximately ${plan.rapidFireWordBudget} words, ~${wordsPerItem} words per item, cover in this order):
 $itemLines
 
-            ${style.intro} Cover each of the $count items above in roughly $wordsPerItem words. Do NOT merge multiple items into one sentence and do NOT skip any item. Do NOT skip the rapid-fire segment; it MUST appear after the full segments. Introduce the segment in plain, natural language (something like "a few quick ones to round things off") and flow from one item to the next conversationally: do NOT announce ordinal numbers or count the items aloud (no "item one, item two", no "first, second, third"). In a rapid-fire item, voice AT MOST ONE number, rounded to a clean value, and never read a benchmark name and its score together; lead with what the item means, not the metric."""
+            ${style.intro} Cover the items above in roughly $wordsPerItem words each. Items on the same theme may share one point, and an item with no takeaway a listener could retell in a sentence may be left out. Do NOT skip the rapid-fire segment; it MUST appear after the full segments. Introduce the segment in plain, natural language (something like "a few quick ones to round things off") and flow from one item to the next conversationally: do NOT announce ordinal numbers or count the items aloud (no "item one, item two", no "first, second, third"). In a rapid-fire item, voice AT MOST ONE number, rounded to a clean value, and never read a benchmark name and its score together; lead with what the item means, not the metric."""
     } else ""
 
     return """

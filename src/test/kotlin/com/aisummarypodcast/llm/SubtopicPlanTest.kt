@@ -185,7 +185,10 @@ class SubtopicPlanTest {
         assertTrue(block.contains("2. [Benchmarks] \"Routine survey\""))
         // Budget = 1500 * 0.15 = 225 words, 2 items => 112 per item
         assertTrue(block.contains("~112 words per item"), "Expected per-item budget, got:\n$block")
-        assertTrue(block.contains("exactly 2 items"))
+        assertTrue(block.contains("up to 2 items"))
+        assertTrue(block.contains("Items on the same theme may share one point"), "Expected grouping allowance, got:\n$block")
+        assertFalse(block.contains("do NOT skip any item"), "Expected items to be droppable, got:\n$block")
+        assertTrue(block.contains("Do NOT skip the rapid-fire segment"), "Expected the segment itself to stay mandatory, got:\n$block")
         assertTrue(block.contains("voice AT MOST ONE number"), "Expected rapid-fire number limit, got:\n$block")
         assertTrue(block.contains("do NOT announce ordinal numbers or count the items aloud"), "Expected no-counting rule, got:\n$block")
     }

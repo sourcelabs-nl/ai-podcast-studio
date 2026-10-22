@@ -260,6 +260,34 @@ class InterviewComposerTest {
     }
 
     @Test
+    fun `interviewer is cast as a skeptical colleague with at most two backchannels`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("a curious, skeptical colleague who asks what each story means for the listener"))
+        assertTrue(prompt.contains("BACKCHANNELS: At most 2 times per episode"))
+    }
+
+    @Test
+    fun `prompt puts a topic's stakes before its mechanism`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("STAKES BEFORE MECHANISM: Every topic opens with what changes for the listener"))
+        assertTrue(prompt.contains("If an item has no consequence you can state in one sentence, give it one sentence or leave it out."))
+    }
+
+    @Test
+    fun `prompt asks for a so-what question per segment instead of bare bridges`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertTrue(prompt.contains("ASK SO WHAT: At least once per full segment"))
+        assertTrue(prompt.contains("A turn that only names the next item"))
+    }
+
+    @Test
+    fun `prompt no longer holds every segment to a fixed duration`() {
+        val prompt = composer.buildPrompt(articles, podcast)
+        assertFalse(prompt.contains("roughly 60-90 seconds each"))
+        assertTrue(prompt.contains("give a story that matters to the listener room to breathe"))
+    }
+
+    @Test
     fun `prompt allows TTS cues inside speaker tags`() {
         val prompt = composer.buildPrompt(articles, podcast)
 

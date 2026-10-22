@@ -291,6 +291,23 @@ fun buildAudienceBlock(): String =
     "\n            - EXPLAIN FOR NON-EXPERTS: This is cutting-edge material and not every listener already follows each subject. Whenever a genuinely complex or unfamiliar concept comes up, take a moment to explain it clearly in plain language before moving on: what it is, how it works at a high level, and why it matters (the consequences). Define jargon the first time it appears and reach for an everyday analogy when it helps. Do not go super in-depth or turn it into a lecture: aim for just enough that a non-specialist understands what is being discussed, which also gives advanced listeners a beat to absorb the information. Keep each explanation brief, and prioritise the concepts that genuinely warrant it over cramming in another story. When a topic genuinely needs outside context to make sense and the \"Background research\" section covers it, use that context to enrich the explanation."
 
 /**
+ * Shared "stakes before mechanism" rule for every compose-stage prompt. Episode 299 read as a run
+ * of paper abstracts: each topic opened with how something works and never said why the listener
+ * should care. This puts the consequence first and lets an item without one shrink or go. Included
+ * verbatim in briefing, dialogue, and interview prompts so the rule lives in one place.
+ */
+fun buildStakesBlock(): String =
+    "\n            - STAKES BEFORE MECHANISM: Every topic opens with what changes for the listener, someone who follows this podcast's topic: what they can now do, what they should stop trusting, or what to keep an eye on. Only then explain how it works, and only as much as the listener needs to follow that consequence. Tell it as a story with a point, not as a summary of a paper or press release: who did what, why it matters, and what to take away. If an item has no consequence you can state in one sentence, give it one sentence or leave it out."
+
+/**
+ * Shared "so what" rule for the multi-speaker prompts. In episode 299 the interviewer's turns were
+ * mostly bridges ("And the X paper?") and fillers, so nobody asked what a story meant. [questioner]
+ * names the speaker who plays the listener's advocate in the style ("the interviewer", "a host").
+ */
+fun buildSoWhatBlock(questioner: String): String =
+    "\n            - ASK SO WHAT: At least once per full segment, $questioner asks what a story means in practice: whether a claim holds up, who should care, what changes for someone who works with this, or why not to just ignore it. The answer to that question is the heart of the segment. A turn that only names the next item (\"And the X paper?\", \"What about Y?\") is not a question: enter a topic through its consequence or a genuine reaction instead."
+
+/**
  * Shared "numbers for the ear" rule for every compose-stage prompt. Dense benchmark scores,
  * percentages, and parameter counts read fine on a page but overwhelm a listener when spoken.
  * This block tells the LLM to round, frame, and ration numbers so stories stay digestible in
