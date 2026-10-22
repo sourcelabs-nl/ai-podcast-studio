@@ -5,6 +5,14 @@ so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
 months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
 screen.
 
+## [2026-10-22] Lint
+
+Covered every entry. Shape, required fields, status values, `stale_after` (earliest 2026-12-15), section indexes, wikilinks, em-dashes and edit-history wording were clean, including the new `prompt-rules/days-and-times.md`, which overlaps no existing entry. Open: the only dangling wikilink is in the unchanged `log-archive-2026-09.md`; `evals/` still nears the size at which a split is worth proposing.
+
+## [2026-10-22] Record
+
+`prompt-rules/days-and-times.md`: why the compose prompts name today's and yesterday's weekday and bar assumed times of day. A scan of 98 archived scripts found 10 assuming a time of day and wrong-weekday use only in 303 and 282.
+
 ## [2026-10-21] Lint
 
 Covered every entry. `prompt-rules/backchannels.md` said two or three

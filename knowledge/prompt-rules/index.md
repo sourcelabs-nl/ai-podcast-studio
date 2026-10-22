@@ -34,3 +34,5 @@ falsify the entry. What a rule says is in the code; why it is there is here.
   Read when diagnosing a short turn that sounds wrong, or editing the no-echo rule.
 - [Dedup guards the article boundary, not the claim boundary](dedup-guards-articles-not-claims.md)  
   Read when a listener reports the same fact twice across episodes, or considering claim-level dedup.
+- [The prompt names today and yesterday, and bars assumed times of day](days-and-times.md)  
+  Read when a script says the wrong weekday, greets the listener with "good morning", or the days-and-times rule is being edited.

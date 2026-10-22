@@ -1,5 +1,6 @@
 package com.aisummarypodcast.llm
 
+import java.time.LocalDate
 import com.aisummarypodcast.research.PreComposeResearch
 
 import com.aisummarypodcast.research.BackgroundSource
@@ -234,6 +235,14 @@ class DialogueComposerTest {
     fun `prompt includes explain-for-non-experts guidance`() {
         val prompt = composer.buildPrompt(articles, podcast)
         assertTrue(prompt.contains("EXPLAIN FOR NON-EXPERTS"))
+    }
+
+    @Test
+    fun `prompt states today's and yesterday's weekday and forbids time-of-day assumptions`() {
+        val prompt = composer.buildPrompt(articles, podcast, ComposeContext(episodeDate = LocalDate.of(2026, 10, 22)))
+        assertTrue(prompt.contains("DAYS AND TIMES: Today is Thursday and yesterday was Wednesday."))
+        assertTrue(prompt.contains("never use a weekday as a figure of speech"))
+        assertTrue(prompt.contains("never assume the time of day"))
     }
 
     @Test

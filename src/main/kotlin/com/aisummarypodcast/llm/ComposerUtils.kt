@@ -89,6 +89,19 @@ fun buildEpisodeDate(language: String, episodeDate: LocalDate = LocalDate.now())
 }
 
 /**
+ * Shared rule for days and times in every compose-stage prompt. The prompt only stated the
+ * episode's own date, so the model filled in the rest itself: episode 303, a Thursday, opened with
+ * "not a normal Tuesday feeling" about the day before, and 10 of 98 archived scripts assumed the
+ * listener's time of day ("Good morning", "this morning", "tonight"), which is wrong for anyone
+ * listening later. Naming yesterday's weekday gives the model the one other day it needs.
+ */
+fun buildDaysAndTimesBlock(episodeDate: LocalDate = LocalDate.now()): String {
+    val today = episodeDate.format(DateTimeFormatter.ofPattern("EEEE", Locale.ENGLISH))
+    val yesterday = episodeDate.minusDays(1).format(DateTimeFormatter.ofPattern("EEEE", Locale.ENGLISH))
+    return "\n            - DAYS AND TIMES: Today is $today and yesterday was $yesterday. Name a weekday only when it is one of these two or a day the articles themselves state, and never use a weekday as a figure of speech (\"not a normal Tuesday\"). Listeners hear the episode at any hour, so never assume the time of day: no \"good morning\", \"good evening\", \"this morning\", \"tonight\", \"over breakfast\" or similar, neither as a greeting nor for when news broke (say \"today\" or \"yesterday\" instead). A first-person anecdote is welcome, but it happens on a day that fits these rules."
+}
+
+/**
  * Prompt block telling the composer when the show is next on air, so the sign-off can promise the
  * right day.
  *

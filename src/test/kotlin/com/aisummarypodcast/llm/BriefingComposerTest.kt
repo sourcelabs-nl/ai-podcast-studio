@@ -459,6 +459,15 @@ class BriefingComposerTest {
     }
 
     @Test
+    fun `prompt states today's and yesterday's weekday and forbids time-of-day assumptions`() {
+        val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
+        val prompt = composer.buildPrompt(sampleArticles, podcast, ComposeContext(episodeDate = LocalDate.of(2026, 10, 22)))
+        assertTrue(prompt.contains("DAYS AND TIMES: Today is Thursday and yesterday was Wednesday."))
+        assertTrue(prompt.contains("never use a weekday as a figure of speech"))
+        assertTrue(prompt.contains("never assume the time of day"))
+    }
+
+    @Test
     fun `buildPrompt puts a topic's stakes before its mechanism`() {
         val podcast = Podcast(id = "p1", userId = "u1", name = "Test", topic = "tech")
         val prompt = composer.buildPrompt(sampleArticles, podcast)
