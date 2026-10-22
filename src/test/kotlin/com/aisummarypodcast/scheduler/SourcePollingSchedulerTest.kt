@@ -30,8 +30,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -59,7 +61,8 @@ class SourcePollingSchedulerTest {
     private fun appProperties(
         maxArticleAgeDays: Int = 7,
         pollDelaySeconds: Map<String, Int> = emptyMap(),
-        hostOverrides: Map<String, HostOverride> = emptyMap()
+        hostOverrides: Map<String, HostOverride> = emptyMap(),
+        pollTimeout: Duration = Duration.ofMinutes(10)
     ) = AppProperties(
         llm = LlmProperties(),
         briefing = BriefingProperties(),
@@ -69,7 +72,8 @@ class SourcePollingSchedulerTest {
         source = SourceProperties(
             maxArticleAgeDays = maxArticleAgeDays,
             pollDelaySeconds = pollDelaySeconds,
-            hostOverrides = hostOverrides
+            hostOverrides = hostOverrides,
+            pollTimeout = pollTimeout
         )
     )
 
@@ -78,9 +82,10 @@ class SourcePollingSchedulerTest {
     private fun scheduler(
         maxArticleAgeDays: Int = 7,
         pollDelaySeconds: Map<String, Int> = emptyMap(),
-        hostOverrides: Map<String, HostOverride> = emptyMap()
+        hostOverrides: Map<String, HostOverride> = emptyMap(),
+        pollTimeout: Duration = Duration.ofMinutes(10)
     ): SourcePollingScheduler {
-        val props = appProperties(maxArticleAgeDays, pollDelaySeconds, hostOverrides)
+        val props = appProperties(maxArticleAgeDays, pollDelaySeconds, hostOverrides, pollTimeout)
         return SourcePollingScheduler(
             sourcePoller, sourceService, props, podcastService,
             PollDelayResolver(props), SourceHostBreaker(circuitBreakerRegistry)
@@ -337,6 +342,29 @@ class SourcePollingSchedulerTest {
         scheduler().pollSources()
 
         verify(exactly = 1) { sourcePoller.poll(source2, null, 7, listOf("s1", "s2")) }
+    }
+
+    @Test
+    fun `a hanging poll is interrupted after the poll timeout and does not hold up the round`() {
+        val hanging = Source(
+            id = "s1", podcastId = "p1", type = SourceType.RSS, url = "https://hanging-host.net/rss",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString()
+        )
+        val healthy = Source(
+            id = "s2", podcastId = "p1", type = SourceType.RSS, url = "https://working-host.net/rss",
+            lastPolled = Instant.now().minus(2, ChronoUnit.HOURS).toString()
+        )
+        every { sourceService.findEnabled() } returns listOf(hanging, healthy)
+        every { podcastService.findById("p1") } returns podcast
+        every { sourcePoller.poll(hanging, any(), any(), any()) } answers { Thread.sleep(60_000); null }
+        val scheduler = scheduler(pollTimeout = Duration.ofMillis(300))
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5)) {
+            runBlocking(Dispatchers.IO) { scheduler.pollSources() }
+        }
+
+        verify(exactly = 1) { sourcePoller.poll(healthy, any(), any(), any()) }
+        assertNotNull(scheduler.lastPollRoundCompletedAt)
     }
 
     // --- 5.4 Delay application tests ---

@@ -23,9 +23,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.ConcurrentHashMap
@@ -208,8 +210,8 @@ class SourcePollingScheduler(
                     val current = sourceService.findById(source.id)
                     if (current == null || !needsPoll(current, catchUpRequestedAt)) {
                         log.debug("[Polling] Source {} was already polled; skipping", source.id)
-                    } else {
-                        if (pollSource(host, current, allHostSources, sourcesByPodcast)) skipped++
+                    } else if (pollSourceWithTimeout(host, current, allHostSources, sourcesByPodcast)) {
+                        skipped++
                     }
                 }
             } catch (e: CancellationException) {
@@ -236,6 +238,27 @@ class SourcePollingScheduler(
         if (catchUpRequestedAt == null) return source.isDue(appProperties.source.maxBackoffHours)
         val lastPolled = source.lastPolled?.let { Instant.parse(it) } ?: return true
         return lastPolled.isBefore(catchUpRequestedAt)
+    }
+
+    /**
+     * [pollSource] bounded by `app.source.poll-timeout`: a poll still blocked after it is interrupted,
+     * because every round waits for all of its host groups and one hanging poll would otherwise stop
+     * polling altogether. Returns false on a timeout, so the source is retried once it is due again.
+     */
+    private suspend fun pollSourceWithTimeout(
+        host: String?,
+        source: Source,
+        allHostSources: List<Source>,
+        sourcesByPodcast: Map<String, List<Source>>
+    ): Boolean {
+        val timeout = appProperties.source.pollTimeout
+        val skipped = withTimeoutOrNull(timeout.toMillis()) {
+            runInterruptible { pollSource(host, source, allHostSources, sourcesByPodcast) }
+        }
+        if (skipped == null) {
+            log.warn("[Polling] Poll of source {} ({}) did not finish within {}; interrupted it", source.id, source.url, timeout)
+        }
+        return skipped ?: false
     }
 
     /** Polls one source through the host breaker; returns true when the open breaker skipped it. */

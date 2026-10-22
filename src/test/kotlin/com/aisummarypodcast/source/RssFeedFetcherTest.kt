@@ -12,23 +12,30 @@ import org.jsoup.Jsoup
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.HttpServerErrorException
+import org.springframework.web.client.ResourceAccessException
 import org.springframework.web.client.RestClient
 import java.io.StringReader
 import java.net.InetSocketAddress
+import java.time.Duration
+import java.util.concurrent.CountDownLatch
 
 class RssFeedFetcherTest {
 
     private val contentFetcher = mockk<ArticleContentFetcher>()
 
-    private fun buildFetcher(deepFetchEnabled: Boolean): RssFeedFetcher {
+    private fun buildFetcher(deepFetchEnabled: Boolean, feedReadTimeout: Duration = Duration.ofSeconds(30)): RssFeedFetcher {
         val props = mockk<AppProperties>()
-        every { props.source } returns SourceProperties(deepFetch = DeepFetchProperties(enabled = deepFetchEnabled))
+        every { props.source } returns SourceProperties(
+            deepFetch = DeepFetchProperties(enabled = deepFetchEnabled),
+            feedReadTimeout = feedReadTimeout
+        )
         return RssFeedFetcher(contentFetcher, props, RestClient.builder())
     }
 
@@ -438,6 +445,25 @@ $categoryTags
         }
 
         assertTrue(PollFailure.classify(e) is PollFailure.Permanent)
+    }
+
+    @Test
+    fun `feed that never responds fails on the read timeout as transient`() {
+        val release = CountDownLatch(1)
+        server.createContext("/feed") { exchange ->
+            release.await()
+            exchange.close()
+        }
+        val fetcher = buildFetcher(deepFetchEnabled = false, feedReadTimeout = Duration.ofMillis(500))
+
+        try {
+            val e = assertTimeoutPreemptively<ResourceAccessException>(Duration.ofSeconds(5)) {
+                assertThrows<ResourceAccessException> { fetcher.fetch("http://localhost:$port/feed", "src-1", null) }
+            }
+            assertTrue(PollFailure.classify(e) is PollFailure.Transient)
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test

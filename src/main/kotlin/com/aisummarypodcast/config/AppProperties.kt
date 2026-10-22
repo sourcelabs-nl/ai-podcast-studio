@@ -284,7 +284,14 @@ data class SourceProperties(
     val staleRoundThresholdMinutes: Int = 10,
     val pollDelaySeconds: Map<String, Int> = emptyMap(),
     val hostOverrides: Map<String, HostOverride> = emptyMap(),
-    val deepFetch: DeepFetchProperties = DeepFetchProperties()
+    val deepFetch: DeepFetchProperties = DeepFetchProperties(),
+    // Timeouts for fetching a feed. Without a read timeout a connection that died silently (the
+    // machine slept mid-request) hangs the poll until the OS resets it, hours later.
+    val feedConnectTimeout: Duration = Duration.ofSeconds(10),
+    val feedReadTimeout: Duration = Duration.ofSeconds(30),
+    // Backstop for one source's whole poll (feed, deep-fetches, storing). A poll still running after
+    // this is interrupted, so it cannot hold up the rest of its poll round.
+    val pollTimeout: Duration = Duration.ofMinutes(10)
 )
 
 /**

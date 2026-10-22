@@ -29,11 +29,15 @@ class RssFeedFetcher(
     // whereas the HttpURLConnection this fetcher used to go through did. Plenty of feeds sit behind
     // a 301 (moved paths, http->https), and without this they fail on an empty body. NORMAL keeps
     // the old behaviour of refusing an HTTPS->HTTP downgrade.
+    // Replacing the request factory also drops the spring.http.client timeouts, so they are set here.
     private val restClient = restClientBuilder
         .requestFactory(
             JdkClientHttpRequestFactory(
-                HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build()
-            )
+                HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .connectTimeout(appProperties.source.feedConnectTimeout)
+                    .build()
+            ).apply { setReadTimeout(appProperties.source.feedReadTimeout) }
         )
         .build()
 

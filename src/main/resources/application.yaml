@@ -308,6 +308,11 @@ app:
     max-article-age-days: 90
     # If the last poll round is older than this (or none yet), generation runs a catch-up poll first.
     stale-round-threshold-minutes: 10
+    # Feed fetch timeouts, and the backstop after which one source's whole poll is interrupted so it
+    # cannot hold up the poll round.
+    feed-connect-timeout: 10s
+    feed-read-timeout: 30s
+    poll-timeout: 10m
     # Host-level circuit breaker settings live under resilience4j.circuitbreaker below.
   feed:
     base-url: http://localhost:8085
