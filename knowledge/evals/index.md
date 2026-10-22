@@ -42,3 +42,7 @@ Negative results are recorded on the same terms as positive ones.
   Read when deciding whether to disable or narrow a source, or whether a source's LLM cost justifies removing it.
 - [A focus episode steered by an external briefing, episode 285](focus-episode-from-external-briefing.md)  
   Read when producing a focus episode from a written briefing or an outside script, or finding unrelated window articles in a focus episode's script.
+- [A newsworthiness rubric cuts paper-heavy scoring only together with a threshold of 7](newsworthiness-rubric-episode-299.md)  
+  Read when deciding whether to change the relevance-scoring prompt or a podcast's relevance threshold, or asking why the scoring prompt rates listener interest and caps framework papers.
+- [Episode 302, the first script composed with the stakes-first rules, drops the arXiv papers and asks so-what questions](compose-stakes-first-episode-302.md)  
+  Read when judging whether the stakes-first compose rules and the newsworthiness rubric made episodes less boring and technical, or asking why renaming subtopics sent scored articles into "Other".

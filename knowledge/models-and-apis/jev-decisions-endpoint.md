@@ -133,7 +133,7 @@ reads the same body, so it costs nearly what the combined call costs, which is
 why Jev is the right mechanism for a gate.
 
 **Reading title plus an excerpt**, over 300 random articles (120 at or above
-the podcast's threshold of 5), scored as a `score` question against the same
+the podcast's then threshold of 5), scored as a `score` question against the same
 four-level rubric, batched so a request stays under the size ceiling. Savings
 are the recorded scoring cost of the dropped articles minus the gate's own
 cost:

@@ -27,9 +27,10 @@ Two turns of one role do not break TTS: `DialogueScriptParser` reads each turn's
 role from its own opening tag and `InworldTtsProvider` resolves a voice per turn,
 so they are two chunks in one voice.
 
-Kept to two or three an episode. There is little room to vary a token that is
+Kept to at most two an episode. There is little room to vary a token that is
 short by definition, so at any higher rate it reads as a tic rather than as
-listening.
+listening, and a turn spent on one is a turn the interviewer does not spend on a
+so-what question (see [[compose-stakes-first-episode-302]]).
 
 Proposal and reasoning: OpenSpec change `backchannels-in-interviews`.
 

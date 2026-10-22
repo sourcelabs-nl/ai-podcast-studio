@@ -5,6 +5,36 @@ so recent activity reads with `grep "^## \[" knowledge/log*.md | head -10`. Past
 months move unchanged into `log-archive-YYYY-MM.md` once this file grows past a
 screen.
 
+## [2026-10-21] Lint
+
+Covered every entry. `prompt-rules/backchannels.md` said two or three
+backchannels an episode while the interview prompt now asks for at most two:
+corrected, and linked to `evals/compose-stakes-first-episode-302.md`.
+`models-and-apis/jev-decisions-endpoint.md` now says its 120-article sample was
+taken at the then threshold of 5, since the podcast's threshold is 7. No expired
+`stale_after`, orphans, section index mismatches, em-dashes or edit-history
+narration found. Open: `evals/` holds 14 entries and nears the size at which a
+split is worth proposing; the only dangling wikilink is in the unchanged
+`log-archive-2026-09.md`.
+
+## [2026-10-21] Record
+
+`evals/compose-stakes-first-episode-302.md`: episode 302, the first composed
+with the stakes-first rules after rescoring with the rubric and a threshold of 7,
+used 21 articles and no arXiv papers (episode 301: 35 articles, 14 papers) and
+showed so-what questions, stakes before mechanism and a thematic rapid-fire. One
+episode, no judged score, listener verdict pending. Also records that renaming
+subtopics sends already-scored articles into "Other", which cost episode 301 14
+of its 35 articles.
+
+## [2026-10-21] Record
+
+`evals/newsworthiness-rubric-episode-299.md`: rescoring episode 299's 70
+candidates with a listener-interest rubric cut papers at 7+ from 23 to 6, but
+total volume at 7+ only fell from 36 to 20, since 22 to 27 candidates sit at 6.
+Volume falls only with the relevance threshold at 7. No script-quality
+measurement yet.
+
 ## [2026-10-20] Record
 
 `references/decision-model-and-eu-hosting-alternatives.md`: HostYourAI also
